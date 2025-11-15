@@ -1,0 +1,20 @@
+# Minimal requirements for Modal deployment only
+# Use this if you have Python 3.12+ and only want to deploy to Modal
+# (Whisper and TTS will run on Modal's servers, not locally)
+
+# Core Framework
+modal>=0.64.0
+
+# LLM Integration
+anthropic>=0.39.0
+
+# Web Framework
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.32.0
+
+# Development
+pytest>=8.0.0
