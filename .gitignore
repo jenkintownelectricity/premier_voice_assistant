@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment
+.env
+.venv
+config/secrets.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Voice samples (keep structure, not files)
+voices/*.wav
+voices/*.mp3
+voices/cached_responses/*.wav
+voices/cached_responses/*.mp3
+
+# Logs
+*.log
+logs/
+
+# Modal
+.modal/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Audio temp files
+*.tmp
+temp_audio/
