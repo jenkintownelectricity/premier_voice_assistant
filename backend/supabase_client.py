@@ -53,7 +53,7 @@ class SupabaseManager:
         try:
             # Try to get existing profile
             result = (
-                self.client.table("user_profiles")
+                self.client.table("va_user_profiles")
                 .select("*")
                 .eq("id", user_id)
                 .execute()
@@ -67,7 +67,7 @@ class SupabaseManager:
             if phone:
                 profile_data["phone"] = phone
 
-            result = self.client.table("user_profiles").insert(profile_data).execute()
+            result = self.client.table("va_user_profiles").insert(profile_data).execute()
 
             logger.info(f"Created new user profile for {user_id}")
             return result.data[0]
@@ -94,7 +94,7 @@ class SupabaseManager:
                 updates["language"] = language
 
             result = (
-                self.client.table("user_profiles")
+                self.client.table("va_user_profiles")
                 .update(updates)
                 .eq("id", user_id)
                 .execute()
@@ -127,7 +127,7 @@ class SupabaseManager:
                 conversation_data["title"] = title
 
             result = (
-                self.client.table("conversations").insert(conversation_data).execute()
+                self.client.table("va_conversations").insert(conversation_data).execute()
             )
 
             logger.info(f"Created conversation {result.data[0]['id']} for user {user_id}")
@@ -141,7 +141,7 @@ class SupabaseManager:
         """Get a conversation by ID."""
         try:
             result = (
-                self.client.table("conversations")
+                self.client.table("va_conversations")
                 .select("*")
                 .eq("id", conversation_id)
                 .execute()
@@ -159,7 +159,7 @@ class SupabaseManager:
         """Get recent conversations for a user."""
         try:
             result = (
-                self.client.table("conversations")
+                self.client.table("va_conversations")
                 .select("*")
                 .eq("user_id", user_id)
                 .order("last_message_at", desc=True)
@@ -206,7 +206,7 @@ class SupabaseManager:
             if metadata:
                 message_data["metadata"] = metadata
 
-            result = self.client.table("messages").insert(message_data).execute()
+            result = self.client.table("va_messages").insert(message_data).execute()
 
             return result.data[0]
 
@@ -220,7 +220,7 @@ class SupabaseManager:
         """Get messages for a conversation."""
         try:
             result = (
-                self.client.table("messages")
+                self.client.table("va_messages")
                 .select("*")
                 .eq("conversation_id", conversation_id)
                 .order("created_at", desc=False)
@@ -263,7 +263,7 @@ class SupabaseManager:
             if modal_voice_id:
                 voice_data["modal_voice_id"] = modal_voice_id
 
-            result = self.client.table("voice_clones").insert(voice_data).execute()
+            result = self.client.table("va_voice_clones").insert(voice_data).execute()
 
             logger.info(f"Created voice clone '{voice_name}' for user {user_id}")
             return result.data[0]
@@ -276,7 +276,7 @@ class SupabaseManager:
         """Get all voice clones for a user."""
         try:
             result = (
-                self.client.table("voice_clones")
+                self.client.table("va_voice_clones")
                 .select("*")
                 .eq("user_id", user_id)
                 .order("created_at", desc=True)
@@ -293,7 +293,7 @@ class SupabaseManager:
         """Get all public voice clones."""
         try:
             result = (
-                self.client.table("voice_clones")
+                self.client.table("va_voice_clones")
                 .select("*")
                 .eq("is_public", True)
                 .execute()
@@ -366,7 +366,7 @@ class SupabaseManager:
             if metadata:
                 metric_data["metadata"] = metadata
 
-            result = self.client.table("usage_metrics").insert(metric_data).execute()
+            result = self.client.table("va_usage_metrics").insert(metric_data).execute()
 
             return result.data[0]
 
@@ -381,7 +381,7 @@ class SupabaseManager:
         """Get recent usage metrics for a user."""
         try:
             result = (
-                self.client.table("usage_metrics")
+                self.client.table("va_usage_metrics")
                 .select("*")
                 .eq("user_id", user_id)
                 .gte("created_at", f"now() - interval '{days} days'")
@@ -407,7 +407,7 @@ class SupabaseManager:
         Upload audio file to Supabase Storage.
 
         Args:
-            bucket: Storage bucket name ('voice-recordings' or 'voice-clones')
+            bucket: Storage bucket name ('va-voice-recordings' or 'va-voice-clones')
             file_path: Path within bucket (e.g., 'user_id/recording.wav')
             audio_bytes: Audio file bytes
 

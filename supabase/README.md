@@ -8,11 +8,11 @@ This directory contains the database schema and setup instructions for integrati
 
 In your Supabase dashboard, go to **Storage** and create two buckets:
 
-**Bucket 1: `voice-recordings`** (Private)
+**Bucket 1: `va-voice-recordings`** (Private)
 - For temporary voice recordings from users
 - Auto-delete after 24 hours (optional)
 
-**Bucket 2: `voice-clones`** (Private with public folder)
+**Bucket 2: `va-voice-clones`** (Private with public folder)
 - For storing reference audio for voice cloning
 - Users can only access their own clones
 
@@ -78,7 +78,7 @@ Add these to your `.env` file (backend) and mobile app config.
 
 ## Storage Buckets
 
-### voice-recordings/
+### va-voice-recordings/
 ```
 {user_id}/
   ├── recording_123.wav
@@ -86,7 +86,7 @@ Add these to your `.env` file (backend) and mobile app config.
   └── ...
 ```
 
-### voice-clones/
+### va-voice-clones/
 ```
 {user_id}/
   ├── fabio.wav

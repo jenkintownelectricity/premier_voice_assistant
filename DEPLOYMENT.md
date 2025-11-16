@@ -43,8 +43,8 @@ Modal  Claude  Supabase
 ### 1.2 Create Storage Buckets
 
 1. Go to **Storage** in your Supabase dashboard
-2. Create bucket: `voice-recordings` (Private)
-3. Create bucket: `voice-clones` (Private)
+2. Create bucket: `va-voice-recordings` (Private)
+3. Create bucket: `va-voice-clones` (Private)
 
 ### 1.3 Enable Authentication
 
