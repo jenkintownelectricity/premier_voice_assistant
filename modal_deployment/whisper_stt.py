@@ -26,6 +26,7 @@ whisper_image = (
     .pip_install(
         "faster-whisper==1.0.3",
         "numpy==1.26.4",
+        "fastapi[standard]",
     )
     .run_function(download_whisper_model)
 )
@@ -125,6 +126,72 @@ class WhisperSTT:
         finally:
             # Cleanup temp file
             Path(temp_path).unlink(missing_ok=True)
+
+
+@app.function(image=whisper_image, gpu="T4", scaledown_window=300, timeout=600)
+@modal.asgi_app()
+def transcribe_web():
+    from fastapi import FastAPI, File, Form
+    import time
+    import tempfile
+    from pathlib import Path
+    from faster_whisper import WhisperModel
+
+    web_app = FastAPI()
+
+    @web_app.post("/")
+    async def transcribe(audio_bytes: bytes = File(...), language: str = Form("en")):
+        """Web endpoint for transcription."""
+        start_time = time.time()
+
+        # Load model
+        model = WhisperModel(
+            "base.en",
+            device="cuda",
+            compute_type="float16",
+        )
+
+        # Write bytes to temp file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(audio_bytes)
+            temp_path = f.name
+
+        try:
+            # Transcribe
+            segments, info = model.transcribe(
+                temp_path,
+                language=language,
+                beam_size=1,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=500),
+            )
+
+            # Collect segments
+            segments_list = []
+            full_text = []
+
+            for segment in segments:
+                segments_list.append({
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text,
+                })
+                full_text.append(segment.text)
+
+            processing_time = time.time() - start_time
+
+            return {
+                "text": " ".join(full_text).strip(),
+                "language": info.language,
+                "duration": info.duration,
+                "segments": segments_list,
+                "processing_time": processing_time,
+            }
+
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+    return web_app
 
 
 @app.function(image=whisper_image)
