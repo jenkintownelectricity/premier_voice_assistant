@@ -220,8 +220,47 @@ def synthesize_web(text: str, voice_name: str = "fabio", language: str = "en"):
         )
         audio_bytes = response.content
     """
-    tts = CoquiTTS()
-    return tts.synthesize.remote(text, voice_name, language)
+    import tempfile
+    import time
+    from pathlib import Path
+    from TTS.api import TTS
+
+    start_time = time.time()
+
+    # Load TTS model
+    tts = TTS(
+        model_name="tts_models/multilingual/multi-dataset/xtts_v2",
+        gpu=True,
+    )
+
+    # Get voice reference
+    voice_path = f"/voice_models/{voice_name}.wav"
+    if not Path(voice_path).exists():
+        return {"error": f"Voice '{voice_name}' not found. Please clone it first."}, 404
+
+    # Generate speech
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        output_path = f.name
+
+    try:
+        tts.tts_to_file(
+            text=text,
+            file_path=output_path,
+            speaker_wav=voice_path,
+            language=language,
+        )
+
+        # Read generated audio
+        with open(output_path, "rb") as f:
+            audio_bytes = f.read()
+
+        processing_time = time.time() - start_time
+        print(f"Synthesized {len(text)} chars in {processing_time:.2f}s")
+
+        return audio_bytes
+
+    finally:
+        Path(output_path).unlink(missing_ok=True)
 
 
 @app.function(image=tts_image, gpu="T4", scaledown_window=300, timeout=600, volumes={"/voice_models": voice_models_volume})
@@ -241,8 +280,46 @@ def clone_voice_web(voice_name: str, reference_audio: bytes):
             )
         result = response.json()
     """
-    tts = CoquiTTS()
-    return tts.clone_voice.remote(voice_name, reference_audio)
+    import tempfile
+    import soundfile as sf
+    import time
+    from pathlib import Path
+
+    start_time = time.time()
+
+    # Save reference audio to temp file
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        f.write(reference_audio)
+        temp_path = f.name
+
+    try:
+        # Get audio duration
+        data, samplerate = sf.read(temp_path)
+        duration = len(data) / samplerate
+
+        # Store in voice models volume for persistence
+        voice_path = f"/voice_models/{voice_name}.wav"
+        Path(voice_path).parent.mkdir(parents=True, exist_ok=True)
+
+        with open(voice_path, "wb") as f:
+            f.write(reference_audio)
+
+        # Commit volume changes
+        voice_models_volume.commit()
+
+        processing_time = time.time() - start_time
+
+        print(f"Cloned voice '{voice_name}' ({duration:.2f}s) in {processing_time:.2f}s")
+
+        return {
+            "voice_name": voice_name,
+            "status": "success",
+            "duration": duration,
+            "processing_time": processing_time,
+        }
+
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
 
 
 @app.function(image=tts_image)

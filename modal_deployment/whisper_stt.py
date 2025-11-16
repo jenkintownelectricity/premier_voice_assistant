@@ -144,8 +144,59 @@ def transcribe_web(audio_bytes: bytes, language: str = "en"):
             )
         result = response.json()
     """
-    stt = WhisperSTT()
-    return stt.transcribe.remote(audio_bytes, language)
+    import time
+    import tempfile
+    from pathlib import Path
+    from faster_whisper import WhisperModel
+
+    start_time = time.time()
+
+    # Load model
+    model = WhisperModel(
+        "base.en",
+        device="cuda",
+        compute_type="float16",
+    )
+
+    # Write bytes to temp file
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        f.write(audio_bytes)
+        temp_path = f.name
+
+    try:
+        # Transcribe
+        segments, info = model.transcribe(
+            temp_path,
+            language=language,
+            beam_size=1,
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500),
+        )
+
+        # Collect segments
+        segments_list = []
+        full_text = []
+
+        for segment in segments:
+            segments_list.append({
+                "start": segment.start,
+                "end": segment.end,
+                "text": segment.text,
+            })
+            full_text.append(segment.text)
+
+        processing_time = time.time() - start_time
+
+        return {
+            "text": " ".join(full_text).strip(),
+            "language": info.language,
+            "duration": info.duration,
+            "segments": segments_list,
+            "processing_time": processing_time,
+        }
+
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
 
 
 @app.function(image=whisper_image)
