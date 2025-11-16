@@ -11,6 +11,10 @@ app = modal.App("premier-coqui-tts")
 # Function to download TTS model at build time
 def download_tts_model():
     """Download Coqui XTTS-v2 model during image build to avoid cold start delays"""
+    import os
+    # Agree to Coqui TOS (required for non-interactive environments)
+    os.environ["COQUI_TOS_AGREED"] = "1"
+
     from TTS.api import TTS
     # Download XTTS-v2 model
     TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
