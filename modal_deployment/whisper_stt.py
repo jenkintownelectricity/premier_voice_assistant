@@ -9,6 +9,17 @@ from pathlib import Path
 # Create Modal app
 app = modal.App("premier-whisper-stt")
 
+# Function to download model at build time
+def download_whisper_model():
+    """Download Whisper model during image build to avoid cold start delays"""
+    from faster_whisper import WhisperModel
+    # Download base.en model (good balance of speed/accuracy)
+    WhisperModel(
+        "base.en",
+        device="cpu",  # Use CPU during build, GPU during runtime
+        compute_type="int8",
+    )
+
 # Define the container image with faster-whisper
 whisper_image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -16,31 +27,21 @@ whisper_image = (
         "faster-whisper==1.0.3",
         "numpy==1.26.4",
     )
+    .run_function(download_whisper_model)
 )
 
 
 @app.cls(
     image=whisper_image,
     gpu="T4",  # T4 is cost-effective for Whisper
-    container_idle_timeout=300,  # Keep warm for 5 min
+    scaledown_window=300,  # Keep warm for 5 min (renamed from container_idle_timeout)
     timeout=600,
 )
 class WhisperSTT:
     """
     Faster-Whisper STT service optimized for low latency and cost.
+    Model is downloaded at build time for faster cold starts.
     """
-
-    @modal.build()
-    def download_model(self):
-        """Download model at build time to avoid cold start delays"""
-        from faster_whisper import WhisperModel
-
-        # Download base.en model (good balance of speed/accuracy)
-        WhisperModel(
-            "base.en",
-            device="cuda",
-            compute_type="float16",
-        )
 
     @modal.enter()
     def load_model(self):
