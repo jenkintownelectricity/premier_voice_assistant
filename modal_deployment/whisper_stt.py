@@ -27,6 +27,7 @@ whisper_image = (
         "faster-whisper==1.0.3",
         "numpy==1.26.4",
         "fastapi[standard]",
+        "requests",  # Required by faster-whisper
     )
     .run_function(download_whisper_model)
 )

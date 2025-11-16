@@ -24,6 +24,8 @@ tts_image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("libsndfile1", "ffmpeg")  # Audio dependencies
     .pip_install(
+        "torch==2.5.1",  # Pin PyTorch version (2.6+ has incompatible weights_only default)
+        "transformers==4.33.0",  # Pin transformers for TTS compatibility
         "TTS==0.22.0",
         "numpy==1.26.4",
         "soundfile==0.12.1",
