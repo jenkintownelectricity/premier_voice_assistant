@@ -26,6 +26,7 @@ whisper_image = (
     .pip_install(
         "faster-whisper==1.0.3",
         "numpy==1.26.4",
+        "fastapi[standard]",
     )
     .run_function(download_whisper_model)
 )
@@ -128,75 +129,69 @@ class WhisperSTT:
 
 
 @app.function(image=whisper_image, gpu="T4", scaledown_window=300, timeout=600)
-@modal.web_endpoint(method="POST")
-def transcribe_web(audio_bytes: bytes, language: str = "en"):
-    """
-    Web endpoint for transcription.
-    Call this from your API with audio bytes.
-
-    Example usage:
-        import requests
-        with open("audio.wav", "rb") as f:
-            response = requests.post(
-                "https://[workspace]--premier-whisper-stt-transcribe-web.modal.run",
-                files={"audio_bytes": f},
-                data={"language": "en"}
-            )
-        result = response.json()
-    """
+@modal.asgi_app()
+def transcribe_web():
+    from fastapi import FastAPI, File, Form
     import time
     import tempfile
     from pathlib import Path
     from faster_whisper import WhisperModel
 
-    start_time = time.time()
+    web_app = FastAPI()
 
-    # Load model
-    model = WhisperModel(
-        "base.en",
-        device="cuda",
-        compute_type="float16",
-    )
+    @web_app.post("/")
+    async def transcribe(audio_bytes: bytes = File(...), language: str = Form("en")):
+        """Web endpoint for transcription."""
+        start_time = time.time()
 
-    # Write bytes to temp file
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        f.write(audio_bytes)
-        temp_path = f.name
-
-    try:
-        # Transcribe
-        segments, info = model.transcribe(
-            temp_path,
-            language=language,
-            beam_size=1,
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500),
+        # Load model
+        model = WhisperModel(
+            "base.en",
+            device="cuda",
+            compute_type="float16",
         )
 
-        # Collect segments
-        segments_list = []
-        full_text = []
+        # Write bytes to temp file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(audio_bytes)
+            temp_path = f.name
 
-        for segment in segments:
-            segments_list.append({
-                "start": segment.start,
-                "end": segment.end,
-                "text": segment.text,
-            })
-            full_text.append(segment.text)
+        try:
+            # Transcribe
+            segments, info = model.transcribe(
+                temp_path,
+                language=language,
+                beam_size=1,
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=500),
+            )
 
-        processing_time = time.time() - start_time
+            # Collect segments
+            segments_list = []
+            full_text = []
 
-        return {
-            "text": " ".join(full_text).strip(),
-            "language": info.language,
-            "duration": info.duration,
-            "segments": segments_list,
-            "processing_time": processing_time,
-        }
+            for segment in segments:
+                segments_list.append({
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text,
+                })
+                full_text.append(segment.text)
 
-    finally:
-        Path(temp_path).unlink(missing_ok=True)
+            processing_time = time.time() - start_time
+
+            return {
+                "text": " ".join(full_text).strip(),
+                "language": info.language,
+                "duration": info.duration,
+                "segments": segments_list,
+                "processing_time": processing_time,
+            }
+
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+    return web_app
 
 
 @app.function(image=whisper_image)
