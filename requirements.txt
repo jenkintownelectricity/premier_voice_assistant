@@ -12,13 +12,18 @@ TTS>=0.21.0; python_version < '3.12'  # Coqui TTS with XTTS-v2
 # LLM Integration
 anthropic>=0.39.0
 
+# Database & Storage
+supabase>=2.12.0
+postgrest>=0.18.0
+
 # Telephony
 aiortc>=1.9.0  # WebRTC support
 aiohttp>=3.10.0
 
 # Web Framework
-flask>=3.0.0
-flask-cors>=4.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+python-multipart>=0.0.12  # For file uploads
 
 # Audio Processing
 numpy>=1.24.0,<2.0.0; python_version < '3.12'

@@ -8,6 +8,13 @@ from pathlib import Path
 # Create Modal app
 app = modal.App("premier-coqui-tts")
 
+# Function to download TTS model at build time
+def download_tts_model():
+    """Download Coqui XTTS-v2 model during image build to avoid cold start delays"""
+    from TTS.api import TTS
+    # Download XTTS-v2 model
+    TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
+
 # Define the container image with Coqui TTS
 tts_image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -18,6 +25,7 @@ tts_image = (
         "soundfile==0.12.1",
         "pydub==0.25.1",
     )
+    .run_function(download_tts_model)
 )
 
 # Create a volume for voice models
@@ -30,22 +38,15 @@ voice_models_volume = modal.Volume.from_name(
 @app.cls(
     image=tts_image,
     gpu="T4",  # T4 sufficient for XTTS
-    container_idle_timeout=300,
+    scaledown_window=300,  # Keep warm for 5 min (renamed from container_idle_timeout)
     timeout=600,
     volumes={"/voice_models": voice_models_volume},
 )
 class CoquiTTS:
     """
     Coqui XTTS-v2 service with voice cloning capability.
+    Model is downloaded at build time for faster cold starts.
     """
-
-    @modal.build()
-    def download_model(self):
-        """Download XTTS-v2 model at build time"""
-        from TTS.api import TTS
-
-        # Download XTTS-v2 model
-        TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
 
     @modal.enter()
     def load_model(self):
