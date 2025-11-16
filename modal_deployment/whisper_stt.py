@@ -127,6 +127,27 @@ class WhisperSTT:
             Path(temp_path).unlink(missing_ok=True)
 
 
+@app.function(image=whisper_image, gpu="T4", scaledown_window=300, timeout=600)
+@modal.web_endpoint(method="POST")
+def transcribe_web(audio_bytes: bytes, language: str = "en"):
+    """
+    Web endpoint for transcription.
+    Call this from your API with audio bytes.
+
+    Example usage:
+        import requests
+        with open("audio.wav", "rb") as f:
+            response = requests.post(
+                "https://[workspace]--premier-whisper-stt-transcribe-web.modal.run",
+                files={"audio_bytes": f},
+                data={"language": "en"}
+            )
+        result = response.json()
+    """
+    stt = WhisperSTT()
+    return stt.transcribe.remote(audio_bytes, language)
+
+
 @app.function(image=whisper_image)
 def test_whisper():
     """Test function to verify deployment"""

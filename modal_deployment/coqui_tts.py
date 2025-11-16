@@ -201,6 +201,50 @@ class CoquiTTS:
         return voices
 
 
+@app.function(image=tts_image, gpu="T4", scaledown_window=300, timeout=600, volumes={"/voice_models": voice_models_volume})
+@modal.web_endpoint(method="POST")
+def synthesize_web(text: str, voice_name: str = "fabio", language: str = "en"):
+    """
+    Web endpoint for text-to-speech synthesis.
+    Returns audio bytes.
+
+    Example usage:
+        import requests
+        response = requests.post(
+            "https://[workspace]--premier-coqui-tts-synthesize-web.modal.run",
+            json={
+                "text": "Hello, how are you?",
+                "voice_name": "fabio",
+                "language": "en"
+            }
+        )
+        audio_bytes = response.content
+    """
+    tts = CoquiTTS()
+    return tts.synthesize.remote(text, voice_name, language)
+
+
+@app.function(image=tts_image, gpu="T4", scaledown_window=300, timeout=600, volumes={"/voice_models": voice_models_volume})
+@modal.web_endpoint(method="POST")
+def clone_voice_web(voice_name: str, reference_audio: bytes):
+    """
+    Web endpoint for voice cloning.
+    Upload a voice sample to clone.
+
+    Example usage:
+        import requests
+        with open("voice_sample.wav", "rb") as f:
+            response = requests.post(
+                "https://[workspace]--premier-coqui-tts-clone-voice-web.modal.run",
+                files={"reference_audio": f},
+                data={"voice_name": "fabio"}
+            )
+        result = response.json()
+    """
+    tts = CoquiTTS()
+    return tts.clone_voice.remote(voice_name, reference_audio)
+
+
 @app.function(image=tts_image)
 def test_tts():
     """Test function to verify deployment"""
