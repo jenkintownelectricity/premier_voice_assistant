@@ -4,7 +4,7 @@ This directory contains SQL migrations to add subscription plans, feature gates,
 
 ## 📋 Overview
 
-The migration adds:
+The migrations add:
 - ✅ Subscription plans (Free, Starter, Pro, Enterprise)
 - ✅ Plan features with configurable limits
 - ✅ User subscription management
@@ -12,10 +12,12 @@ The migration adds:
 - ✅ Automatic subscription creation for new users
 - ✅ Admin functions for user management
 - ✅ Helper views for easy querying
+- ✅ Client permissions for mobile/web apps (iOS, Android, Web)
+- ✅ Client-safe functions for direct Supabase queries
 
 ## 🚀 Quick Start
 
-### 1. Run the Migration
+### 1. Run Migration 001: Subscription System
 
 In your Supabase dashboard:
 
@@ -31,7 +33,22 @@ The migration will:
 - Insert default subscription plans
 - Create views for easy querying
 
-### 2. Seed Plan Features
+### 2. Run Migration 002: Client Permissions (Mobile/Web Support)
+
+After migration 001 completes successfully:
+
+1. Go to **SQL Editor**
+2. Click "New query"
+3. Copy and paste the contents of `002_add_client_permissions.sql`
+4. Click "Run"
+
+The migration will:
+- Grant read permissions to authenticated users
+- Create client-safe functions (va_client_check_feature, va_client_get_my_subscription, etc.)
+- Enable mobile/web apps to query subscription and usage data directly
+- Maintain security via auth.uid() and RLS policies
+
+### 3. Seed Plan Features
 
 After running the migration, seed the plan features:
 
@@ -174,6 +191,64 @@ Admin function to upgrade user subscription.
 ```sql
 SELECT va_admin_upgrade_user('user-id-here', 'pro');
 ```
+
+### Client-Safe Functions (Migration 002)
+
+These functions are designed for mobile and web apps to call directly using the `anon` or `authenticated` Supabase key. They automatically use `auth.uid()` to scope queries to the authenticated user.
+
+#### va_client_check_feature(feature_key VARCHAR, requested_amount INTEGER)
+Check if the authenticated user can use a feature.
+
+```sql
+-- Example: Check if user can use 1 minute
+SELECT * FROM va_client_check_feature('max_minutes', 1);
+```
+
+Returns:
+- `allowed` (boolean): Whether action is allowed
+- `current_usage` (integer): Current usage
+- `limit_value` (integer): Plan limit (-1 = unlimited)
+- `remaining` (integer): Remaining quota
+- `plan_name` (varchar): User's plan name
+- `upgrade_required` (boolean): Whether upgrade is needed
+
+#### va_client_get_my_subscription()
+Get the authenticated user's subscription info.
+
+```sql
+SELECT * FROM va_client_get_my_subscription();
+```
+
+Returns:
+- `plan_name`, `display_name`, `price_cents`
+- `status`, `current_period_start`, `current_period_end`
+- `days_remaining` (integer)
+
+#### va_client_get_my_usage()
+Get the authenticated user's current usage statistics.
+
+```sql
+SELECT * FROM va_client_get_my_usage();
+```
+
+Returns:
+- `minutes_used`, `minutes_limit`, `usage_percentage`
+- `assistants_count`, `assistants_limit`
+- `voice_clones_count`, `voice_clones_limit`
+- `period_start`, `period_end`
+
+#### va_client_get_available_plans()
+Get all available subscription plans (public data).
+
+```sql
+SELECT * FROM va_client_get_available_plans();
+```
+
+Returns array of plans with features as JSONB.
+
+**Usage in Mobile/Web Apps:**
+
+See **[Mobile Integration Guide](../../docs/MOBILE_INTEGRATION.md)** for complete examples in Swift, Kotlin, and TypeScript.
 
 ### Views
 

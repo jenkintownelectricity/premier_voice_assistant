@@ -43,6 +43,18 @@ This adds:
 
 See **[migrations/README.md](migrations/README.md)** for complete migration guide.
 
+### Step 3.5: Run Client Permissions Migration (Mobile/Web Support)
+
+Run the client permissions migration from `migrations/002_add_client_permissions.sql`.
+
+This adds:
+- ✅ Read permissions for authenticated users
+- ✅ Client-safe functions that use `auth.uid()`
+- ✅ Direct Supabase query support for iOS, Android, and Web
+- ✅ Secure subscription and usage data access from mobile apps
+
+See **[Mobile Integration Guide](../docs/MOBILE_INTEGRATION.md)** for complete mobile/web setup.
+
 ### Step 4: Seed Plan Features
 
 After running both migrations, seed the plan features:
@@ -206,7 +218,11 @@ All tracked in `va_usage_tracking` table with automatic rollover each billing pe
 
 ## 🔧 Database Functions
 
-### Check Feature Gate
+### Backend Functions (Service Role Key Required)
+
+These functions require the service role key and are used by the backend API.
+
+#### Check Feature Gate
 
 ```sql
 SELECT * FROM va_check_feature_gate('user-id', 'max_minutes', 1);
@@ -218,7 +234,7 @@ Returns:
 - `limit_value` (int): Plan limit (-1 = unlimited)
 - `remaining` (int): Remaining quota
 
-### Increment Usage
+#### Increment Usage
 
 ```sql
 SELECT va_increment_usage('user-id', 5, '{"conversation_id": "123"}'::jsonb);
@@ -230,7 +246,7 @@ Tracks usage and automatically:
 - Calculates overages
 - Updates billing info
 
-### Get User Plan
+#### Get User Plan
 
 ```sql
 SELECT * FROM va_get_user_plan('user-id');
@@ -238,13 +254,72 @@ SELECT * FROM va_get_user_plan('user-id');
 
 Returns user's active subscription plan.
 
-### Admin Upgrade User
+#### Admin Upgrade User
 
 ```sql
 SELECT va_admin_upgrade_user('user-id', 'pro');
 ```
 
 Upgrades user to specified plan (admin only).
+
+### Client-Safe Functions (Mobile/Web Apps)
+
+These functions can be called directly from iOS, Android, and Web apps using the `anon` or `authenticated` Supabase key. They use `auth.uid()` to automatically scope to the authenticated user.
+
+#### Check Feature (Client)
+
+```sql
+SELECT * FROM va_client_check_feature('max_minutes', 1);
+```
+
+Returns: `allowed`, `current_usage`, `limit_value`, `remaining`, `plan_name`, `upgrade_required`
+
+**Swift Example:**
+```swift
+let check = try await supabase
+    .rpc("va_client_check_feature", params: [
+        "p_feature_key": "max_minutes",
+        "p_requested_amount": 1
+    ])
+```
+
+#### Get My Subscription (Client)
+
+```sql
+SELECT * FROM va_client_get_my_subscription();
+```
+
+Returns: `plan_name`, `display_name`, `price_cents`, `status`, billing period info
+
+**Kotlin Example:**
+```kotlin
+val subscription = supabase.postgrest
+    .rpc("va_client_get_my_subscription")
+    .decodeSingleOrNull<Subscription>()
+```
+
+#### Get My Usage (Client)
+
+```sql
+SELECT * FROM va_client_get_my_usage();
+```
+
+Returns: `minutes_used`, `minutes_limit`, `usage_percentage`, counts for assistants and voice clones
+
+**TypeScript Example:**
+```typescript
+const { data } = await supabase.rpc('va_client_get_my_usage')
+```
+
+#### Get Available Plans (Client)
+
+```sql
+SELECT * FROM va_client_get_available_plans();
+```
+
+Returns all subscription plans with features as JSONB (public data for upgrade UI).
+
+**See [Mobile Integration Guide](../docs/MOBILE_INTEGRATION.md) for complete examples.**
 
 ## 📈 Database Views
 

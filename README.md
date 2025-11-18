@@ -8,8 +8,9 @@ Production-ready voice AI system with subscription-based feature gates and usage
 - ✅ **Subscription System**: Free, Starter, Pro, Enterprise plans
 - ✅ **Feature Gates**: Usage limits enforced at API level
 - ✅ **Usage Tracking**: Real-time monitoring and billing
-- ✅ **Mobile Ready**: Supabase backend for iOS/Android apps
+- ✅ **Mobile & Web Ready**: Native SDK support for iOS, Android, and Web
 - ✅ **Voice Cloning**: Custom voices with Coqui XTTS-v2
+- ✅ **Client-Safe APIs**: Direct Supabase queries for subscription/usage data
 
 ## 💰 Subscription Plans
 
@@ -40,8 +41,9 @@ See [`supabase/README.md`](supabase/README.md) for complete setup:
 
 1. **Run base schema**: `supabase/schema.sql`
 2. **Run subscription migration**: `supabase/migrations/001_add_subscription_system.sql`
-3. **Seed plan features**: `python scripts/seed_plan_features.py`
-4. **Get API keys** from Supabase dashboard
+3. **Run client permissions**: `supabase/migrations/002_add_client_permissions.sql`
+4. **Seed plan features**: Run the seed SQL in Supabase SQL Editor
+5. **Get API keys** from Supabase dashboard
 
 ### 3. Configure Environment
 
@@ -254,6 +256,71 @@ Mobile App → FastAPI Backend → Modal GPU Workers
 6. Return response to user
 ```
 
+## 📱 Mobile & Web Integration
+
+The system is fully integrated for iOS, Android, and Web clients with native SDK support.
+
+### Client Architecture
+
+```
+Mobile/Web App (anon key)
+    ↓
+Supabase Auth (Phone/Email/OAuth)
+    ↓
+Direct DB Queries (Read subscription/usage)
+    ↓ (API calls with X-User-ID)
+Backend API (Feature gate enforcement)
+    ↓ (service role key)
+Supabase DB + Modal Workers
+```
+
+### Client-Safe Functions
+
+Mobile and web clients can directly call:
+- `va_client_get_my_subscription()` - Get user's plan
+- `va_client_get_my_usage()` - Get current usage
+- `va_client_check_feature(feature, amount)` - Check if can use feature
+- `va_client_get_available_plans()` - Get all plans for upgrade UI
+
+### Quick Examples
+
+**iOS (Swift)**
+```swift
+// Check if user can start a chat
+let canChat = try await supabase
+    .rpc("va_client_check_feature", params: [
+        "p_feature_key": "max_minutes",
+        "p_requested_amount": 1
+    ])
+
+if !canChat.allowed {
+    showUpgradeModal()
+}
+```
+
+**Android (Kotlin)**
+```kotlin
+// Get current usage
+val usage = supabase.postgrest
+    .rpc("va_client_get_my_usage")
+    .decodeSingleOrNull<Usage>()
+
+if (usage.isNearLimit) {
+    showUsageWarning()
+}
+```
+
+**Web (TypeScript)**
+```typescript
+// Get available plans for upgrade screen
+const plans = await supabase
+    .rpc('va_client_get_available_plans')
+
+renderPricingTable(plans)
+```
+
+See **[Mobile Integration Guide](docs/MOBILE_INTEGRATION.md)** for complete documentation.
+
 ## 📈 Development Phases
 
 ### ✅ Phase 1: Core Voice Pipeline (Complete)
@@ -318,6 +385,7 @@ Mobile App → FastAPI Backend → Modal GPU Workers
 ## 📚 Documentation
 
 - **[Feature Gates Implementation](FEATURE_GATES_IMPLEMENTATION.md)** - Complete guide
+- **[Mobile & Web Integration](docs/MOBILE_INTEGRATION.md)** - iOS, Android, Web SDK guide
 - **[Supabase Setup](supabase/README.md)** - Database configuration
 - **[Migration Guide](supabase/migrations/README.md)** - Subscription system setup
 - **[Voice Cloning](voices/README.md)** - Recording guidelines

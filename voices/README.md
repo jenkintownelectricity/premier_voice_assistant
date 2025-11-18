@@ -73,6 +73,59 @@ To create custom voices, upgrade to Starter ($99/mo) or higher.
 
 ## 🚀 Cloning Voices
 
+### From Mobile/Web Apps
+
+Before cloning a voice, check if the user's plan allows it:
+
+**iOS (Swift):**
+```swift
+// Check if user can create a voice clone
+let check = try await supabase
+    .rpc("va_client_check_feature", params: [
+        "p_feature_key": "max_voice_clones",
+        "p_requested_amount": 1
+    ])
+
+if check.allowed {
+    // Call backend API to clone voice
+    // POST /clone-voice with X-User-ID header
+} else {
+    showUpgradePrompt(plan: check.plan_name)
+}
+```
+
+**Android (Kotlin):**
+```kotlin
+// Check voice clone limit
+val check = supabase.postgrest
+    .rpc("va_client_check_feature") {
+        put("p_feature_key", "max_voice_clones")
+        put("p_requested_amount", 1)
+    }
+    .decodeSingleOrNull<FeatureCheck>()
+
+if (check?.allowed == true) {
+    // Call backend API
+} else {
+    showUpgradeDialog()
+}
+```
+
+**Web (TypeScript):**
+```typescript
+// Check before showing voice clone UI
+const { data } = await supabase.rpc('va_client_check_feature', {
+    p_feature_key: 'max_voice_clones',
+    p_requested_amount: 1
+})
+
+if (data[0].allowed) {
+    renderVoiceCloneForm()
+} else {
+    showUpgradeModal()
+}
+```
+
 ### Using API Endpoint
 
 ```bash
