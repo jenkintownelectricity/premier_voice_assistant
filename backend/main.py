@@ -57,6 +57,11 @@ class UserPreferencesUpdate(BaseModel):
     language: Optional[str] = None
 
 
+class AdminUpgradeRequest(BaseModel):
+    user_id: str
+    plan_name: str  # 'free', 'starter', 'pro', 'enterprise'
+
+
 class VoiceAssistant:
     """
     Main voice assistant orchestrator with Supabase integration.
@@ -580,6 +585,145 @@ async def get_voice_clones(
 
     except Exception as e:
         logger.error(f"Error getting voice clones: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# ADMIN ROUTES
+# ============================================================================
+
+@app.post("/admin/upgrade-user")
+async def admin_upgrade_user(
+    request: AdminUpgradeRequest,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Upgrade a user to a different subscription plan.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Body:
+        user_id: User UUID to upgrade
+        plan_name: Target plan ('free', 'starter', 'pro', 'enterprise')
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Validate plan name
+        valid_plans = ['free', 'starter', 'pro', 'enterprise']
+        if request.plan_name not in valid_plans:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid plan. Must be one of: {', '.join(valid_plans)}"
+            )
+
+        # Get plan ID
+        plan_result = db.client.table("va_subscription_plans").select("id, display_name").eq(
+            "plan_name", request.plan_name
+        ).execute()
+
+        if not plan_result.data:
+            raise HTTPException(status_code=404, detail=f"Plan '{request.plan_name}' not found")
+
+        plan = plan_result.data[0]
+
+        # Check if user has existing subscription
+        sub_result = db.client.table("va_user_subscriptions").select("id").eq(
+            "user_id", request.user_id
+        ).eq("status", "active").execute()
+
+        if sub_result.data:
+            # Update existing subscription
+            db.client.table("va_user_subscriptions").update({
+                "plan_id": plan["id"],
+                "updated_at": "now()"
+            }).eq("user_id", request.user_id).eq("status", "active").execute()
+
+            logger.info(f"Upgraded user {request.user_id} to {request.plan_name}")
+        else:
+            # Create new subscription
+            from datetime import datetime, timedelta
+            now = datetime.utcnow()
+            period_end = now + timedelta(days=30)
+
+            db.client.table("va_user_subscriptions").insert({
+                "user_id": request.user_id,
+                "plan_id": plan["id"],
+                "status": "active",
+                "current_period_start": now.isoformat(),
+                "current_period_end": period_end.isoformat()
+            }).execute()
+
+            logger.info(f"Created new {request.plan_name} subscription for user {request.user_id}")
+
+        return {
+            "success": True,
+            "user_id": request.user_id,
+            "plan": request.plan_name,
+            "display_name": plan["display_name"],
+            "message": f"User upgraded to {plan['display_name']} plan"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error upgrading user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/user-subscription/{user_id}")
+async def admin_get_user_subscription(
+    user_id: str,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get a user's current subscription details.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Get subscription with plan details
+        result = db.client.table("va_user_subscriptions").select(
+            "*, va_subscription_plans(*)"
+        ).eq("user_id", user_id).eq("status", "active").execute()
+
+        if not result.data:
+            return {
+                "user_id": user_id,
+                "subscription": None,
+                "message": "No active subscription found"
+            }
+
+        subscription = result.data[0]
+        plan = subscription.get("va_subscription_plans", {})
+
+        return {
+            "user_id": user_id,
+            "subscription": {
+                "plan_name": plan.get("plan_name"),
+                "display_name": plan.get("display_name"),
+                "status": subscription.get("status"),
+                "current_period_start": subscription.get("current_period_start"),
+                "current_period_end": subscription.get("current_period_end")
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user subscription: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
