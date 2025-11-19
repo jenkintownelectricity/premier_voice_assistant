@@ -155,6 +155,9 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Update feature gate check to include bonus minutes
+-- Drop old version first (had VARCHAR instead of TEXT)
+DROP FUNCTION IF EXISTS va_check_feature_gate(UUID, VARCHAR, INTEGER);
+
 CREATE OR REPLACE FUNCTION va_check_feature_gate(
     p_user_id UUID,
     p_feature_key TEXT,
