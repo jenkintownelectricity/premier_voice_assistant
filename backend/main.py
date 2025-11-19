@@ -63,6 +63,13 @@ class AdminUpgradeRequest(BaseModel):
     plan_name: str  # 'free', 'starter', 'pro', 'enterprise'
 
 
+class AdminResetUsageRequest(BaseModel):
+    user_id: str
+    reset_minutes: bool = True
+    reset_conversations: bool = False
+    reset_voice_clones: bool = False
+
+
 class VoiceAssistant:
     """
     Main voice assistant orchestrator with Supabase integration.
@@ -635,6 +642,130 @@ async def get_voice_clones(
 
 
 # ============================================================================
+# SUBSCRIPTION & USAGE ROUTES
+# ============================================================================
+
+@app.get("/subscription")
+async def get_subscription(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's current subscription plan.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        # Get subscription with plan details
+        result = db.client.table("va_user_subscriptions").select(
+            "*, va_subscription_plans(*)"
+        ).eq("user_id", user_id).eq("status", "active").execute()
+
+        if not result.data:
+            return {
+                "subscription": None,
+                "message": "No active subscription found"
+            }
+
+        subscription = result.data[0]
+        plan = subscription.get("va_subscription_plans", {})
+
+        return {
+            "subscription": {
+                "plan_name": plan.get("plan_name"),
+                "display_name": plan.get("display_name"),
+                "price_cents": plan.get("price_cents", 0),
+                "status": subscription.get("status"),
+                "current_period_start": subscription.get("current_period_start"),
+                "current_period_end": subscription.get("current_period_end")
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting subscription: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/usage")
+async def get_usage(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's current usage statistics.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        feature_gate = get_feature_gate()
+        usage = feature_gate.get_user_usage(user_id)
+
+        if not usage:
+            return {
+                "usage": {
+                    "minutes_used": 0,
+                    "conversations_count": 0,
+                    "voice_clones_count": 0,
+                    "assistants_count": 0
+                }
+            }
+
+        return {"usage": usage}
+
+    except Exception as e:
+        logger.error(f"Error getting usage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/feature-limits")
+async def get_feature_limits(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get all feature limits for user's current plan.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        feature_gate = get_feature_gate()
+        plan = feature_gate.get_user_plan(user_id)
+
+        if not plan:
+            return {
+                "plan": "none",
+                "limits": {}
+            }
+
+        plan_name = plan.get("plan_name", "free")
+
+        # Get all features for this plan
+        from backend.feature_gates import get_plan_features
+        features = get_plan_features(plan_name)
+
+        # Get current usage
+        usage = feature_gate.get_user_usage(user_id) or {}
+
+        return {
+            "plan": plan_name,
+            "display_name": plan.get("display_name", plan_name.title()),
+            "limits": features,
+            "current_usage": {
+                "minutes_used": usage.get("minutes_used", 0),
+                "assistants_count": usage.get("assistants_count", 0),
+                "voice_clones_count": usage.get("voice_clones_count", 0)
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting feature limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # ADMIN ROUTES
 # ============================================================================
 
@@ -773,6 +904,149 @@ async def admin_get_user_subscription(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/admin/reset-usage")
+async def admin_reset_usage(
+    request: AdminResetUsageRequest,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Reset usage counters for a user (for new billing period).
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Body:
+        user_id: User UUID
+        reset_minutes: Reset minutes_used to 0 (default: True)
+        reset_conversations: Reset conversations_count to 0 (default: False)
+        reset_voice_clones: Reset voice_clones_count to 0 (default: False)
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Build update dict
+        updates = {}
+        reset_fields = []
+
+        if request.reset_minutes:
+            updates["minutes_used"] = 0
+            reset_fields.append("minutes")
+
+        if request.reset_conversations:
+            updates["conversations_count"] = 0
+            reset_fields.append("conversations")
+
+        if request.reset_voice_clones:
+            updates["voice_clones_count"] = 0
+            reset_fields.append("voice_clones")
+
+        if not updates:
+            return {
+                "success": False,
+                "message": "No fields selected for reset"
+            }
+
+        # Get current billing period
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Update or create usage record for current period
+        existing = db.client.table("va_usage_tracking").select("id").eq(
+            "user_id", request.user_id
+        ).gte("period_start", period_start.isoformat()).execute()
+
+        if existing.data:
+            # Update existing record
+            db.client.table("va_usage_tracking").update(updates).eq(
+                "id", existing.data[0]["id"]
+            ).execute()
+        else:
+            # Create new record with reset values
+            updates["user_id"] = request.user_id
+            updates["period_start"] = period_start.isoformat()
+            updates["period_end"] = (period_start + timedelta(days=30)).isoformat()
+            db.client.table("va_usage_tracking").insert(updates).execute()
+
+        logger.info(f"Reset usage for user {request.user_id}: {', '.join(reset_fields)}")
+
+        return {
+            "success": True,
+            "user_id": request.user_id,
+            "reset_fields": reset_fields,
+            "message": f"Reset {', '.join(reset_fields)} for user"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting usage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/start-billing-period")
+async def admin_start_billing_period(
+    user_id: str,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Start a new billing period for a user (resets all usage).
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Query:
+        user_id: User UUID
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        period_end = now + timedelta(days=30)
+
+        # Create new usage tracking record
+        new_usage = db.client.table("va_usage_tracking").insert({
+            "user_id": user_id,
+            "period_start": now.isoformat(),
+            "period_end": period_end.isoformat(),
+            "minutes_used": 0,
+            "conversations_count": 0,
+            "voice_clones_count": 0,
+            "assistants_count": 0
+        }).execute()
+
+        # Update subscription period
+        db.client.table("va_user_subscriptions").update({
+            "current_period_start": now.isoformat(),
+            "current_period_end": period_end.isoformat()
+        }).eq("user_id", user_id).eq("status", "active").execute()
+
+        logger.info(f"Started new billing period for user {user_id}")
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "period_start": now.isoformat(),
+            "period_end": period_end.isoformat(),
+            "message": "New billing period started with reset usage"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting billing period: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -794,7 +1068,11 @@ if __name__ == "__main__":
     print("  GET    /subscription                  - Get user's subscription plan")
     print("  GET    /usage                         - Get user's usage statistics")
     print("  GET    /feature-limits                - Get user's feature limits")
-    print("  POST   /admin/upgrade-user            - Admin: Upgrade user (requires admin key)")
+    print("\nAdmin:")
+    print("  POST   /admin/upgrade-user            - Upgrade user plan")
+    print("  POST   /admin/reset-usage             - Reset usage counters")
+    print("  POST   /admin/start-billing-period    - Start new billing period")
+    print("  GET    /admin/user-subscription/{id}  - Get user subscription")
     print("\n" + "=" * 60)
 
     uvicorn.run(
