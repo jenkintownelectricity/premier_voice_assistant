@@ -16,8 +16,6 @@ from backend.feature_gates import FeatureGate, FeatureGateError
 def get_subscription_info(user_id: str) -> dict:
     """Get subscription details for display"""
     try:
-        fg = FeatureGate()
-
         # Get subscription via Supabase
         from supabase import create_client
         supabase = create_client(
@@ -25,31 +23,44 @@ def get_subscription_info(user_id: str) -> dict:
             os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         )
 
-        # Get user subscription details
-        result = supabase.rpc(
-            "va_client_get_my_subscription"
-        ).execute()
+        # Get subscription with plan details
+        sub_result = supabase.table("va_user_subscriptions").select(
+            "*, va_subscription_plans(*)"
+        ).eq("user_id", user_id).eq("status", "active").execute()
 
-        if result.data:
-            subscription = result.data[0] if isinstance(result.data, list) else result.data
-
-            # Get usage data
-            usage_result = supabase.rpc(
-                "va_client_get_my_usage"
-            ).execute()
-
-            usage = usage_result.data[0] if usage_result.data else {}
-
+        if not sub_result.data:
             return {
-                "plan": subscription.get("plan_name", "unknown"),
-                "display_name": subscription.get("display_name", ""),
-                "price": f"${subscription.get('price_cents', 0) / 100:.2f}/mo",
-                "status": subscription.get("status", "unknown"),
-                "minutes_used": usage.get("minutes_used", 0),
-                "minutes_limit": usage.get("minutes_limit", 0),
-                "usage_percentage": usage.get("usage_percentage", 0),
-                "days_remaining": subscription.get("days_remaining", 0)
+                "error": "No subscription found",
+                "plan": "none",
+                "status": "not found"
             }
+
+        subscription = sub_result.data[0]
+        plan = subscription.get("va_subscription_plans", {})
+
+        # Get usage data
+        usage_result = supabase.table("va_usage_tracking").select("*").eq(
+            "user_id", user_id
+        ).order("period_start", desc=True).limit(1).execute()
+
+        usage = usage_result.data[0] if usage_result.data else {}
+
+        minutes_used = usage.get("minutes_used", 0)
+        minutes_limit = usage.get("minutes_limit", 100)
+        usage_pct = (minutes_used / minutes_limit * 100) if minutes_limit > 0 else 0
+
+        return {
+            "plan": plan.get("plan_name", "unknown"),
+            "display_name": plan.get("display_name", ""),
+            "price": f"${plan.get('price_cents', 0) / 100:.2f}/mo",
+            "status": subscription.get("status", "unknown"),
+            "minutes_used": minutes_used,
+            "minutes_limit": minutes_limit,
+            "usage_percentage": round(usage_pct, 1),
+            "days_remaining": 30,
+            "assistants_count": usage.get("assistants_count", 0),
+            "voice_clones_count": usage.get("voice_clones_count", 0)
+        }
     except Exception as e:
         return {
             "error": str(e),
