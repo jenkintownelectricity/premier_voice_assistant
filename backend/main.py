@@ -3,6 +3,10 @@ Premier Voice Assistant - FastAPI Backend
 Orchestrates STT → Claude → TTS with Supabase database integration
 Designed for mobile apps (iOS/Android)
 """
+# Load environment variables from .env file FIRST
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
