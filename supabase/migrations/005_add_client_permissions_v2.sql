@@ -8,6 +8,11 @@
 -- Enable RLS on discount codes table
 ALTER TABLE va_discount_codes ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies if they exist (for idempotency)
+DROP POLICY IF EXISTS "Anyone can view active discount codes" ON va_discount_codes;
+DROP POLICY IF EXISTS "Users can view their own redemptions" ON va_code_redemptions;
+DROP POLICY IF EXISTS "Users can redeem codes" ON va_code_redemptions;
+
 -- Public can read active discount codes (to validate before redeeming)
 CREATE POLICY "Anyone can view active discount codes" ON va_discount_codes
     FOR SELECT USING (is_active = TRUE);
