@@ -92,6 +92,7 @@ Copy and paste this to start your next session:
 ### Context
 Repository: premier_voice_assistant
 Branch: `main`
+Last Updated: 2025-11-19
 
 ### Current State
 Full stack deployed with mobile apps:
@@ -99,14 +100,39 @@ Full stack deployed with mobile apps:
 - **Backend:** https://web-production-1b085.up.railway.app/
 - **Mobile:** React Native Expo app in `/mobile`
 - **SDKs:** iOS Swift & Android Kotlin in `/sdks`
+- **Supabase:** Project `appio-ai` (needs RLS security setup)
+
+### Recent Session Accomplishments (2025-11-19)
+1. **Home Buttons** - Clickable logo in sidebar navigates to dashboard
+2. **Logo Watermark** - HIVE215 logo as 8% opacity background on dashboard
+3. **API Test Dashboard** - `/dashboard/admin/tests` for testing all endpoints
+4. **Vercel Build Fix** - Fixed Supabase URL validation for static page generation
+5. **Deployment Pipeline** - Vercel deploys from main, Railway hosts backend
+
+### Known Issues to Address
+1. **Signup not working** - Check Supabase Auth settings:
+   - Authentication > URL Configuration > Site URL = `https://hive215.vercel.app`
+   - Authentication > URL Configuration > Redirect URLs = `https://hive215.vercel.app/**`
+   - May need to disable email confirmation for testing
+2. **Supabase Security** - 22 RLS warnings in dashboard (tables not protected)
+3. **Deprecated packages** - @supabase/auth-helpers-nextjs should migrate to @supabase/ssr
 
 ### Environment Variables Needed
 
 **Vercel (frontend):**
 ```
 NEXT_PUBLIC_API_URL=https://web-production-1b085.up.railway.app
-NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_URL=https://[project-id].supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+NEXT_PUBLIC_STRIPE_KEY=your-stripe-publishable-key
+```
+
+**Railway (backend):**
+```
+SUPABASE_URL=https://[project-id].supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+ADMIN_API_KEY=your-admin-key
+ANTHROPIC_API_KEY=your-claude-key
 ```
 
 **Mobile (.env in /mobile):**
@@ -119,12 +145,31 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 - ID: `ea97ae74-a597-4dc8-9c6e-1c6981324ce5`
 - Plan: Pro (10,000 minutes)
 
+### Key Files Modified Recently
+- `web/src/lib/supabase.ts` - Supabase client with URL validation
+- `web/src/app/dashboard/layout.tsx` - Logo watermark background
+- `web/src/components/Sidebar.tsx` - Clickable home logo
+- `web/src/app/dashboard/admin/tests/page.tsx` - API test dashboard
+- `mobile/App.tsx` - Home button in mobile headers
+
 ### Key Directories
-- `web/` - Next.js frontend
+- `web/` - Next.js frontend (Vercel)
 - `mobile/` - React Native Expo app
+- `backend/` - FastAPI backend (Railway)
+- `modal_deployment/` - GPU functions for STT/TTS
 - `sdks/ios/` - Swift Package SDK
 - `sdks/android/` - Kotlin SDK
-- `backend/` - FastAPI backend
+
+### Voice Pipeline Architecture
+```
+User speaks → WebSocket → STT (Modal/Whisper) → Claude LLM → TTS (Modal/Coqui) → Audio response
+```
+
+Key files:
+- `/backend/main.py` - WebSocket at `/ws/voice/{assistant_id}` (lines 2038-2368)
+- `/web/src/components/VoiceCall.tsx` - WebSocket client
+- `/modal_deployment/whisper_stt.py` - Speech-to-text
+- `/modal_deployment/coqui_tts.py` - Text-to-speech
 
 ---
 
