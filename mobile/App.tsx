@@ -8,6 +8,8 @@ import { AuthProvider, useAuth } from './src/lib/auth-context';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { SignupScreen } from './src/screens/SignupScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
+import { AssistantsScreen } from './src/screens/AssistantsScreen';
+import { CallsScreen } from './src/screens/CallsScreen';
 import { RedeemScreen } from './src/screens/RedeemScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { colors } from './src/lib/theme';
@@ -25,6 +27,10 @@ function MainTabs() {
 
           if (route.name === 'Dashboard') {
             iconName = focused ? 'home' : 'home-outline';
+          } else if (route.name === 'Assistants') {
+            iconName = focused ? 'chatbubbles' : 'chatbubbles-outline';
+          } else if (route.name === 'Calls') {
+            iconName = focused ? 'call' : 'call-outline';
           } else if (route.name === 'Redeem') {
             iconName = focused ? 'gift' : 'gift-outline';
           } else if (route.name === 'Settings') {
@@ -51,6 +57,8 @@ function MainTabs() {
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen name="Assistants" component={AssistantsScreen} />
+      <Tab.Screen name="Calls" component={CallsScreen} />
       <Tab.Screen name="Redeem" component={RedeemScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
