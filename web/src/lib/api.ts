@@ -113,6 +113,194 @@ export const api = {
       },
       userId
     ),
+
+  // Assistants
+  getAssistants: (userId: string) =>
+    fetchAPI<{
+      assistants: Array<{
+        id: string;
+        name: string;
+        description: string | null;
+        voice_id: string;
+        model: string;
+        is_active: boolean;
+        created_at: string;
+        updated_at: string;
+        call_count: number;
+      }>;
+    }>('/assistants', {}, userId),
+
+  getAssistant: (userId: string, assistantId: string) =>
+    fetchAPI<{
+      assistant: {
+        id: string;
+        name: string;
+        description: string | null;
+        system_prompt: string;
+        voice_id: string;
+        model: string;
+        temperature: number;
+        max_tokens: number;
+        first_message: string | null;
+        is_active: boolean;
+        metadata: Record<string, unknown>;
+        created_at: string;
+        updated_at: string;
+      };
+    }>(`/assistants/${assistantId}`, {}, userId),
+
+  createAssistant: (
+    userId: string,
+    data: {
+      name: string;
+      system_prompt: string;
+      description?: string;
+      voice_id?: string;
+      model?: string;
+      temperature?: number;
+      max_tokens?: number;
+      first_message?: string;
+      // Advanced latency optimization settings
+      vad_sensitivity?: number;
+      endpointing_ms?: number;
+      enable_bargein?: boolean;
+      streaming_chunks?: boolean;
+      first_message_latency_ms?: number;
+      turn_detection_mode?: string;
+    }
+  ) =>
+    fetchAPI<{
+      success: boolean;
+      assistant: {
+        id: string;
+        name: string;
+        description: string | null;
+        system_prompt: string;
+        voice_id: string;
+        model: string;
+        temperature: number;
+        max_tokens: number;
+        first_message: string | null;
+        is_active: boolean;
+        created_at: string;
+      };
+    }>(
+      '/assistants',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+      userId
+    ),
+
+  updateAssistant: (
+    userId: string,
+    assistantId: string,
+    data: {
+      name?: string;
+      description?: string;
+      system_prompt?: string;
+      voice_id?: string;
+      model?: string;
+      temperature?: number;
+      max_tokens?: number;
+      first_message?: string;
+      is_active?: boolean;
+      // Advanced latency optimization settings
+      vad_sensitivity?: number;
+      endpointing_ms?: number;
+      enable_bargein?: boolean;
+      streaming_chunks?: boolean;
+      first_message_latency_ms?: number;
+      turn_detection_mode?: string;
+    }
+  ) =>
+    fetchAPI<{
+      success: boolean;
+      assistant: {
+        id: string;
+        name: string;
+        is_active: boolean;
+      } | null;
+    }>(
+      `/assistants/${assistantId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      },
+      userId
+    ),
+
+  deleteAssistant: (userId: string, assistantId: string) =>
+    fetchAPI<{
+      success: boolean;
+      message: string;
+    }>(`/assistants/${assistantId}`, { method: 'DELETE' }, userId),
+
+  // Call Logs
+  getCalls: (userId: string, limit: number = 50, offset: number = 0, assistantId?: string) =>
+    fetchAPI<{
+      calls: Array<{
+        id: string;
+        assistant_id: string | null;
+        assistant_name: string;
+        call_type: string;
+        phone_number: string | null;
+        status: string;
+        started_at: string;
+        ended_at: string | null;
+        duration_seconds: number;
+        cost_cents: number;
+        summary: string | null;
+        sentiment: string | null;
+        ended_reason: string | null;
+      }>;
+      total: number;
+      limit: number;
+      offset: number;
+    }>(
+      `/calls?limit=${limit}&offset=${offset}${assistantId ? `&assistant_id=${assistantId}` : ''}`,
+      {},
+      userId
+    ),
+
+  getCall: (userId: string, callId: string) =>
+    fetchAPI<{
+      call: {
+        id: string;
+        assistant_id: string | null;
+        assistant_name: string;
+        call_type: string;
+        phone_number: string | null;
+        status: string;
+        started_at: string;
+        ended_at: string | null;
+        duration_seconds: number;
+        cost_cents: number;
+        minutes_used: number;
+        transcript: Array<{ role: string; content: string; timestamp?: string }>;
+        summary: string | null;
+        recording_url: string | null;
+        sentiment: string | null;
+        ended_reason: string | null;
+        metadata: Record<string, unknown>;
+      };
+    }>(`/calls/${callId}`, {}, userId),
+
+  getCallStats: (userId: string) =>
+    fetchAPI<{
+      stats: {
+        total_calls: number;
+        total_duration_seconds: number;
+        total_cost_cents: number;
+        avg_duration_seconds: number;
+        completed_calls: number;
+        failed_calls: number;
+        calls_today: number;
+        calls_this_week: number;
+        calls_this_month: number;
+      };
+    }>('/calls/stats/summary', {}, userId),
 };
 
 // Admin API calls
