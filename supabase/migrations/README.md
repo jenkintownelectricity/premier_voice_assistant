@@ -1,0 +1,582 @@
+# Database Migrations for Feature Gates & Subscriptions
+
+This directory contains SQL migrations to add subscription plans, feature gates, and usage tracking to the Premier Voice Assistant.
+
+## 📋 Overview
+
+The migrations add:
+- ✅ Subscription plans (Free, Starter, Pro, Enterprise)
+- ✅ Plan features with configurable limits
+- ✅ User subscription management
+- ✅ Usage tracking and enforcement
+- ✅ Automatic subscription creation for new users
+- ✅ Admin functions for user management
+- ✅ Helper views for easy querying
+- ✅ Client permissions for mobile/web apps (iOS, Android, Web)
+- ✅ Client-safe functions for direct Supabase queries
+- ✅ Stripe payment integration fields
+- ✅ Discount codes and bonus minutes system
+
+## 🚀 Quick Start
+
+### 1. Run Migration 001: Subscription System
+
+In your Supabase dashboard:
+
+1. Go to **SQL Editor**
+2. Click "New query"
+3. Copy and paste the contents of `001_add_subscription_system.sql`
+4. Click "Run"
+
+The migration will:
+- Create all necessary tables
+- Set up Row Level Security (RLS) policies
+- Create helper functions and triggers
+- Insert default subscription plans
+- Create views for easy querying
+
+### 2. Run Migration 002: Client Permissions (Mobile/Web Support)
+
+After migration 001 completes successfully:
+
+1. Go to **SQL Editor**
+2. Click "New query"
+3. Copy and paste the contents of `002_add_client_permissions.sql`
+4. Click "Run"
+
+The migration will:
+- Grant read permissions to authenticated users
+- Create client-safe functions (va_client_check_feature, va_client_get_my_subscription, etc.)
+- Enable mobile/web apps to query subscription and usage data directly
+- Maintain security via auth.uid() and RLS policies
+
+### 3. Run Migration 003: Stripe Payment Fields
+
+After migration 002 completes successfully:
+
+1. Go to **SQL Editor**
+2. Click "New query"
+3. Copy and paste the contents of `003_add_stripe_fields.sql`
+4. Click "Run"
+
+The migration will:
+- Add `stripe_customer_id` to user profiles
+- Add `stripe_subscription_id` to user subscriptions
+- Create indexes for fast lookups
+
+### 4. Run Migration 004: Discount Codes System
+
+After migration 003 completes successfully:
+
+1. Go to **SQL Editor**
+2. Click "New query"
+3. Copy and paste the contents of `004_add_discount_codes.sql`
+4. Click "Run"
+
+The migration will:
+- Create `va_discount_codes` table for promotional codes
+- Create `va_code_redemptions` table for tracking
+- Add `bonus_minutes` column to usage tracking
+- Create `va_redeem_discount_code()` function
+- Update `va_check_feature_gate()` to include bonus minutes
+
+### 5. Run Migration 005: Client Permissions for New Features
+
+After migration 004 completes successfully:
+
+1. Go to **SQL Editor**
+2. Click "New query"
+3. Copy and paste the contents of `005_add_client_permissions_v2.sql`
+4. Click "Run"
+
+The migration will:
+- Add RLS policies for discount codes tables
+- Create client-safe functions for discount codes
+- Update `va_client_get_my_usage()` to include bonus minutes
+- Create `va_client_redeem_code()` function
+- Create `va_client_validate_code()` function
+
+### 6. Seed Plan Features
+
+After running the migration, seed the plan features:
+
+```bash
+cd /home/user/premier_voice_assistant
+python scripts/seed_plan_features.py
+```
+
+This will populate the `va_plan_features` table with limits for each plan:
+
+**Free Plan:**
+- 100 minutes/month
+- 1 assistant
+- 0 custom voices
+- No API access
+
+**Starter Plan ($99/month):**
+- 2,000 minutes/month
+- 3 assistants
+- 2 custom voices
+- API access
+
+**Pro Plan ($299/month):**
+- 10,000 minutes/month
+- Unlimited assistants
+- Unlimited custom voices
+- Full API access
+- Priority support
+
+**Enterprise Plan (Custom):**
+- Unlimited everything
+- Dedicated support
+
+### 3. Set Admin API Key
+
+Add an admin API key to your environment variables:
+
+```bash
+# In your .env file or Supabase dashboard
+ADMIN_API_KEY=your-secure-random-key-here
+```
+
+This key is required for the `/admin/upgrade-user` endpoint.
+
+## 📊 Database Schema
+
+### Tables
+
+#### va_subscription_plans
+Stores available subscription plans.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| plan_name | VARCHAR(50) | Plan identifier ('free', 'starter', etc.) |
+| display_name | VARCHAR(100) | Display name |
+| price_cents | INTEGER | Price in cents |
+| billing_interval | VARCHAR(20) | 'monthly' or 'yearly' |
+
+#### va_plan_features
+Feature limits for each plan.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| plan_id | UUID | References va_subscription_plans |
+| feature_key | VARCHAR(100) | Feature name |
+| feature_value | JSONB | Feature value (limit or boolean) |
+| description | TEXT | Feature description |
+
+#### va_user_subscriptions
+User subscription status and billing info.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| user_id | UUID | References auth.users |
+| plan_id | UUID | References va_subscription_plans |
+| status | VARCHAR(20) | 'active', 'cancelled', 'expired' |
+| current_period_start | TIMESTAMP | Billing period start |
+| current_period_end | TIMESTAMP | Billing period end |
+| stripe_customer_id | VARCHAR(100) | Optional Stripe customer ID |
+| stripe_subscription_id | VARCHAR(100) | Optional Stripe subscription ID |
+
+#### va_usage_tracking
+Monthly usage tracking for enforcing limits.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| user_id | UUID | References auth.users |
+| period_start | TIMESTAMP | Tracking period start |
+| period_end | TIMESTAMP | Tracking period end |
+| minutes_used | INTEGER | Minutes consumed |
+| minutes_limit | INTEGER | Minutes limit |
+| assistants_count | INTEGER | Number of assistants |
+| voice_clones_count | INTEGER | Number of voice clones |
+| overage_minutes | INTEGER | Minutes beyond limit |
+| overage_cost_cents | INTEGER | Cost for overages |
+| bonus_minutes | INTEGER | Bonus minutes from discount codes |
+
+#### va_discount_codes
+Promotional and discount codes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| code | TEXT | Unique code string |
+| description | TEXT | Code description |
+| discount_type | TEXT | 'percentage', 'fixed', 'minutes', 'upgrade' |
+| discount_value | INTEGER | Value (%, cents, minutes, or plan) |
+| applicable_plan | TEXT | Plan this applies to (optional) |
+| max_uses | INTEGER | Max total redemptions (NULL = unlimited) |
+| current_uses | INTEGER | Current redemption count |
+| max_uses_per_user | INTEGER | Max uses per user (default: 1) |
+| valid_from | TIMESTAMPTZ | Start validity date |
+| valid_until | TIMESTAMPTZ | End validity date |
+| is_active | BOOLEAN | Whether code is active |
+
+#### va_code_redemptions
+Tracks code redemptions by users.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| code_id | UUID | References va_discount_codes |
+| user_id | UUID | User who redeemed |
+| redeemed_at | TIMESTAMPTZ | When code was redeemed |
+| applied_value | INTEGER | Actual value applied |
+| metadata | JSONB | Additional redemption data |
+
+### Functions
+
+#### va_get_user_plan(user_id UUID)
+Get user's active subscription plan.
+
+```sql
+SELECT * FROM va_get_user_plan('user-id-here');
+```
+
+#### va_get_feature_limit(user_id UUID, feature_key VARCHAR)
+Get feature limit value for a user.
+
+```sql
+SELECT va_get_feature_limit('user-id-here', 'max_minutes');
+```
+
+#### va_check_feature_gate(user_id UUID, feature_key VARCHAR, requested_amount INTEGER)
+Check if user can perform an action.
+
+```sql
+SELECT * FROM va_check_feature_gate('user-id-here', 'max_minutes', 1);
+```
+
+Returns:
+- `allowed` (boolean): Whether action is allowed
+- `current_usage` (integer): Current usage
+- `limit_value` (integer): Plan limit (-1 = unlimited)
+- `remaining` (integer): Remaining quota
+
+#### va_increment_usage(user_id UUID, minutes INTEGER, metadata JSONB)
+Increment usage counters.
+
+```sql
+SELECT va_increment_usage('user-id-here', 5, '{"conversation_id": "123"}'::jsonb);
+```
+
+#### va_admin_upgrade_user(user_id UUID, plan_name VARCHAR)
+Admin function to upgrade user subscription.
+
+```sql
+SELECT va_admin_upgrade_user('user-id-here', 'pro');
+```
+
+### Client-Safe Functions (Migration 002)
+
+These functions are designed for mobile and web apps to call directly using the `anon` or `authenticated` Supabase key. They automatically use `auth.uid()` to scope queries to the authenticated user.
+
+#### va_client_check_feature(feature_key VARCHAR, requested_amount INTEGER)
+Check if the authenticated user can use a feature.
+
+```sql
+-- Example: Check if user can use 1 minute
+SELECT * FROM va_client_check_feature('max_minutes', 1);
+```
+
+Returns:
+- `allowed` (boolean): Whether action is allowed
+- `current_usage` (integer): Current usage
+- `limit_value` (integer): Plan limit (-1 = unlimited)
+- `remaining` (integer): Remaining quota
+- `plan_name` (varchar): User's plan name
+- `upgrade_required` (boolean): Whether upgrade is needed
+
+#### va_client_get_my_subscription()
+Get the authenticated user's subscription info.
+
+```sql
+SELECT * FROM va_client_get_my_subscription();
+```
+
+Returns:
+- `plan_name`, `display_name`, `price_cents`
+- `status`, `current_period_start`, `current_period_end`
+- `days_remaining` (integer)
+
+#### va_client_get_my_usage()
+Get the authenticated user's current usage statistics.
+
+```sql
+SELECT * FROM va_client_get_my_usage();
+```
+
+Returns:
+- `minutes_used`, `minutes_limit`, `usage_percentage`
+- `assistants_count`, `assistants_limit`
+- `voice_clones_count`, `voice_clones_limit`
+- `period_start`, `period_end`
+
+#### va_client_get_available_plans()
+Get all available subscription plans (public data).
+
+```sql
+SELECT * FROM va_client_get_available_plans();
+```
+
+Returns array of plans with features as JSONB.
+
+#### va_client_redeem_code(p_code TEXT)
+Redeem a discount code for the authenticated user.
+
+```sql
+SELECT * FROM va_client_redeem_code('WELCOME2024');
+```
+
+Returns JSONB with:
+- `success` (boolean): Whether redemption succeeded
+- `discount_type` (text): Type of discount applied
+- `discount_value` (integer): Value of the discount
+- `message` (text): Success message
+
+#### va_client_validate_code(p_code TEXT)
+Check if a code is valid without redeeming it.
+
+```sql
+SELECT * FROM va_client_validate_code('WELCOME2024');
+```
+
+Returns JSONB with:
+- `valid` (boolean): Whether code is valid
+- `discount_type`, `discount_value`, `description`
+- `error` (text): Error message if invalid
+
+#### va_client_get_my_redemptions()
+Get list of codes the authenticated user has redeemed.
+
+```sql
+SELECT * FROM va_client_get_my_redemptions();
+```
+
+Returns:
+- `code`, `discount_type`, `discount_value`
+- `description`, `redeemed_at`
+
+**Usage in Mobile/Web Apps:**
+
+See **[Mobile Integration Guide](../../docs/MOBILE_INTEGRATION.md)** for complete examples in Swift, Kotlin, and TypeScript.
+
+### Views
+
+#### va_user_subscription_details
+User subscription with plan details (easier querying).
+
+```sql
+SELECT * FROM va_user_subscription_details WHERE user_id = 'user-id-here';
+```
+
+#### va_current_usage_summary
+Current period usage summary.
+
+```sql
+SELECT * FROM va_current_usage_summary WHERE user_id = 'user-id-here';
+```
+
+## 🧪 Testing
+
+### Test the Feature Gates
+
+Run the comprehensive test script:
+
+```bash
+python scripts/test_feature_gates.py
+```
+
+This will:
+1. ✅ Create a test user with Free plan
+2. ✅ Test Free plan limits (100 minutes)
+3. ✅ Simulate exceeding limits
+4. ✅ Upgrade user to Pro plan
+5. ✅ Test Pro plan features (10,000 minutes)
+6. ✅ Clean up test data
+
+### Manual Testing
+
+#### Create a test user profile
+
+```sql
+-- This will automatically create a Free plan subscription
+INSERT INTO public.va_user_profiles (id, phone)
+VALUES ('test-user-id', '+1234567890');
+```
+
+#### Check user's subscription
+
+```sql
+SELECT * FROM va_user_subscription_details
+WHERE user_id = 'test-user-id';
+```
+
+#### Check feature limits
+
+```sql
+SELECT * FROM va_check_feature_gate('test-user-id', 'max_minutes', 1);
+```
+
+#### Simulate usage
+
+```sql
+SELECT va_increment_usage('test-user-id', 50, '{}'::jsonb);
+```
+
+#### Upgrade user
+
+```sql
+SELECT va_admin_upgrade_user('test-user-id', 'pro');
+```
+
+#### Check usage summary
+
+```sql
+SELECT * FROM va_current_usage_summary
+WHERE user_id = 'test-user-id';
+```
+
+## 🔒 Security
+
+### Row Level Security (RLS)
+
+All tables have RLS enabled:
+
+- ✅ Users can only view their own subscription and usage
+- ✅ Service role key (backend) can insert/update everything
+- ✅ Anonymous users cannot access subscription data
+
+### Admin Operations
+
+Admin operations require:
+- Backend service role key (for database functions)
+- Admin API key (for API endpoints)
+
+Never expose these keys to clients!
+
+## 💰 Economics
+
+With feature gates enforced:
+
+**Free User (100 min/mo):**
+- Your cost: $1.15
+- Your revenue: $0
+- Loss: $1.15 (acceptable for acquisition)
+
+**Starter User (2,000 min/mo):**
+- Your cost: $23
+- Your revenue: $99
+- Profit: $76 (77% margin) ✅
+
+**Pro User (10,000 min/mo):**
+- Your cost: $115
+- Your revenue: $299
+- Profit: $184 (62% margin) ✅
+
+### Limits Prevent Abuse
+
+- ❌ Can't use unlimited minutes on Free plan
+- ✅ Automatic overage billing at $0.10/min (Starter)
+- ✅ Admin can monitor usage in real-time
+- ✅ Predictable costs and revenue
+
+## 🔄 Integration with Backend
+
+The backend automatically enforces feature gates:
+
+### Protected Endpoints
+
+- `POST /chat` - Checks `max_minutes`, increments usage
+- `POST /clone-voice` - Checks `custom_voices` capability and `max_voice_clones` limit
+
+### Usage Tracking
+
+Usage is automatically tracked on:
+- Every chat conversation (based on audio duration)
+- Voice clone creation (counts toward limit)
+
+### API Endpoints
+
+New endpoints added:
+- `GET /subscription` - Get user's plan
+- `GET /usage` - Get user's current usage
+- `GET /feature-limits` - Get all feature limits
+- `POST /admin/upgrade-user` - Admin upgrade (requires admin key)
+
+## 📝 Customizing Plans
+
+### Modify Plan Limits
+
+Edit `scripts/seed_plan_features.py` and update the `plan_features` dictionary:
+
+```python
+plan_features = {
+    "free": {
+        "max_minutes": 100,  # Change this
+        "max_assistants": 1,
+        # ...
+    },
+    # ...
+}
+```
+
+Then re-run the seed script:
+
+```bash
+python scripts/seed_plan_features.py
+```
+
+### Add New Features
+
+1. Add feature to `plan_features` in seed script
+2. Update `backend/feature_gates.py` to enforce the feature
+3. Add feature check to relevant API endpoints
+
+## 🐛 Troubleshooting
+
+### "Failed to check feature gate"
+
+- Check that migration ran successfully
+- Verify user has a subscription (check `va_user_subscriptions`)
+- Check Supabase logs for errors
+
+### "No subscription found"
+
+New users should get Free plan automatically. If not:
+
+```sql
+-- Manually create subscription
+INSERT INTO public.va_user_subscriptions (user_id, plan_id, status)
+SELECT
+    'user-id-here',
+    (SELECT id FROM public.va_subscription_plans WHERE plan_name = 'free'),
+    'active';
+```
+
+### "Feature limits not working"
+
+- Check that plan features are seeded: `SELECT * FROM va_plan_features;`
+- Re-run seed script if empty: `python scripts/seed_plan_features.py`
+
+## 📚 Next Steps
+
+1. ✅ Run migration
+2. ✅ Seed plan features
+3. ✅ Test with test script
+4. ✅ Integrate Stripe for payment processing
+5. ✅ Add webhook handlers for subscription updates
+6. ✅ Build user dashboard for plan management
+7. ✅ Add email notifications for limit warnings
+
+## 🆘 Support
+
+For issues or questions:
+- Check Supabase logs in dashboard
+- Review migration SQL for errors
+- Test with `test_feature_gates.py`
+- Check backend logs for feature gate errors

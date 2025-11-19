@@ -3,7 +3,11 @@ Premier Voice Assistant - FastAPI Backend
 Orchestrates STT → Claude → TTS with Supabase database integration
 Designed for mobile apps (iOS/Android)
 """
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header
+# Load environment variables from .env file FIRST
+from dotenv import load_dotenv
+load_dotenv()
+
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -15,6 +19,8 @@ import os
 from datetime import datetime
 
 from backend.supabase_client import get_supabase, SupabaseManager
+from backend.feature_gates import get_feature_gate, FeatureGateError
+from backend.stripe_payments import get_stripe_payments, handle_webhook_event
 
 # Configure logging
 logging.basicConfig(
@@ -55,6 +61,49 @@ class UserPreferencesUpdate(BaseModel):
     preferred_voice: Optional[str] = None
     conversation_style: Optional[str] = None
     language: Optional[str] = None
+
+
+class AdminUpgradeRequest(BaseModel):
+    user_id: str
+    plan_name: str  # 'free', 'starter', 'pro', 'enterprise'
+
+
+class AdminResetUsageRequest(BaseModel):
+    user_id: str
+    reset_minutes: bool = True
+    reset_conversations: bool = False
+    reset_voice_clones: bool = False
+
+
+class CreateCheckoutRequest(BaseModel):
+    plan_name: str  # 'starter', 'pro', 'enterprise'
+    success_url: str
+    cancel_url: str
+
+
+class CreatePortalRequest(BaseModel):
+    return_url: str
+
+
+class RedeemCodeRequest(BaseModel):
+    code: str
+
+
+class CreateDiscountCodeRequest(BaseModel):
+    code: str
+    description: Optional[str] = None
+    discount_type: str  # 'percentage', 'fixed', 'minutes', 'upgrade'
+    discount_value: int
+    applicable_plan: Optional[str] = None
+    max_uses: Optional[int] = None
+    max_uses_per_user: int = 1
+    valid_until: Optional[str] = None  # ISO format datetime
+
+
+class AddBonusMinutesRequest(BaseModel):
+    user_id: str
+    minutes: int
+    reason: Optional[str] = None
 
 
 class VoiceAssistant:
@@ -411,6 +460,13 @@ async def chat(
         X-Conversation-ID: Optional conversation to continue
     """
     try:
+        # Check feature gate - assume ~1 minute per conversation
+        feature_gate = get_feature_gate()
+        try:
+            feature_gate.enforce_feature(user_id, "max_minutes", 1)
+        except FeatureGateError as e:
+            raise HTTPException(status_code=402, detail=e.message)
+
         audio_bytes = await audio.read()
 
         result = assistant.process_voice_input(
@@ -418,6 +474,20 @@ async def chat(
             user_id=user_id,
             conversation_id=conversation_id,
             voice=voice,
+        )
+
+        # Track actual usage (based on audio duration)
+        # Estimate: ~60 seconds = 1 minute
+        duration_seconds = result.get('audio_duration_seconds', 60)
+        minutes_used = max(1, int(duration_seconds / 60))
+
+        feature_gate.increment_usage(
+            user_id=user_id,
+            minutes=minutes_used,
+            metadata={
+                "conversation_id": result['conversation_id'],
+                "total_latency_ms": result['metrics']['total_latency_ms'],
+            }
         )
 
         # Return audio response directly
@@ -435,6 +505,8 @@ async def chat(
             },
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -456,6 +528,26 @@ async def clone_voice(
         X-User-ID: Required user ID
     """
     try:
+        # Check if user's plan allows custom voices
+        feature_gate = get_feature_gate()
+        from backend.feature_gates import get_plan_features
+
+        plan = feature_gate.get_user_plan(user_id)
+        plan_name = plan.get("plan_name", "free") if plan else "free"
+        plan_features = get_plan_features(plan_name)
+
+        if not plan_features.get("custom_voices", False):
+            raise HTTPException(
+                status_code=402,
+                detail="Custom voices not available on your plan. Upgrade to Starter or higher."
+            )
+
+        # Check voice clone limit
+        try:
+            feature_gate.enforce_feature(user_id, "max_voice_clones", 1)
+        except FeatureGateError as e:
+            raise HTTPException(status_code=402, detail=e.message)
+
         audio_bytes = await audio.read()
 
         # Upload to Supabase Storage
@@ -482,6 +574,8 @@ async def clone_voice(
             "voice_clone": voice_clone,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Voice cloning error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -583,6 +677,926 @@ async def get_voice_clones(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# SUBSCRIPTION & USAGE ROUTES
+# ============================================================================
+
+@app.get("/subscription")
+async def get_subscription(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's current subscription plan.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        # Get subscription with plan details
+        result = db.client.table("va_user_subscriptions").select(
+            "*, va_subscription_plans(*)"
+        ).eq("user_id", user_id).eq("status", "active").execute()
+
+        if not result.data:
+            return {
+                "subscription": None,
+                "message": "No active subscription found"
+            }
+
+        subscription = result.data[0]
+        plan = subscription.get("va_subscription_plans", {})
+
+        return {
+            "subscription": {
+                "plan_name": plan.get("plan_name"),
+                "display_name": plan.get("display_name"),
+                "price_cents": plan.get("price_cents", 0),
+                "status": subscription.get("status"),
+                "current_period_start": subscription.get("current_period_start"),
+                "current_period_end": subscription.get("current_period_end")
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting subscription: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/usage")
+async def get_usage(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's current usage statistics.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        feature_gate = get_feature_gate()
+        usage = feature_gate.get_user_usage(user_id)
+
+        if not usage:
+            return {
+                "usage": {
+                    "minutes_used": 0,
+                    "conversations_count": 0,
+                    "voice_clones_count": 0,
+                    "assistants_count": 0
+                }
+            }
+
+        return {"usage": usage}
+
+    except Exception as e:
+        logger.error(f"Error getting usage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/feature-limits")
+async def get_feature_limits(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get all feature limits for user's current plan.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        feature_gate = get_feature_gate()
+        plan = feature_gate.get_user_plan(user_id)
+
+        if not plan:
+            return {
+                "plan": "none",
+                "limits": {}
+            }
+
+        plan_name = plan.get("plan_name", "free")
+
+        # Get all features for this plan
+        from backend.feature_gates import get_plan_features
+        features = get_plan_features(plan_name)
+
+        # Get current usage
+        usage = feature_gate.get_user_usage(user_id) or {}
+
+        return {
+            "plan": plan_name,
+            "display_name": plan.get("display_name", plan_name.title()),
+            "limits": features,
+            "current_usage": {
+                "minutes_used": usage.get("minutes_used", 0),
+                "assistants_count": usage.get("assistants_count", 0),
+                "voice_clones_count": usage.get("voice_clones_count", 0)
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting feature limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# ADMIN ROUTES
+# ============================================================================
+
+@app.post("/admin/upgrade-user")
+async def admin_upgrade_user(
+    request: AdminUpgradeRequest,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Upgrade a user to a different subscription plan.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Body:
+        user_id: User UUID to upgrade
+        plan_name: Target plan ('free', 'starter', 'pro', 'enterprise')
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Validate plan name
+        valid_plans = ['free', 'starter', 'pro', 'enterprise']
+        if request.plan_name not in valid_plans:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid plan. Must be one of: {', '.join(valid_plans)}"
+            )
+
+        # Get plan ID
+        plan_result = db.client.table("va_subscription_plans").select("id, display_name").eq(
+            "plan_name", request.plan_name
+        ).execute()
+
+        if not plan_result.data:
+            raise HTTPException(status_code=404, detail=f"Plan '{request.plan_name}' not found")
+
+        plan = plan_result.data[0]
+
+        # Check if user has existing subscription
+        sub_result = db.client.table("va_user_subscriptions").select("id").eq(
+            "user_id", request.user_id
+        ).eq("status", "active").execute()
+
+        if sub_result.data:
+            # Update existing subscription
+            db.client.table("va_user_subscriptions").update({
+                "plan_id": plan["id"],
+                "updated_at": "now()"
+            }).eq("user_id", request.user_id).eq("status", "active").execute()
+
+            logger.info(f"Upgraded user {request.user_id} to {request.plan_name}")
+        else:
+            # Create new subscription
+            from datetime import datetime, timedelta
+            now = datetime.utcnow()
+            period_end = now + timedelta(days=30)
+
+            db.client.table("va_user_subscriptions").insert({
+                "user_id": request.user_id,
+                "plan_id": plan["id"],
+                "status": "active",
+                "current_period_start": now.isoformat(),
+                "current_period_end": period_end.isoformat()
+            }).execute()
+
+            logger.info(f"Created new {request.plan_name} subscription for user {request.user_id}")
+
+        return {
+            "success": True,
+            "user_id": request.user_id,
+            "plan": request.plan_name,
+            "display_name": plan["display_name"],
+            "message": f"User upgraded to {plan['display_name']} plan"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error upgrading user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/user-subscription/{user_id}")
+async def admin_get_user_subscription(
+    user_id: str,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get a user's current subscription details.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Get subscription with plan details
+        result = db.client.table("va_user_subscriptions").select(
+            "*, va_subscription_plans(*)"
+        ).eq("user_id", user_id).eq("status", "active").execute()
+
+        if not result.data:
+            return {
+                "user_id": user_id,
+                "subscription": None,
+                "message": "No active subscription found"
+            }
+
+        subscription = result.data[0]
+        plan = subscription.get("va_subscription_plans", {})
+
+        return {
+            "user_id": user_id,
+            "subscription": {
+                "plan_name": plan.get("plan_name"),
+                "display_name": plan.get("display_name"),
+                "status": subscription.get("status"),
+                "current_period_start": subscription.get("current_period_start"),
+                "current_period_end": subscription.get("current_period_end")
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user subscription: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/reset-usage")
+async def admin_reset_usage(
+    request: AdminResetUsageRequest,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Reset usage counters for a user (for new billing period).
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Body:
+        user_id: User UUID
+        reset_minutes: Reset minutes_used to 0 (default: True)
+        reset_conversations: Reset conversations_count to 0 (default: False)
+        reset_voice_clones: Reset voice_clones_count to 0 (default: False)
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Build update dict
+        updates = {}
+        reset_fields = []
+
+        if request.reset_minutes:
+            updates["minutes_used"] = 0
+            reset_fields.append("minutes")
+
+        if request.reset_conversations:
+            updates["conversations_count"] = 0
+            reset_fields.append("conversations")
+
+        if request.reset_voice_clones:
+            updates["voice_clones_count"] = 0
+            reset_fields.append("voice_clones")
+
+        if not updates:
+            return {
+                "success": False,
+                "message": "No fields selected for reset"
+            }
+
+        # Get current billing period
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Update or create usage record for current period
+        existing = db.client.table("va_usage_tracking").select("id").eq(
+            "user_id", request.user_id
+        ).gte("period_start", period_start.isoformat()).execute()
+
+        if existing.data:
+            # Update existing record
+            db.client.table("va_usage_tracking").update(updates).eq(
+                "id", existing.data[0]["id"]
+            ).execute()
+        else:
+            # Create new record with reset values
+            updates["user_id"] = request.user_id
+            updates["period_start"] = period_start.isoformat()
+            updates["period_end"] = (period_start + timedelta(days=30)).isoformat()
+            db.client.table("va_usage_tracking").insert(updates).execute()
+
+        logger.info(f"Reset usage for user {request.user_id}: {', '.join(reset_fields)}")
+
+        return {
+            "success": True,
+            "user_id": request.user_id,
+            "reset_fields": reset_fields,
+            "message": f"Reset {', '.join(reset_fields)} for user"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resetting usage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/start-billing-period")
+async def admin_start_billing_period(
+    user_id: str,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Start a new billing period for a user (resets all usage).
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Query:
+        user_id: User UUID
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        period_end = now + timedelta(days=30)
+
+        # Create new usage tracking record
+        new_usage = db.client.table("va_usage_tracking").insert({
+            "user_id": user_id,
+            "period_start": now.isoformat(),
+            "period_end": period_end.isoformat(),
+            "minutes_used": 0,
+            "conversations_count": 0,
+            "voice_clones_count": 0,
+            "assistants_count": 0
+        }).execute()
+
+        # Update subscription period
+        db.client.table("va_user_subscriptions").update({
+            "current_period_start": now.isoformat(),
+            "current_period_end": period_end.isoformat()
+        }).eq("user_id", user_id).eq("status", "active").execute()
+
+        logger.info(f"Started new billing period for user {user_id}")
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "period_start": now.isoformat(),
+            "period_end": period_end.isoformat(),
+            "message": "New billing period started with reset usage"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting billing period: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# STRIPE PAYMENT ROUTES
+# ============================================================================
+
+@app.post("/payments/create-checkout")
+async def create_checkout_session(
+    request: CreateCheckoutRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Create a Stripe Checkout session for subscription upgrade.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Body:
+        plan_name: Plan to subscribe to ('starter', 'pro', 'enterprise')
+        success_url: URL to redirect on success
+        cancel_url: URL to redirect on cancel
+    """
+    try:
+        stripe = get_stripe_payments()
+
+        # Get user profile for email
+        profile = db.get_or_create_user_profile(user_id)
+        email = profile.get("email", f"{user_id}@placeholder.com")
+
+        # Get or create Stripe customer
+        customer_id = profile.get("stripe_customer_id")
+        if not customer_id:
+            customer_id = stripe.create_customer(
+                user_id=user_id,
+                email=email,
+                name=profile.get("display_name")
+            )
+            if customer_id:
+                # Save customer ID to profile
+                db.client.table("va_user_profiles").update({
+                    "stripe_customer_id": customer_id
+                }).eq("user_id", user_id).execute()
+
+        if not customer_id:
+            raise HTTPException(status_code=500, detail="Failed to create Stripe customer")
+
+        # Create checkout session
+        session = stripe.create_checkout_session(
+            user_id=user_id,
+            customer_id=customer_id,
+            plan_name=request.plan_name,
+            success_url=request.success_url,
+            cancel_url=request.cancel_url
+        )
+
+        if not session:
+            raise HTTPException(status_code=500, detail="Failed to create checkout session")
+
+        return session
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating checkout session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/payments/create-portal")
+async def create_portal_session(
+    request: CreatePortalRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Create a Stripe Customer Portal session for managing subscription.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Body:
+        return_url: URL to return to after portal
+    """
+    try:
+        stripe = get_stripe_payments()
+
+        # Get user's Stripe customer ID
+        profile = db.get_or_create_user_profile(user_id)
+        customer_id = profile.get("stripe_customer_id")
+
+        if not customer_id:
+            raise HTTPException(
+                status_code=400,
+                detail="No payment method on file. Please subscribe first."
+            )
+
+        # Create portal session
+        portal_url = stripe.create_portal_session(
+            customer_id=customer_id,
+            return_url=request.return_url
+        )
+
+        if not portal_url:
+            raise HTTPException(status_code=500, detail="Failed to create portal session")
+
+        return {"url": portal_url}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating portal session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/payments/webhook")
+async def stripe_webhook(
+    request: Request,
+):
+    """
+    Handle Stripe webhook events.
+
+    This endpoint receives events from Stripe for subscription updates,
+    payment success/failure, etc.
+    """
+    try:
+        payload = await request.body()
+        sig_header = request.headers.get("stripe-signature")
+
+        if not sig_header:
+            raise HTTPException(status_code=400, detail="Missing stripe-signature header")
+
+        result = handle_webhook_event(payload, sig_header)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        # Process the event result
+        event = result.get("event")
+        db = get_supabase()
+
+        if event == "checkout_completed":
+            # Upgrade user to new plan
+            user_id = result.get("user_id")
+            plan_name = result.get("plan_name")
+            subscription_id = result.get("subscription_id")
+
+            if user_id and plan_name:
+                # Get plan ID
+                plan_result = db.client.table("va_subscription_plans").select("id").eq(
+                    "plan_name", plan_name
+                ).execute()
+
+                if plan_result.data:
+                    plan_id = plan_result.data[0]["id"]
+
+                    # Update or create subscription
+                    db.client.table("va_user_subscriptions").upsert({
+                        "user_id": user_id,
+                        "plan_id": plan_id,
+                        "status": "active",
+                        "stripe_subscription_id": subscription_id,
+                        "updated_at": datetime.utcnow().isoformat()
+                    }, on_conflict="user_id").execute()
+
+                    logger.info(f"Activated {plan_name} subscription for user {user_id}")
+
+        elif event == "payment_succeeded":
+            # Update billing period and reset usage
+            subscription_id = result.get("subscription_id")
+            period_start = result.get("period_start")
+            period_end = result.get("period_end")
+
+            if subscription_id:
+                # Find user by subscription ID
+                sub_result = db.client.table("va_user_subscriptions").select("user_id").eq(
+                    "stripe_subscription_id", subscription_id
+                ).execute()
+
+                if sub_result.data:
+                    user_id = sub_result.data[0]["user_id"]
+
+                    # Update subscription period
+                    db.client.table("va_user_subscriptions").update({
+                        "current_period_start": period_start,
+                        "current_period_end": period_end
+                    }).eq("stripe_subscription_id", subscription_id).execute()
+
+                    # Create new usage tracking record (reset usage)
+                    db.client.table("va_usage_tracking").insert({
+                        "user_id": user_id,
+                        "period_start": period_start,
+                        "period_end": period_end,
+                        "minutes_used": 0,
+                        "conversations_count": 0,
+                        "voice_clones_count": 0,
+                        "assistants_count": 0
+                    }).execute()
+
+                    logger.info(f"Reset usage for new billing period: user {user_id}")
+
+        elif event == "subscription_cancelled":
+            # Downgrade to free plan
+            subscription_id = result.get("subscription_id")
+
+            if subscription_id:
+                # Find and downgrade user
+                sub_result = db.client.table("va_user_subscriptions").select("user_id").eq(
+                    "stripe_subscription_id", subscription_id
+                ).execute()
+
+                if sub_result.data:
+                    user_id = sub_result.data[0]["user_id"]
+
+                    # Get free plan ID
+                    free_plan = db.client.table("va_subscription_plans").select("id").eq(
+                        "plan_name", "free"
+                    ).execute()
+
+                    if free_plan.data:
+                        db.client.table("va_user_subscriptions").update({
+                            "plan_id": free_plan.data[0]["id"],
+                            "stripe_subscription_id": None,
+                            "status": "active"
+                        }).eq("user_id", user_id).execute()
+
+                        logger.info(f"Downgraded user {user_id} to free plan")
+
+        return {"received": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error handling webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# DISCOUNT CODE ROUTES
+# ============================================================================
+
+@app.post("/codes/redeem")
+async def redeem_discount_code(
+    request: RedeemCodeRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Redeem a discount code.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Body:
+        code: Discount code to redeem
+    """
+    try:
+        # Call the database function to redeem
+        result = db.client.rpc(
+            "va_redeem_discount_code",
+            {
+                "p_user_id": user_id,
+                "p_code": request.code.upper()
+            }
+        ).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=400, detail="Failed to process code")
+
+        redemption_result = result.data
+
+        if not redemption_result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=redemption_result.get("error", "Invalid code")
+            )
+
+        logger.info(f"User {user_id} redeemed code {request.code}: {redemption_result.get('message')}")
+
+        return redemption_result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error redeeming code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/codes")
+async def create_discount_code(
+    request: CreateDiscountCodeRequest,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Create a new discount code.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Body:
+        code: Unique code string
+        description: Optional description
+        discount_type: 'percentage', 'fixed', 'minutes', 'upgrade'
+        discount_value: Value based on type
+        applicable_plan: Optional plan restriction
+        max_uses: Optional max total uses
+        max_uses_per_user: Max uses per user (default 1)
+        valid_until: Optional expiry datetime (ISO format)
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Validate discount type
+        valid_types = ['percentage', 'fixed', 'minutes', 'upgrade']
+        if request.discount_type not in valid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid discount_type. Must be one of: {', '.join(valid_types)}"
+            )
+
+        # Create the code
+        code_data = {
+            "code": request.code.upper(),
+            "description": request.description,
+            "discount_type": request.discount_type,
+            "discount_value": request.discount_value,
+            "applicable_plan": request.applicable_plan,
+            "max_uses": request.max_uses,
+            "max_uses_per_user": request.max_uses_per_user,
+            "valid_until": request.valid_until,
+            "is_active": True
+        }
+
+        result = db.client.table("va_discount_codes").insert(code_data).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to create code")
+
+        logger.info(f"Created discount code: {request.code}")
+
+        return {
+            "success": True,
+            "code": result.data[0]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating discount code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/codes")
+async def list_discount_codes(
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    active_only: bool = True,
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    List all discount codes.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Query:
+        active_only: Only show active codes (default True)
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        query = db.client.table("va_discount_codes").select("*")
+
+        if active_only:
+            query = query.eq("is_active", True)
+
+        result = query.order("created_at", desc=True).execute()
+
+        return {
+            "codes": result.data,
+            "count": len(result.data)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing codes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/add-minutes")
+async def add_bonus_minutes(
+    request: AddBonusMinutesRequest,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Add bonus minutes to a user's account.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Body:
+        user_id: User UUID
+        minutes: Number of bonus minutes to add
+        reason: Optional reason for the bonus
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        if request.minutes <= 0:
+            raise HTTPException(status_code=400, detail="Minutes must be positive")
+
+        # Get current usage record
+        usage_result = db.client.table("va_usage_tracking").select("*").eq(
+            "user_id", request.user_id
+        ).order("period_start", desc=True).limit(1).execute()
+
+        if usage_result.data:
+            # Update existing record
+            current_bonus = usage_result.data[0].get("bonus_minutes", 0) or 0
+            new_bonus = current_bonus + request.minutes
+
+            db.client.table("va_usage_tracking").update({
+                "bonus_minutes": new_bonus
+            }).eq("id", usage_result.data[0]["id"]).execute()
+
+            logger.info(f"Added {request.minutes} bonus minutes to user {request.user_id} (total: {new_bonus})")
+
+            return {
+                "success": True,
+                "user_id": request.user_id,
+                "minutes_added": request.minutes,
+                "total_bonus_minutes": new_bonus,
+                "reason": request.reason,
+                "message": f"Added {request.minutes} bonus minutes"
+            }
+        else:
+            # Create new usage record with bonus minutes
+            from datetime import datetime, timedelta
+            now = datetime.utcnow()
+
+            db.client.table("va_usage_tracking").insert({
+                "user_id": request.user_id,
+                "period_start": now.isoformat(),
+                "period_end": (now + timedelta(days=30)).isoformat(),
+                "minutes_used": 0,
+                "bonus_minutes": request.minutes
+            }).execute()
+
+            logger.info(f"Created usage record with {request.minutes} bonus minutes for user {request.user_id}")
+
+            return {
+                "success": True,
+                "user_id": request.user_id,
+                "minutes_added": request.minutes,
+                "total_bonus_minutes": request.minutes,
+                "reason": request.reason,
+                "message": f"Added {request.minutes} bonus minutes"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding bonus minutes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/admin/codes/{code}")
+async def delete_discount_code(
+    code: str,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Deactivate a discount code.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Deactivate the code (soft delete)
+        result = db.client.table("va_discount_codes").update({
+            "is_active": False
+        }).eq("code", code.upper()).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Code not found")
+
+        logger.info(f"Deactivated discount code: {code}")
+
+        return {
+            "success": True,
+            "message": f"Code {code} deactivated"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -593,13 +1607,32 @@ if __name__ == "__main__":
     print("  GET    /health                        - Health check")
     print("  POST   /transcribe                    - Audio → Text")
     print("  POST   /speak                         - Text → Audio")
-    print("  POST   /chat                          - Full voice conversation")
-    print("  POST   /clone-voice                   - Clone a new voice")
+    print("  POST   /chat                          - Full voice conversation (PROTECTED)")
+    print("  POST   /clone-voice                   - Clone a new voice (PROTECTED)")
     print("  GET    /conversations                 - Get user conversations")
     print("  GET    /conversations/{id}/messages   - Get conversation messages")
     print("  GET    /profile                       - Get user profile")
     print("  PATCH  /profile                       - Update user profile")
     print("  GET    /voice-clones                  - Get user's voice clones")
+    print("\nSubscription & Usage:")
+    print("  GET    /subscription                  - Get user's subscription plan")
+    print("  GET    /usage                         - Get user's usage statistics")
+    print("  GET    /feature-limits                - Get user's feature limits")
+    print("\nAdmin:")
+    print("  POST   /admin/upgrade-user            - Upgrade user plan")
+    print("  POST   /admin/reset-usage             - Reset usage counters")
+    print("  POST   /admin/start-billing-period    - Start new billing period")
+    print("  GET    /admin/user-subscription/{id}  - Get user subscription")
+    print("\nPayments (Stripe):")
+    print("  POST   /payments/create-checkout      - Create checkout session")
+    print("  POST   /payments/create-portal        - Create customer portal")
+    print("  POST   /payments/webhook              - Stripe webhook handler")
+    print("\nDiscount Codes:")
+    print("  POST   /codes/redeem                  - Redeem a discount code")
+    print("  POST   /admin/codes                   - Create discount code")
+    print("  GET    /admin/codes                   - List all codes")
+    print("  DELETE /admin/codes/{code}            - Deactivate code")
+    print("  POST   /admin/add-minutes             - Add bonus minutes to user")
     print("\n" + "=" * 60)
 
     uvicorn.run(
