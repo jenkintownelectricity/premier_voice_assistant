@@ -2,6 +2,39 @@
 
 Production-ready voice AI system with subscription-based feature gates and usage tracking. Built with open-source models and serverless infrastructure for predictable costs and scalable monetization.
 
+## 🤖 Claude Code Session Info
+
+**Branch:** `claude/teleport-session-setup-016eUFyiHmqa7YtihKkDL7a4`
+**Local Path:** `C:\Users\ArmandLefebvre\AppData\Roaming\0_Apps_Library\premier_voice_assistant`
+
+### Test User
+- **User ID:** `ea97ae74-a597-4dc8-9c6e-1c6981324ce5`
+- **Current Plan:** Pro (10000 minutes)
+- **Minutes Used:** ~46
+
+### Quick Start (Local)
+```powershell
+cd "C:\Users\ArmandLefebvre\AppData\Roaming\0_Apps_Library\premier_voice_assistant"
+venv\Scripts\activate
+
+# Terminal 1 - FastAPI
+python -m backend.main
+
+# Terminal 2 - Gradio Test UI
+python test_ui.py
+
+# Run tests
+python quick_test.py
+```
+
+### Next Steps
+1. Test admin upgrade endpoint via Gradio UI (need FastAPI running)
+2. Update `quick_test.py` to use API for upgrades
+3. Add usage reset for billing periods
+4. Integrate Stripe payments
+
+---
+
 ## 🚀 Features
 
 - ✅ **Voice Pipeline**: Whisper STT → Claude LLM → Coqui TTS
