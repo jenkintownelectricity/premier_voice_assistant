@@ -3,7 +3,7 @@ Premier Voice Assistant - FastAPI Backend
 Orchestrates STT → Claude → TTS with Supabase database integration
 Designed for mobile apps (iOS/Android)
 """
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ from datetime import datetime
 
 from backend.supabase_client import get_supabase, SupabaseManager
 from backend.feature_gates import get_feature_gate, FeatureGateError
+from backend.stripe_payments import get_stripe_payments, handle_webhook_event
 
 # Configure logging
 logging.basicConfig(
@@ -68,6 +69,16 @@ class AdminResetUsageRequest(BaseModel):
     reset_minutes: bool = True
     reset_conversations: bool = False
     reset_voice_clones: bool = False
+
+
+class CreateCheckoutRequest(BaseModel):
+    plan_name: str  # 'starter', 'pro', 'enterprise'
+    success_url: str
+    cancel_url: str
+
+
+class CreatePortalRequest(BaseModel):
+    return_url: str
 
 
 class VoiceAssistant:
@@ -1047,6 +1058,240 @@ async def admin_start_billing_period(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# STRIPE PAYMENT ROUTES
+# ============================================================================
+
+@app.post("/payments/create-checkout")
+async def create_checkout_session(
+    request: CreateCheckoutRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Create a Stripe Checkout session for subscription upgrade.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Body:
+        plan_name: Plan to subscribe to ('starter', 'pro', 'enterprise')
+        success_url: URL to redirect on success
+        cancel_url: URL to redirect on cancel
+    """
+    try:
+        stripe = get_stripe_payments()
+
+        # Get user profile for email
+        profile = db.get_or_create_user_profile(user_id)
+        email = profile.get("email", f"{user_id}@placeholder.com")
+
+        # Get or create Stripe customer
+        customer_id = profile.get("stripe_customer_id")
+        if not customer_id:
+            customer_id = stripe.create_customer(
+                user_id=user_id,
+                email=email,
+                name=profile.get("display_name")
+            )
+            if customer_id:
+                # Save customer ID to profile
+                db.client.table("va_user_profiles").update({
+                    "stripe_customer_id": customer_id
+                }).eq("user_id", user_id).execute()
+
+        if not customer_id:
+            raise HTTPException(status_code=500, detail="Failed to create Stripe customer")
+
+        # Create checkout session
+        session = stripe.create_checkout_session(
+            user_id=user_id,
+            customer_id=customer_id,
+            plan_name=request.plan_name,
+            success_url=request.success_url,
+            cancel_url=request.cancel_url
+        )
+
+        if not session:
+            raise HTTPException(status_code=500, detail="Failed to create checkout session")
+
+        return session
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating checkout session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/payments/create-portal")
+async def create_portal_session(
+    request: CreatePortalRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Create a Stripe Customer Portal session for managing subscription.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Body:
+        return_url: URL to return to after portal
+    """
+    try:
+        stripe = get_stripe_payments()
+
+        # Get user's Stripe customer ID
+        profile = db.get_or_create_user_profile(user_id)
+        customer_id = profile.get("stripe_customer_id")
+
+        if not customer_id:
+            raise HTTPException(
+                status_code=400,
+                detail="No payment method on file. Please subscribe first."
+            )
+
+        # Create portal session
+        portal_url = stripe.create_portal_session(
+            customer_id=customer_id,
+            return_url=request.return_url
+        )
+
+        if not portal_url:
+            raise HTTPException(status_code=500, detail="Failed to create portal session")
+
+        return {"url": portal_url}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating portal session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/payments/webhook")
+async def stripe_webhook(
+    request: Request,
+):
+    """
+    Handle Stripe webhook events.
+
+    This endpoint receives events from Stripe for subscription updates,
+    payment success/failure, etc.
+    """
+    try:
+        payload = await request.body()
+        sig_header = request.headers.get("stripe-signature")
+
+        if not sig_header:
+            raise HTTPException(status_code=400, detail="Missing stripe-signature header")
+
+        result = handle_webhook_event(payload, sig_header)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        # Process the event result
+        event = result.get("event")
+        db = get_supabase()
+
+        if event == "checkout_completed":
+            # Upgrade user to new plan
+            user_id = result.get("user_id")
+            plan_name = result.get("plan_name")
+            subscription_id = result.get("subscription_id")
+
+            if user_id and plan_name:
+                # Get plan ID
+                plan_result = db.client.table("va_subscription_plans").select("id").eq(
+                    "plan_name", plan_name
+                ).execute()
+
+                if plan_result.data:
+                    plan_id = plan_result.data[0]["id"]
+
+                    # Update or create subscription
+                    db.client.table("va_user_subscriptions").upsert({
+                        "user_id": user_id,
+                        "plan_id": plan_id,
+                        "status": "active",
+                        "stripe_subscription_id": subscription_id,
+                        "updated_at": datetime.utcnow().isoformat()
+                    }, on_conflict="user_id").execute()
+
+                    logger.info(f"Activated {plan_name} subscription for user {user_id}")
+
+        elif event == "payment_succeeded":
+            # Update billing period and reset usage
+            subscription_id = result.get("subscription_id")
+            period_start = result.get("period_start")
+            period_end = result.get("period_end")
+
+            if subscription_id:
+                # Find user by subscription ID
+                sub_result = db.client.table("va_user_subscriptions").select("user_id").eq(
+                    "stripe_subscription_id", subscription_id
+                ).execute()
+
+                if sub_result.data:
+                    user_id = sub_result.data[0]["user_id"]
+
+                    # Update subscription period
+                    db.client.table("va_user_subscriptions").update({
+                        "current_period_start": period_start,
+                        "current_period_end": period_end
+                    }).eq("stripe_subscription_id", subscription_id).execute()
+
+                    # Create new usage tracking record (reset usage)
+                    db.client.table("va_usage_tracking").insert({
+                        "user_id": user_id,
+                        "period_start": period_start,
+                        "period_end": period_end,
+                        "minutes_used": 0,
+                        "conversations_count": 0,
+                        "voice_clones_count": 0,
+                        "assistants_count": 0
+                    }).execute()
+
+                    logger.info(f"Reset usage for new billing period: user {user_id}")
+
+        elif event == "subscription_cancelled":
+            # Downgrade to free plan
+            subscription_id = result.get("subscription_id")
+
+            if subscription_id:
+                # Find and downgrade user
+                sub_result = db.client.table("va_user_subscriptions").select("user_id").eq(
+                    "stripe_subscription_id", subscription_id
+                ).execute()
+
+                if sub_result.data:
+                    user_id = sub_result.data[0]["user_id"]
+
+                    # Get free plan ID
+                    free_plan = db.client.table("va_subscription_plans").select("id").eq(
+                        "plan_name", "free"
+                    ).execute()
+
+                    if free_plan.data:
+                        db.client.table("va_user_subscriptions").update({
+                            "plan_id": free_plan.data[0]["id"],
+                            "stripe_subscription_id": None,
+                            "status": "active"
+                        }).eq("user_id", user_id).execute()
+
+                        logger.info(f"Downgraded user {user_id} to free plan")
+
+        return {"received": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error handling webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -1073,6 +1318,10 @@ if __name__ == "__main__":
     print("  POST   /admin/reset-usage             - Reset usage counters")
     print("  POST   /admin/start-billing-period    - Start new billing period")
     print("  GET    /admin/user-subscription/{id}  - Get user subscription")
+    print("\nPayments (Stripe):")
+    print("  POST   /payments/create-checkout      - Create checkout session")
+    print("  POST   /payments/create-portal        - Create customer portal")
+    print("  POST   /payments/webhook              - Stripe webhook handler")
     print("\n" + "=" * 60)
 
     uvicorn.run(
