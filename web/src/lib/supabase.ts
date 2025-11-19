@@ -1,23 +1,27 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Lazy initialization to avoid build-time errors
-let supabaseInstance: SupabaseClient | null = null;
-
-function getSupabaseClient(): SupabaseClient {
-  if (!supabaseInstance) {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDAwMDAwMDAsImV4cCI6MTk1NTYwMDAwMH0.placeholder';
-    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+// Get URL with validation
+function getSupabaseUrl(): string {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (url && url.startsWith('http')) {
+    return url;
   }
-  return supabaseInstance;
+  // Return a valid placeholder URL that won't be used at runtime
+  return 'https://placeholder-project.supabase.co';
 }
 
-// Export as a getter that creates client on first use
-export const supabase = new Proxy({} as SupabaseClient, {
-  get(_, prop) {
-    return getSupabaseClient()[prop as keyof SupabaseClient];
+// Get anon key with fallback
+function getSupabaseAnonKey(): string {
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (key && key.length > 10) {
+    return key;
   }
-});
+  // Return a valid JWT format placeholder
+  return 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2NDAwMDAwMDAsImV4cCI6MTk1NTYwMDAwMH0.placeholder-signature';
+}
+
+// Create client with validated values
+export const supabase = createClient(getSupabaseUrl(), getSupabaseAnonKey());
 
 // Type definitions for database
 export interface User {
