@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 
 from backend.supabase_client import get_supabase, SupabaseManager
+from backend.feature_gates import get_feature_gate, FeatureGateError
 
 # Configure logging
 logging.basicConfig(
@@ -416,6 +417,13 @@ async def chat(
         X-Conversation-ID: Optional conversation to continue
     """
     try:
+        # Check feature gate - assume ~1 minute per conversation
+        feature_gate = get_feature_gate()
+        try:
+            feature_gate.enforce_feature(user_id, "max_minutes", 1)
+        except FeatureGateError as e:
+            raise HTTPException(status_code=402, detail=e.message)
+
         audio_bytes = await audio.read()
 
         result = assistant.process_voice_input(
@@ -423,6 +431,20 @@ async def chat(
             user_id=user_id,
             conversation_id=conversation_id,
             voice=voice,
+        )
+
+        # Track actual usage (based on audio duration)
+        # Estimate: ~60 seconds = 1 minute
+        duration_seconds = result.get('audio_duration_seconds', 60)
+        minutes_used = max(1, int(duration_seconds / 60))
+
+        feature_gate.increment_usage(
+            user_id=user_id,
+            minutes=minutes_used,
+            metadata={
+                "conversation_id": result['conversation_id'],
+                "total_latency_ms": result['metrics']['total_latency_ms'],
+            }
         )
 
         # Return audio response directly
@@ -440,6 +462,8 @@ async def chat(
             },
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -461,6 +485,26 @@ async def clone_voice(
         X-User-ID: Required user ID
     """
     try:
+        # Check if user's plan allows custom voices
+        feature_gate = get_feature_gate()
+        from backend.feature_gates import get_plan_features
+
+        plan = feature_gate.get_user_plan(user_id)
+        plan_name = plan.get("plan_name", "free") if plan else "free"
+        plan_features = get_plan_features(plan_name)
+
+        if not plan_features.get("custom_voices", False):
+            raise HTTPException(
+                status_code=402,
+                detail="Custom voices not available on your plan. Upgrade to Starter or higher."
+            )
+
+        # Check voice clone limit
+        try:
+            feature_gate.enforce_feature(user_id, "max_voice_clones", 1)
+        except FeatureGateError as e:
+            raise HTTPException(status_code=402, detail=e.message)
+
         audio_bytes = await audio.read()
 
         # Upload to Supabase Storage
@@ -487,6 +531,8 @@ async def clone_voice(
             "voice_clone": voice_clone,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Voice cloning error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -737,13 +783,18 @@ if __name__ == "__main__":
     print("  GET    /health                        - Health check")
     print("  POST   /transcribe                    - Audio → Text")
     print("  POST   /speak                         - Text → Audio")
-    print("  POST   /chat                          - Full voice conversation")
-    print("  POST   /clone-voice                   - Clone a new voice")
+    print("  POST   /chat                          - Full voice conversation (PROTECTED)")
+    print("  POST   /clone-voice                   - Clone a new voice (PROTECTED)")
     print("  GET    /conversations                 - Get user conversations")
     print("  GET    /conversations/{id}/messages   - Get conversation messages")
     print("  GET    /profile                       - Get user profile")
     print("  PATCH  /profile                       - Update user profile")
     print("  GET    /voice-clones                  - Get user's voice clones")
+    print("\nSubscription & Usage:")
+    print("  GET    /subscription                  - Get user's subscription plan")
+    print("  GET    /usage                         - Get user's usage statistics")
+    print("  GET    /feature-limits                - Get user's feature limits")
+    print("  POST   /admin/upgrade-user            - Admin: Upgrade user (requires admin key)")
     print("\n" + "=" * 60)
 
     uvicorn.run(
