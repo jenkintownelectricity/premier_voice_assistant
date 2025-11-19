@@ -61,8 +61,8 @@ export function Sidebar({ items, title = 'HIVE215', bottomItems }: SidebarProps)
 
   return (
     <div className="w-64 bg-oled-dark border-r border-gold/20 min-h-screen flex flex-col">
-      {/* Logo area */}
-      <div className="p-6 border-b border-gold/20">
+      {/* Logo area - clickable home button */}
+      <Link href="/dashboard" className="p-6 border-b border-gold/20 block hover:bg-gold/5 transition-colors">
         <div className="flex items-center gap-3">
           <Image
             src="/HIVE215Logo.png"
@@ -75,7 +75,7 @@ export function Sidebar({ items, title = 'HIVE215', bottomItems }: SidebarProps)
             {title}
           </span>
         </div>
-      </div>
+      </Link>
 
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-2">
