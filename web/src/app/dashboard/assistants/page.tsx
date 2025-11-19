@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { Input } from '@/components/Input';
+import { VoiceCall } from '@/components/VoiceCall';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api';
 
@@ -26,6 +27,7 @@ export default function AssistantsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [activeCall, setActiveCall] = useState<{ id: string; name: string } | null>(null);
 
   // Form state
   const [name, setName] = useState('');
@@ -479,6 +481,15 @@ export default function AssistantsPage() {
                     </div>
                   </div>
                   <div className="flex gap-2">
+                    {assistant.is_active && (
+                      <button
+                        onClick={() => setActiveCall({ id: assistant.id, name: assistant.name })}
+                        className="px-3 py-1.5 text-sm bg-gold text-black rounded
+                          hover:bg-gold/80 transition-colors font-medium"
+                      >
+                        Start Call
+                      </button>
+                    )}
                     <button
                       onClick={() => handleToggleActive(assistant)}
                       className="px-3 py-1.5 text-sm border border-gold/30 rounded
@@ -499,6 +510,19 @@ export default function AssistantsPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {/* Voice Call Modal */}
+      {activeCall && user && (
+        <VoiceCall
+          assistantId={activeCall.id}
+          assistantName={activeCall.name}
+          userId={user.id}
+          onClose={() => {
+            setActiveCall(null);
+            loadAssistants(); // Refresh to update call count
+          }}
+        />
       )}
     </div>
   );

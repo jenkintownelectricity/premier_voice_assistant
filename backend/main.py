@@ -7,7 +7,7 @@ Designed for mobile apps (iOS/Android)
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -16,6 +16,9 @@ import io
 import time
 import logging
 import os
+import json
+import asyncio
+import base64
 from datetime import datetime
 
 from backend.supabase_client import get_supabase, SupabaseManager
@@ -2029,6 +2032,339 @@ async def delete_discount_code(
     except Exception as e:
         logger.error(f"Error deleting code: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =====================================================
+# WEBSOCKET VOICE STREAMING
+# =====================================================
+
+class VoiceCallSession:
+    """Manages a single WebSocket voice call session."""
+
+    def __init__(self, websocket: WebSocket, user_id: str, assistant_id: str):
+        self.websocket = websocket
+        self.user_id = user_id
+        self.assistant_id = assistant_id
+        self.call_id = None
+        self.transcript = []
+        self.is_speaking = False
+        self.should_stop_tts = False
+        self.audio_buffer = bytearray()
+        self.db = get_supabase()
+
+    async def start_call(self):
+        """Initialize call log in database."""
+        try:
+            result = self.db.client.rpc(
+                'va_create_call_log',
+                {
+                    'p_user_id': self.user_id,
+                    'p_assistant_id': self.assistant_id,
+                    'p_call_type': 'web'
+                }
+            ).execute()
+            self.call_id = result.data
+            logger.info(f"Started call {self.call_id} for user {self.user_id}")
+            return self.call_id
+        except Exception as e:
+            logger.error(f"Failed to create call log: {e}")
+            return None
+
+    async def end_call(self, ended_reason: str = 'user_ended'):
+        """End call and save final transcript."""
+        if not self.call_id:
+            return
+
+        try:
+            # Determine sentiment from transcript (simple heuristic)
+            sentiment = 'neutral'
+            if self.transcript:
+                text = ' '.join([t['content'] for t in self.transcript])
+                positive_words = ['thank', 'great', 'good', 'excellent', 'happy', 'love']
+                negative_words = ['bad', 'terrible', 'hate', 'angry', 'frustrated', 'wrong']
+                pos_count = sum(1 for w in positive_words if w in text.lower())
+                neg_count = sum(1 for w in negative_words if w in text.lower())
+                if pos_count > neg_count:
+                    sentiment = 'positive'
+                elif neg_count > pos_count:
+                    sentiment = 'negative'
+
+            self.db.client.rpc(
+                'va_end_call',
+                {
+                    'p_call_id': self.call_id,
+                    'p_transcript': json.dumps(self.transcript),
+                    'p_summary': None,
+                    'p_ended_reason': ended_reason,
+                    'p_recording_url': None,
+                    'p_sentiment': sentiment
+                }
+            ).execute()
+            logger.info(f"Ended call {self.call_id}")
+        except Exception as e:
+            logger.error(f"Failed to end call: {e}")
+
+    def add_to_transcript(self, role: str, content: str):
+        """Add message to transcript."""
+        self.transcript.append({
+            'role': role,
+            'content': content,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+
+
+@app.websocket("/ws/voice/{assistant_id}")
+async def websocket_voice_endpoint(
+    websocket: WebSocket,
+    assistant_id: str,
+):
+    """
+    WebSocket endpoint for real-time voice streaming.
+
+    Protocol:
+    - Client sends: {"type": "auth", "user_id": "..."}
+    - Client sends: {"type": "audio", "data": "<base64 audio>"}
+    - Client sends: {"type": "end_call"}
+    - Server sends: {"type": "ready", "call_id": "..."}
+    - Server sends: {"type": "transcript", "role": "user"|"assistant", "content": "..."}
+    - Server sends: {"type": "audio", "data": "<base64 audio>"}
+    - Server sends: {"type": "speaking", "is_speaking": true|false}
+    - Server sends: {"type": "error", "message": "..."}
+    - Server sends: {"type": "call_ended", "reason": "..."}
+    """
+    await websocket.accept()
+    session = None
+    assistant = None
+
+    try:
+        # Wait for authentication
+        auth_data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+        if auth_data.get('type') != 'auth' or not auth_data.get('user_id'):
+            await websocket.send_json({"type": "error", "message": "Authentication required"})
+            await websocket.close()
+            return
+
+        user_id = auth_data['user_id']
+        logger.info(f"WebSocket authenticated for user {user_id}")
+
+        # Get assistant configuration
+        db = get_supabase()
+        assistant_result = db.client.table("va_assistants").select("*").eq(
+            "id", assistant_id
+        ).eq("user_id", user_id).eq("is_active", True).execute()
+
+        if not assistant_result.data:
+            await websocket.send_json({"type": "error", "message": "Assistant not found or inactive"})
+            await websocket.close()
+            return
+
+        assistant = assistant_result.data[0]
+
+        # Check feature gate for minutes
+        feature_gate = get_feature_gate()
+        try:
+            feature_gate.check_feature_available(user_id, "max_minutes")
+        except FeatureGateError as e:
+            await websocket.send_json({"type": "error", "message": e.message})
+            await websocket.close()
+            return
+
+        # Create session and start call
+        session = VoiceCallSession(websocket, user_id, assistant_id)
+        call_id = await session.start_call()
+
+        if not call_id:
+            await websocket.send_json({"type": "error", "message": "Failed to start call"})
+            await websocket.close()
+            return
+
+        # Send ready message
+        await websocket.send_json({
+            "type": "ready",
+            "call_id": call_id,
+            "assistant_name": assistant['name']
+        })
+
+        # Initialize voice assistant for processing
+        voice_assistant = VoiceAssistant()
+        voice_assistant.initialize_modal()
+
+        # Send first message if configured
+        if assistant.get('first_message'):
+            await websocket.send_json({
+                "type": "transcript",
+                "role": "assistant",
+                "content": assistant['first_message']
+            })
+            session.add_to_transcript("assistant", assistant['first_message'])
+
+            # Synthesize and send first message audio
+            try:
+                audio_bytes = voice_assistant.tts.synthesize.remote(
+                    assistant['first_message'],
+                    assistant.get('voice_id', 'default')
+                )
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                await websocket.send_json({
+                    "type": "audio",
+                    "data": audio_b64
+                })
+            except Exception as e:
+                logger.error(f"Error synthesizing first message: {e}")
+
+        # Main message loop
+        while True:
+            try:
+                message = await websocket.receive_json()
+                msg_type = message.get('type')
+
+                if msg_type == 'end_call':
+                    break
+
+                elif msg_type == 'barge_in':
+                    # User interrupted - stop current TTS
+                    session.should_stop_tts = True
+                    session.is_speaking = False
+                    await websocket.send_json({"type": "speaking", "is_speaking": False})
+
+                elif msg_type == 'audio':
+                    # Receive audio chunk
+                    audio_b64 = message.get('data', '')
+                    if not audio_b64:
+                        continue
+
+                    try:
+                        audio_bytes = base64.b64decode(audio_b64)
+                    except Exception:
+                        continue
+
+                    # Process audio through pipeline
+                    session.should_stop_tts = False
+
+                    # 1. STT - Transcribe audio
+                    stt_start = time.time()
+                    try:
+                        stt_result = voice_assistant.stt.transcribe.remote(audio_bytes)
+                        user_text = stt_result.get('text', '').strip()
+                        stt_latency = int((time.time() - stt_start) * 1000)
+                    except Exception as e:
+                        logger.error(f"STT error: {e}")
+                        continue
+
+                    if not user_text:
+                        continue
+
+                    # Send user transcript
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "role": "user",
+                        "content": user_text
+                    })
+                    session.add_to_transcript("user", user_text)
+
+                    # 2. LLM - Generate response
+                    llm_start = time.time()
+                    try:
+                        # Build conversation history
+                        messages = []
+                        for t in session.transcript[-10:]:  # Last 10 messages for context
+                            messages.append({
+                                "role": t['role'],
+                                "content": t['content']
+                            })
+
+                        response = voice_assistant.anthropic_client.messages.create(
+                            model=assistant.get('model', 'claude-3-5-sonnet-20241022'),
+                            max_tokens=assistant.get('max_tokens', 150),
+                            temperature=float(assistant.get('temperature', 0.7)),
+                            system=assistant['system_prompt'],
+                            messages=messages
+                        )
+
+                        assistant_text = response.content[0].text
+                        llm_latency = int((time.time() - llm_start) * 1000)
+                    except Exception as e:
+                        logger.error(f"LLM error: {e}")
+                        assistant_text = "I'm sorry, I encountered an error. Please try again."
+
+                    # Check for barge-in before sending response
+                    if session.should_stop_tts:
+                        continue
+
+                    # Send assistant transcript
+                    await websocket.send_json({
+                        "type": "transcript",
+                        "role": "assistant",
+                        "content": assistant_text
+                    })
+                    session.add_to_transcript("assistant", assistant_text)
+
+                    # 3. TTS - Synthesize audio
+                    if not session.should_stop_tts:
+                        tts_start = time.time()
+                        try:
+                            session.is_speaking = True
+                            await websocket.send_json({"type": "speaking", "is_speaking": True})
+
+                            audio_bytes = voice_assistant.tts.synthesize.remote(
+                                assistant_text,
+                                assistant.get('voice_id', 'default')
+                            )
+                            tts_latency = int((time.time() - tts_start) * 1000)
+
+                            # Send audio if not interrupted
+                            if not session.should_stop_tts:
+                                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                                await websocket.send_json({
+                                    "type": "audio",
+                                    "data": audio_b64
+                                })
+
+                            session.is_speaking = False
+                            await websocket.send_json({"type": "speaking", "is_speaking": False})
+
+                            # Log latencies
+                            total_latency = stt_latency + llm_latency + tts_latency
+                            logger.info(f"Call {call_id} - STT: {stt_latency}ms, LLM: {llm_latency}ms, TTS: {tts_latency}ms, Total: {total_latency}ms")
+
+                        except Exception as e:
+                            logger.error(f"TTS error: {e}")
+                            session.is_speaking = False
+                            await websocket.send_json({"type": "speaking", "is_speaking": False})
+
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected for call {session.call_id if session else 'unknown'}")
+                break
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.error(f"Error in WebSocket loop: {e}")
+                await websocket.send_json({"type": "error", "message": str(e)})
+
+        # End call normally
+        if session:
+            await session.end_call('user_ended')
+            await websocket.send_json({"type": "call_ended", "reason": "user_ended"})
+
+    except WebSocketDisconnect:
+        if session:
+            await session.end_call('disconnected')
+    except asyncio.TimeoutError:
+        await websocket.send_json({"type": "error", "message": "Authentication timeout"})
+        await websocket.close()
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        if session:
+            await session.end_call('error')
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass
 
 
 if __name__ == "__main__":
