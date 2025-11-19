@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { useAuth } from '@/lib/auth-context';
 import { Sidebar } from '@/components/Sidebar';
 
@@ -109,8 +110,22 @@ export default function DashboardLayout({
           },
         ]}
       />
-      <main className="flex-1 p-8">
-        {children}
+      <main className="flex-1 p-8 relative overflow-hidden">
+        {/* Background logo watermark */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <Image
+            src="/HIVE215Logo.png"
+            alt=""
+            width={600}
+            height={600}
+            className="opacity-[0.03] select-none"
+            priority
+          />
+        </div>
+        {/* Content */}
+        <div className="relative z-10">
+          {children}
+        </div>
       </main>
     </div>
   );

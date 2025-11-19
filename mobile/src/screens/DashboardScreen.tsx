@@ -6,6 +6,7 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { colors, spacing } from '../lib/theme';
 import { useAuth } from '../lib/auth-context';
@@ -61,13 +62,20 @@ export function DashboardScreen() {
   const progressWidth = Math.min(usagePercent, 100);
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.gold} />
-      }
-    >
-      <Text style={styles.title}>Dashboard</Text>
+    <View style={styles.wrapper}>
+      {/* Background logo watermark */}
+      <Image
+        source={require('../../assets/HIVE215Logo.png')}
+        style={styles.watermark}
+        resizeMode="contain"
+      />
+      <ScrollView
+        style={styles.container}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.gold} />
+        }
+      >
+        <Text style={styles.title}>Dashboard</Text>
 
       {error && (
         <View style={styles.errorContainer}>
@@ -112,14 +120,26 @@ export function DashboardScreen() {
           <Text style={styles.statLabel}>Remaining</Text>
         </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  wrapper: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  watermark: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    alignSelf: 'center',
+    top: '30%',
+    opacity: 0.03,
+  },
+  container: {
+    flex: 1,
     padding: spacing.md,
   },
   loadingContainer: {
