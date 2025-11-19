@@ -80,24 +80,82 @@ python api_test.py
 
 ---
 
-## 📋 Next Steps
+## 📋 Instructions for Next Claude Code Session
 
-### Priority Tasks
+Copy and paste this to start your next session:
 
-1. **Connect Real API Data**
-   - Replace mock data with live API calls
-   - Add authentication (Supabase Auth)
-   - Connect Stripe checkout flow
+---
 
-2. **Mobile Integration**
+### Context
+Repository: premier_voice_assistant
+Branch to pull: `claude/clean-web-ui-01NobBNSoHwFfoqbnm3SQk19`
+
+### Current State
+Full stack is deployed and live:
+- **Frontend:** https://hive215.vercel.app/
+- **Backend:** https://web-production-1b085.up.railway.app/
+
+The UI currently uses mock data. Need to connect to real API.
+
+### Task: Connect Real API Data
+
+Start by pulling the latest code:
+```bash
+git pull origin claude/clean-web-ui-01NobBNSoHwFfoqbnm3SQk19
+```
+
+**Priority 1: Add Supabase Auth**
+1. Install packages: `@supabase/supabase-js`, `@supabase/auth-helpers-nextjs`
+2. Create Supabase client in `web/src/lib/supabase.ts`
+3. Add auth context provider
+4. Create login/signup pages at `/login` and `/signup`
+5. Protect dashboard routes (redirect if not logged in)
+
+**Priority 2: Connect Admin Dashboard to Real API**
+- `/admin/page.tsx` - Fetch real stats from API
+- `/admin/users/page.tsx` - Connect user search and upgrade actions
+- `/admin/codes/page.tsx` - Connect code creation/listing
+- `/admin/analytics/page.tsx` - Fetch real usage/revenue data
+
+**Priority 3: Connect User Dashboard to Real API**
+- `/dashboard/page.tsx` - Fetch user's subscription and usage
+- `/dashboard/usage/page.tsx` - Fetch usage history
+- `/dashboard/subscription/page.tsx` - Connect Stripe checkout flow
+- `/dashboard/redeem/page.tsx` - Connect code redemption
+
+**Priority 4: Add Loading States & Error Handling**
+- Loading spinners during API calls
+- Error messages for failed requests
+- Retry logic for network errors
+
+### Key Files
+- `web/src/lib/api.ts` - API client (already built)
+- `backend/main.py` - All API endpoints
+- `api_test.py` - Example API calls
+
+### Environment Variables Needed
+**Vercel (frontend):**
+- `NEXT_PUBLIC_API_URL` = `https://web-production-1b085.up.railway.app`
+- `NEXT_PUBLIC_SUPABASE_URL` = your Supabase URL
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` = your Supabase anon key
+
+### Test User
+- ID: `ea97ae74-a597-4dc8-9c6e-1c6981324ce5`
+- Plan: Pro (10,000 minutes)
+
+---
+
+## 📋 Future Tasks
+
+1. **Mobile Integration**
    - iOS Swift SDK wrapper
    - Android Kotlin SDK wrapper
    - React Native / Flutter support
 
-3. **Production Hardening**
-   - Error handling and loading states
+2. **Production Hardening**
    - Rate limiting
    - Monitoring and alerts
+   - Caching layer
 
 ---
 
