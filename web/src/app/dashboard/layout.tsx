@@ -118,7 +118,7 @@ export default function DashboardLayout({
             alt=""
             width={600}
             height={600}
-            className="opacity-[0.03] select-none"
+            className="opacity-[0.08] select-none"
             priority
           />
         </div>
