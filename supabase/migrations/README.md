@@ -14,6 +14,8 @@ The migrations add:
 - ✅ Helper views for easy querying
 - ✅ Client permissions for mobile/web apps (iOS, Android, Web)
 - ✅ Client-safe functions for direct Supabase queries
+- ✅ Stripe payment integration fields
+- ✅ Discount codes and bonus minutes system
 
 ## 🚀 Quick Start
 
@@ -48,7 +50,53 @@ The migration will:
 - Enable mobile/web apps to query subscription and usage data directly
 - Maintain security via auth.uid() and RLS policies
 
-### 3. Seed Plan Features
+### 3. Run Migration 003: Stripe Payment Fields
+
+After migration 002 completes successfully:
+
+1. Go to **SQL Editor**
+2. Click "New query"
+3. Copy and paste the contents of `003_add_stripe_fields.sql`
+4. Click "Run"
+
+The migration will:
+- Add `stripe_customer_id` to user profiles
+- Add `stripe_subscription_id` to user subscriptions
+- Create indexes for fast lookups
+
+### 4. Run Migration 004: Discount Codes System
+
+After migration 003 completes successfully:
+
+1. Go to **SQL Editor**
+2. Click "New query"
+3. Copy and paste the contents of `004_add_discount_codes.sql`
+4. Click "Run"
+
+The migration will:
+- Create `va_discount_codes` table for promotional codes
+- Create `va_code_redemptions` table for tracking
+- Add `bonus_minutes` column to usage tracking
+- Create `va_redeem_discount_code()` function
+- Update `va_check_feature_gate()` to include bonus minutes
+
+### 5. Run Migration 005: Client Permissions for New Features
+
+After migration 004 completes successfully:
+
+1. Go to **SQL Editor**
+2. Click "New query"
+3. Copy and paste the contents of `005_add_client_permissions_v2.sql`
+4. Click "Run"
+
+The migration will:
+- Add RLS policies for discount codes tables
+- Create client-safe functions for discount codes
+- Update `va_client_get_my_usage()` to include bonus minutes
+- Create `va_client_redeem_code()` function
+- Create `va_client_validate_code()` function
+
+### 6. Seed Plan Features
 
 After running the migration, seed the plan features:
 
@@ -148,6 +196,37 @@ Monthly usage tracking for enforcing limits.
 | voice_clones_count | INTEGER | Number of voice clones |
 | overage_minutes | INTEGER | Minutes beyond limit |
 | overage_cost_cents | INTEGER | Cost for overages |
+| bonus_minutes | INTEGER | Bonus minutes from discount codes |
+
+#### va_discount_codes
+Promotional and discount codes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| code | TEXT | Unique code string |
+| description | TEXT | Code description |
+| discount_type | TEXT | 'percentage', 'fixed', 'minutes', 'upgrade' |
+| discount_value | INTEGER | Value (%, cents, minutes, or plan) |
+| applicable_plan | TEXT | Plan this applies to (optional) |
+| max_uses | INTEGER | Max total redemptions (NULL = unlimited) |
+| current_uses | INTEGER | Current redemption count |
+| max_uses_per_user | INTEGER | Max uses per user (default: 1) |
+| valid_from | TIMESTAMPTZ | Start validity date |
+| valid_until | TIMESTAMPTZ | End validity date |
+| is_active | BOOLEAN | Whether code is active |
+
+#### va_code_redemptions
+Tracks code redemptions by users.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| code_id | UUID | References va_discount_codes |
+| user_id | UUID | User who redeemed |
+| redeemed_at | TIMESTAMPTZ | When code was redeemed |
+| applied_value | INTEGER | Actual value applied |
+| metadata | JSONB | Additional redemption data |
 
 ### Functions
 
@@ -245,6 +324,42 @@ SELECT * FROM va_client_get_available_plans();
 ```
 
 Returns array of plans with features as JSONB.
+
+#### va_client_redeem_code(p_code TEXT)
+Redeem a discount code for the authenticated user.
+
+```sql
+SELECT * FROM va_client_redeem_code('WELCOME2024');
+```
+
+Returns JSONB with:
+- `success` (boolean): Whether redemption succeeded
+- `discount_type` (text): Type of discount applied
+- `discount_value` (integer): Value of the discount
+- `message` (text): Success message
+
+#### va_client_validate_code(p_code TEXT)
+Check if a code is valid without redeeming it.
+
+```sql
+SELECT * FROM va_client_validate_code('WELCOME2024');
+```
+
+Returns JSONB with:
+- `valid` (boolean): Whether code is valid
+- `discount_type`, `discount_value`, `description`
+- `error` (text): Error message if invalid
+
+#### va_client_get_my_redemptions()
+Get list of codes the authenticated user has redeemed.
+
+```sql
+SELECT * FROM va_client_get_my_redemptions();
+```
+
+Returns:
+- `code`, `discount_type`, `discount_value`
+- `description`, `redeemed_at`
 
 **Usage in Mobile/Web Apps:**
 
