@@ -13,10 +13,24 @@ import { CallsScreen } from './src/screens/CallsScreen';
 import { RedeemScreen } from './src/screens/RedeemScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { colors } from './src/lib/theme';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View, TouchableOpacity } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+// Home button component for header
+function HomeButton() {
+  const navigation = useNavigation<any>();
+  return (
+    <TouchableOpacity
+      onPress={() => navigation.navigate('Dashboard')}
+      style={{ marginLeft: 15 }}
+    >
+      <Ionicons name="home" size={24} color={colors.gold} />
+    </TouchableOpacity>
+  );
+}
 
 function MainTabs() {
   return (
@@ -54,6 +68,8 @@ function MainTabs() {
         headerTitleStyle: {
           fontWeight: 'bold',
         },
+        // Add home button to all screens except Dashboard
+        headerLeft: route.name !== 'Dashboard' ? () => <HomeButton /> : undefined,
       })}
     >
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
