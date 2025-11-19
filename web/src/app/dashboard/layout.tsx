@@ -1,5 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
 import { Sidebar } from '@/components/Sidebar';
 
 // SVG icons for navigation
@@ -27,6 +30,12 @@ const GiftIcon = () => (
   </svg>
 );
 
+const LogoutIcon = () => (
+  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+  </svg>
+);
+
 const navItems = [
   { name: 'Overview', href: '/dashboard', icon: <HomeIcon /> },
   { name: 'Usage', href: '/dashboard/usage', icon: <UsageIcon /> },
@@ -39,9 +48,46 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const { user, loading, signOut } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push('/login');
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen bg-oled-black items-center justify-center">
+        <div className="text-gold text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="flex min-h-screen bg-oled-black bg-honeycomb">
-      <Sidebar items={navItems} title="Premier Voice" />
+      <Sidebar
+        items={navItems}
+        title="Premier Voice"
+        bottomItems={[
+          {
+            name: 'Sign Out',
+            href: '#',
+            icon: <LogoutIcon />,
+            onClick: handleSignOut,
+          },
+        ]}
+      />
       <main className="flex-1 p-8">
         {children}
       </main>

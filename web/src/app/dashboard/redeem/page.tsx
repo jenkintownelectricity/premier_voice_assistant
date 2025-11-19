@@ -4,8 +4,11 @@ import { useState } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { Input } from '@/components/Input';
+import { useAuth } from '@/lib/auth-context';
+import { api } from '@/lib/api';
 
 export default function RedeemPage() {
+  const { user } = useAuth();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -14,33 +17,28 @@ export default function RedeemPage() {
   } | null>(null);
 
   const handleRedeem = async () => {
-    if (!code.trim()) return;
+    if (!code.trim() || !user?.id) return;
 
     setLoading(true);
     setResult(null);
 
-    // Simulate API call
-    setTimeout(() => {
-      setLoading(false);
-
-      // Mock different results based on code
-      if (code.toUpperCase() === 'WELCOME2024') {
-        setResult({
-          success: true,
-          message: 'Successfully added 100 bonus minutes to your account!',
-        });
-      } else if (code.toUpperCase() === 'INVALID') {
-        setResult({
-          success: false,
-          message: 'Invalid or expired code. Please check and try again.',
-        });
-      } else {
-        setResult({
-          success: false,
-          message: 'Code not found. Please check your code and try again.',
-        });
+    try {
+      const response = await api.redeemCode(user.id, code.trim());
+      setResult({
+        success: response.success,
+        message: response.message,
+      });
+      if (response.success) {
+        setCode('');
       }
-    }, 1500);
+    } catch (err) {
+      setResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'Failed to redeem code',
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

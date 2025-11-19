@@ -1,75 +1,121 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { Input, Select } from '@/components/Input';
 import { Modal } from '@/components/Modal';
 import { ProgressBar } from '@/components/ProgressBar';
+import { adminApi, api } from '@/lib/api';
+import { useAdmin } from '../layout';
 
-// Mock user data
-const mockUsers = [
-  {
-    id: 'ea97ae74-a597-4dc8-9c6e-1c6981324ce5',
-    email: 'test@example.com',
-    plan: 'pro',
-    status: 'active',
-    minutes_used: 3245,
-    max_minutes: 10000,
-    bonus_minutes: 500,
-    created_at: '2024-01-15',
-  },
-  {
-    id: 'user-abc123',
-    email: 'john@company.com',
-    plan: 'starter',
-    status: 'active',
-    minutes_used: 1856,
-    max_minutes: 2000,
-    bonus_minutes: 0,
-    created_at: '2024-02-20',
-  },
-  {
-    id: 'user-def456',
-    email: 'sarah@business.com',
-    plan: 'free',
-    status: 'active',
-    minutes_used: 87,
-    max_minutes: 100,
-    bonus_minutes: 50,
-    created_at: '2024-03-10',
-  },
-];
+interface UserData {
+  id: string;
+  email: string;
+  plan: string;
+  status: string;
+  minutes_used: number;
+  max_minutes: number;
+  bonus_minutes: number;
+  created_at: string;
+}
 
 export default function UsersPage() {
+  const { adminKey } = useAdmin();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedUser, setSelectedUser] = useState<typeof mockUsers[0] | null>(null);
+  const [users, setUsers] = useState<UserData[]>([]);
+  const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [showMinutesModal, setShowMinutesModal] = useState(false);
   const [upgradePlan, setUpgradePlan] = useState('pro');
   const [bonusMinutes, setBonusMinutes] = useState('100');
   const [bonusReason, setBonusReason] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const filteredUsers = mockUsers.filter(
-    (user) =>
-      user.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Search for a user by ID
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
 
-  const handleUpgrade = () => {
-    // API call would go here
-    console.log('Upgrading', selectedUser?.id, 'to', upgradePlan);
-    setShowUpgradeModal(false);
-    setSelectedUser(null);
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      // First try to get the subscription
+      const subResponse = await adminApi.getUserSubscription(adminKey, searchQuery.trim());
+
+      // Get usage data
+      const usageResponse = await api.getUsage(searchQuery.trim());
+      const limitsResponse = await api.getFeatureLimits(searchQuery.trim());
+
+      const userData: UserData = {
+        id: searchQuery.trim(),
+        email: searchQuery.trim(), // Will show ID if no email available
+        plan: subResponse.subscription?.plan_name || 'free',
+        status: subResponse.subscription?.status || 'active',
+        minutes_used: usageResponse.usage.minutes_used || 0,
+        max_minutes: limitsResponse.limits.max_minutes || 100,
+        bonus_minutes: usageResponse.usage.bonus_minutes || 0,
+        created_at: subResponse.subscription?.current_period_start || new Date().toISOString(),
+      };
+
+      setUsers([userData]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'User not found');
+      setUsers([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAddMinutes = () => {
-    // API call would go here
-    console.log('Adding', bonusMinutes, 'minutes to', selectedUser?.id, 'Reason:', bonusReason);
-    setShowMinutesModal(false);
-    setSelectedUser(null);
-    setBonusMinutes('100');
-    setBonusReason('');
+  const handleUpgrade = async () => {
+    if (!selectedUser) return;
+
+    setActionLoading(true);
+    setError(null);
+
+    try {
+      await adminApi.upgradeUser(adminKey, selectedUser.id, upgradePlan);
+      setSuccess(`User ${selectedUser.id} upgraded to ${upgradePlan}`);
+      setShowUpgradeModal(false);
+      setSelectedUser(null);
+      // Refresh user data
+      if (searchQuery) handleSearch();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upgrade user');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleAddMinutes = async () => {
+    if (!selectedUser) return;
+
+    setActionLoading(true);
+    setError(null);
+
+    try {
+      const result = await adminApi.addBonusMinutes(
+        adminKey,
+        selectedUser.id,
+        parseInt(bonusMinutes),
+        bonusReason || undefined
+      );
+      setSuccess(`Added ${bonusMinutes} minutes to ${selectedUser.id}`);
+      setShowMinutesModal(false);
+      setSelectedUser(null);
+      setBonusMinutes('100');
+      setBonusReason('');
+      // Refresh user data
+      if (searchQuery) handleSearch();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add minutes');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   return (
@@ -80,14 +126,34 @@ export default function UsersPage() {
         <p className="text-gray-400 mt-1">Search, manage plans, and add bonus minutes</p>
       </div>
 
+      {/* Messages */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 text-green-400">
+          {success}
+        </div>
+      )}
+
       {/* Search */}
       <Card>
         <CardContent>
-          <Input
-            placeholder="Search by user ID or email..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <Input
+                placeholder="Enter user ID to search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              />
+            </div>
+            <HoneycombButton onClick={handleSearch} disabled={loading}>
+              {loading ? 'Searching...' : 'Search'}
+            </HoneycombButton>
+          </div>
         </CardContent>
       </Card>
 
@@ -98,7 +164,6 @@ export default function UsersPage() {
             <thead>
               <tr>
                 <th>User ID</th>
-                <th>Email</th>
                 <th>Plan</th>
                 <th>Usage</th>
                 <th>Bonus</th>
@@ -106,7 +171,7 @@ export default function UsersPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredUsers.map((user) => (
+              {users.map((user) => (
                 <tr key={user.id}>
                   <td className="font-mono text-xs">{user.id.slice(0, 8)}...</td>
                   <td>{user.email}</td>
@@ -164,9 +229,9 @@ export default function UsersPage() {
             </tbody>
           </table>
 
-          {filteredUsers.length === 0 && (
+          {users.length === 0 && (
             <div className="text-center py-8 text-gray-500">
-              No users found matching "{searchQuery}"
+              {searchQuery ? 'No user found. Enter a valid user ID.' : 'Enter a user ID to search'}
             </div>
           )}
         </CardContent>
@@ -200,8 +265,8 @@ export default function UsersPage() {
           />
 
           <div className="flex gap-3 mt-6">
-            <HoneycombButton onClick={handleUpgrade}>
-              Confirm Upgrade
+            <HoneycombButton onClick={handleUpgrade} disabled={actionLoading}>
+              {actionLoading ? 'Upgrading...' : 'Confirm Upgrade'}
             </HoneycombButton>
             <HoneycombButton
               variant="outline"
@@ -244,8 +309,8 @@ export default function UsersPage() {
           />
 
           <div className="flex gap-3 mt-6">
-            <HoneycombButton onClick={handleAddMinutes}>
-              Add Minutes
+            <HoneycombButton onClick={handleAddMinutes} disabled={actionLoading}>
+              {actionLoading ? 'Adding...' : 'Add Minutes'}
             </HoneycombButton>
             <HoneycombButton
               variant="outline"

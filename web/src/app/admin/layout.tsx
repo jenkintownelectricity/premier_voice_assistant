@@ -1,6 +1,26 @@
 'use client';
 
+import { useState, useEffect, createContext, useContext } from 'react';
 import { Sidebar } from '@/components/Sidebar';
+import { Card, CardContent } from '@/components/Card';
+import { HoneycombButton } from '@/components/HoneycombButton';
+import { Input } from '@/components/Input';
+
+// Admin context for sharing admin key
+interface AdminContextType {
+  adminKey: string;
+  setAdminKey: (key: string) => void;
+}
+
+const AdminContext = createContext<AdminContextType | undefined>(undefined);
+
+export function useAdmin() {
+  const context = useContext(AdminContext);
+  if (!context) {
+    throw new Error('useAdmin must be used within AdminLayout');
+  }
+  return context;
+}
 
 // SVG icons for navigation
 const DashboardIcon = () => (
@@ -27,6 +47,12 @@ const ChartIcon = () => (
   </svg>
 );
 
+const BackIcon = () => (
+  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M11 17l-5-5m0 0l5-5m-5 5h12" />
+  </svg>
+);
+
 const navItems = [
   { name: 'Dashboard', href: '/admin', icon: <DashboardIcon /> },
   { name: 'Users', href: '/admin/users', icon: <UsersIcon /> },
@@ -39,12 +65,78 @@ export default function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const [adminKey, setAdminKey] = useState('');
+  const [tempKey, setTempKey] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    // Check for stored admin key
+    const stored = localStorage.getItem('admin_key');
+    if (stored) {
+      setAdminKey(stored);
+      setIsAuthenticated(true);
+    }
+  }, []);
+
+  const handleLogin = () => {
+    if (tempKey.trim()) {
+      localStorage.setItem('admin_key', tempKey);
+      setAdminKey(tempKey);
+      setIsAuthenticated(true);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('admin_key');
+    setAdminKey('');
+    setIsAuthenticated(false);
+    setTempKey('');
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-oled-black bg-honeycomb flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-gold">Admin Access</h1>
+            <p className="text-gray-400 mt-2">Enter your admin API key to continue</p>
+          </div>
+          <Card glow>
+            <CardContent>
+              <div className="space-y-4">
+                <Input
+                  label="Admin API Key"
+                  type="password"
+                  value={tempKey}
+                  onChange={(e) => setTempKey(e.target.value)}
+                  placeholder="Enter your admin key..."
+                />
+                <HoneycombButton onClick={handleLogin} className="w-full">
+                  Access Admin Panel
+                </HoneycombButton>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen bg-oled-black bg-honeycomb">
-      <Sidebar items={navItems} title="Admin" />
-      <main className="flex-1 p-8">
-        {children}
-      </main>
-    </div>
+    <AdminContext.Provider value={{ adminKey, setAdminKey }}>
+      <div className="flex min-h-screen bg-oled-black bg-honeycomb">
+        <Sidebar
+          items={navItems}
+          title="Admin"
+          bottomItems={[
+            { name: 'Back to Dashboard', href: '/dashboard', icon: <BackIcon /> },
+            { name: 'Logout Admin', href: '#', icon: <BackIcon />, onClick: handleLogout },
+          ]}
+        />
+        <main className="flex-1 p-8">
+          {children}
+        </main>
+      </div>
+    </AdminContext.Provider>
   );
 }

@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
+import { useAuth } from '@/lib/auth-context';
+import { api } from '@/lib/api';
 
 const plans = [
   {
@@ -53,25 +55,66 @@ const plans = [
 ];
 
 export default function SubscriptionPage() {
-  const [currentPlan] = useState('pro');
+  const { user } = useAuth();
+  const [currentPlan, setCurrentPlan] = useState('free');
   const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchSubscription = async () => {
+      if (!user?.id) return;
+      try {
+        const response = await api.getSubscription(user.id);
+        if (response.subscription?.plan_name) {
+          setCurrentPlan(response.subscription.plan_name);
+        }
+      } catch (err) {
+        console.error('Failed to fetch subscription:', err);
+      }
+    };
+    fetchSubscription();
+  }, [user?.id]);
 
   const handleUpgrade = async (planName: string) => {
-    setLoading(planName);
-    // API call to create checkout session would go here
-    console.log('Creating checkout session for', planName);
+    if (!user?.id) return;
 
-    // Simulate redirect to Stripe
-    setTimeout(() => {
+    setLoading(planName);
+    setError(null);
+
+    try {
+      const response = await api.createCheckoutSession(
+        user.id,
+        planName,
+        `${window.location.origin}/dashboard/subscription?success=true`,
+        `${window.location.origin}/dashboard/subscription?canceled=true`
+      );
+
+      if (response.url) {
+        window.location.href = response.url;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create checkout session');
       setLoading(null);
-      alert(`Redirecting to Stripe checkout for ${planName} plan...`);
-    }, 1000);
+    }
   };
 
-  const handleManageBilling = () => {
-    // API call to create portal session would go here
-    console.log('Opening Stripe customer portal');
-    alert('Opening Stripe customer portal...');
+  const handleManageBilling = async () => {
+    if (!user?.id) return;
+
+    setError(null);
+
+    try {
+      const response = await api.createPortalSession(
+        user.id,
+        `${window.location.origin}/dashboard/subscription`
+      );
+
+      if (response.url) {
+        window.location.href = response.url;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to open billing portal');
+    }
   };
 
   return (
@@ -81,6 +124,13 @@ export default function SubscriptionPage() {
         <h1 className="text-3xl font-bold text-gold">Subscription</h1>
         <p className="text-gray-400 mt-1">Manage your plan and billing</p>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
+          {error}
+        </div>
+      )}
 
       {/* Current Plan Summary */}
       <Card glow>

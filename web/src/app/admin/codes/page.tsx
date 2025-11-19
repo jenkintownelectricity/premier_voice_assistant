@@ -1,51 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { Input, Select } from '@/components/Input';
 import { Modal } from '@/components/Modal';
+import { adminApi } from '@/lib/api';
+import { useAdmin } from '../layout';
 
-// Mock discount codes
-const mockCodes = [
-  {
-    id: '1',
-    code: 'WELCOME2024',
-    description: 'Welcome bonus for new users',
-    discount_type: 'minutes',
-    discount_value: 100,
-    max_uses: 1000,
-    current_uses: 342,
-    valid_until: '2024-12-31',
-    is_active: true,
-  },
-  {
-    id: '2',
-    code: 'UPGRADE50',
-    description: '50% off first month',
-    discount_type: 'percentage',
-    discount_value: 50,
-    max_uses: 500,
-    current_uses: 128,
-    valid_until: '2024-06-30',
-    is_active: true,
-  },
-  {
-    id: '3',
-    code: 'PROMONTH',
-    description: 'Free month of Pro',
-    discount_type: 'upgrade',
-    discount_value: 1,
-    max_uses: 100,
-    current_uses: 45,
-    valid_until: null,
-    is_active: true,
-  },
-];
+interface DiscountCode {
+  id: string;
+  code: string;
+  description: string;
+  discount_type: string;
+  discount_value: number;
+  max_uses: number | null;
+  current_uses: number;
+  valid_until: string | null;
+  is_active: boolean;
+}
 
 export default function CodesPage() {
-  const [codes, setCodes] = useState(mockCodes);
+  const { adminKey } = useAdmin();
+  const [codes, setCodes] = useState<DiscountCode[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [newCode, setNewCode] = useState({
     code: '',
     description: '',
@@ -55,24 +36,59 @@ export default function CodesPage() {
     valid_until: '',
   });
 
-  const handleCreate = () => {
-    // API call would go here
-    console.log('Creating code:', newCode);
-    setShowCreateModal(false);
-    setNewCode({
-      code: '',
-      description: '',
-      discount_type: 'minutes',
-      discount_value: '100',
-      max_uses: '',
-      valid_until: '',
-    });
+  const fetchCodes = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await adminApi.getCodes(adminKey, false);
+      setCodes(response.codes);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load codes');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDeactivate = (code: string) => {
-    // API call would go here
-    console.log('Deactivating:', code);
-    setCodes(codes.map(c => c.code === code ? { ...c, is_active: false } : c));
+  useEffect(() => {
+    fetchCodes();
+  }, [adminKey]);
+
+  const handleCreate = async () => {
+    try {
+      setCreating(true);
+      await adminApi.createCode(
+        adminKey,
+        newCode.code,
+        newCode.discount_type,
+        parseInt(newCode.discount_value),
+        newCode.description || undefined,
+        newCode.max_uses ? parseInt(newCode.max_uses) : undefined,
+        newCode.valid_until || undefined
+      );
+      setShowCreateModal(false);
+      setNewCode({
+        code: '',
+        description: '',
+        discount_type: 'minutes',
+        discount_value: '100',
+        max_uses: '',
+        valid_until: '',
+      });
+      fetchCodes();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create code');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeactivate = async (code: string) => {
+    try {
+      await adminApi.deactivateCode(adminKey, code);
+      setCodes(codes.map(c => c.code === code ? { ...c, is_active: false } : c));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to deactivate code');
+    }
   };
 
   const getTypeLabel = (type: string, value: number) => {
@@ -90,6 +106,14 @@ export default function CodesPage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-gold text-xl">Loading codes...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -102,6 +126,13 @@ export default function CodesPage() {
           Create Code
         </HoneycombButton>
       </div>
+
+      {/* Error */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
+          {error}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
@@ -263,8 +294,8 @@ export default function CodesPage() {
           />
 
           <div className="flex gap-3 mt-6">
-            <HoneycombButton onClick={handleCreate}>
-              Create Code
+            <HoneycombButton onClick={handleCreate} disabled={creating}>
+              {creating ? 'Creating...' : 'Create Code'}
             </HoneycombButton>
             <HoneycombButton
               variant="outline"
