@@ -46,7 +46,14 @@ def get_subscription_info(user_id: str) -> dict:
         usage = usage_result.data[0] if usage_result.data else {}
 
         minutes_used = usage.get("minutes_used", 0)
-        minutes_limit = usage.get("minutes_limit", 100)
+
+        # Get actual limit from plan features
+        limit_result = supabase.rpc("va_get_feature_limit", {
+            "p_user_id": user_id,
+            "p_feature_key": "max_minutes"
+        }).execute()
+
+        minutes_limit = int(limit_result.data) if limit_result.data else 100
         usage_pct = (minutes_used / minutes_limit * 100) if minutes_limit > 0 else 0
 
         return {
