@@ -81,6 +81,27 @@ class CreatePortalRequest(BaseModel):
     return_url: str
 
 
+class RedeemCodeRequest(BaseModel):
+    code: str
+
+
+class CreateDiscountCodeRequest(BaseModel):
+    code: str
+    description: Optional[str] = None
+    discount_type: str  # 'percentage', 'fixed', 'minutes', 'upgrade'
+    discount_value: int
+    applicable_plan: Optional[str] = None
+    max_uses: Optional[int] = None
+    max_uses_per_user: int = 1
+    valid_until: Optional[str] = None  # ISO format datetime
+
+
+class AddBonusMinutesRequest(BaseModel):
+    user_id: str
+    minutes: int
+    reason: Optional[str] = None
+
+
 class VoiceAssistant:
     """
     Main voice assistant orchestrator with Supabase integration.
@@ -1292,6 +1313,286 @@ async def stripe_webhook(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# DISCOUNT CODE ROUTES
+# ============================================================================
+
+@app.post("/codes/redeem")
+async def redeem_discount_code(
+    request: RedeemCodeRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Redeem a discount code.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Body:
+        code: Discount code to redeem
+    """
+    try:
+        # Call the database function to redeem
+        result = db.client.rpc(
+            "va_redeem_discount_code",
+            {
+                "p_user_id": user_id,
+                "p_code": request.code.upper()
+            }
+        ).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=400, detail="Failed to process code")
+
+        redemption_result = result.data
+
+        if not redemption_result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=redemption_result.get("error", "Invalid code")
+            )
+
+        logger.info(f"User {user_id} redeemed code {request.code}: {redemption_result.get('message')}")
+
+        return redemption_result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error redeeming code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/codes")
+async def create_discount_code(
+    request: CreateDiscountCodeRequest,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Create a new discount code.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Body:
+        code: Unique code string
+        description: Optional description
+        discount_type: 'percentage', 'fixed', 'minutes', 'upgrade'
+        discount_value: Value based on type
+        applicable_plan: Optional plan restriction
+        max_uses: Optional max total uses
+        max_uses_per_user: Max uses per user (default 1)
+        valid_until: Optional expiry datetime (ISO format)
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Validate discount type
+        valid_types = ['percentage', 'fixed', 'minutes', 'upgrade']
+        if request.discount_type not in valid_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid discount_type. Must be one of: {', '.join(valid_types)}"
+            )
+
+        # Create the code
+        code_data = {
+            "code": request.code.upper(),
+            "description": request.description,
+            "discount_type": request.discount_type,
+            "discount_value": request.discount_value,
+            "applicable_plan": request.applicable_plan,
+            "max_uses": request.max_uses,
+            "max_uses_per_user": request.max_uses_per_user,
+            "valid_until": request.valid_until,
+            "is_active": True
+        }
+
+        result = db.client.table("va_discount_codes").insert(code_data).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to create code")
+
+        logger.info(f"Created discount code: {request.code}")
+
+        return {
+            "success": True,
+            "code": result.data[0]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating discount code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/admin/codes")
+async def list_discount_codes(
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    active_only: bool = True,
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    List all discount codes.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Query:
+        active_only: Only show active codes (default True)
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        query = db.client.table("va_discount_codes").select("*")
+
+        if active_only:
+            query = query.eq("is_active", True)
+
+        result = query.order("created_at", desc=True).execute()
+
+        return {
+            "codes": result.data,
+            "count": len(result.data)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing codes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/admin/add-minutes")
+async def add_bonus_minutes(
+    request: AddBonusMinutesRequest,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Add bonus minutes to a user's account.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+
+    Body:
+        user_id: User UUID
+        minutes: Number of bonus minutes to add
+        reason: Optional reason for the bonus
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        if request.minutes <= 0:
+            raise HTTPException(status_code=400, detail="Minutes must be positive")
+
+        # Get current usage record
+        usage_result = db.client.table("va_usage_tracking").select("*").eq(
+            "user_id", request.user_id
+        ).order("period_start", desc=True).limit(1).execute()
+
+        if usage_result.data:
+            # Update existing record
+            current_bonus = usage_result.data[0].get("bonus_minutes", 0) or 0
+            new_bonus = current_bonus + request.minutes
+
+            db.client.table("va_usage_tracking").update({
+                "bonus_minutes": new_bonus
+            }).eq("id", usage_result.data[0]["id"]).execute()
+
+            logger.info(f"Added {request.minutes} bonus minutes to user {request.user_id} (total: {new_bonus})")
+
+            return {
+                "success": True,
+                "user_id": request.user_id,
+                "minutes_added": request.minutes,
+                "total_bonus_minutes": new_bonus,
+                "reason": request.reason,
+                "message": f"Added {request.minutes} bonus minutes"
+            }
+        else:
+            # Create new usage record with bonus minutes
+            from datetime import datetime, timedelta
+            now = datetime.utcnow()
+
+            db.client.table("va_usage_tracking").insert({
+                "user_id": request.user_id,
+                "period_start": now.isoformat(),
+                "period_end": (now + timedelta(days=30)).isoformat(),
+                "minutes_used": 0,
+                "bonus_minutes": request.minutes
+            }).execute()
+
+            logger.info(f"Created usage record with {request.minutes} bonus minutes for user {request.user_id}")
+
+            return {
+                "success": True,
+                "user_id": request.user_id,
+                "minutes_added": request.minutes,
+                "total_bonus_minutes": request.minutes,
+                "reason": request.reason,
+                "message": f"Added {request.minutes} bonus minutes"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding bonus minutes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/admin/codes/{code}")
+async def delete_discount_code(
+    code: str,
+    admin_key: str = Header(..., alias="X-Admin-Key"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Deactivate a discount code.
+
+    Headers:
+        X-Admin-Key: Required admin API key
+    """
+    try:
+        # Validate admin key
+        expected_key = os.getenv("ADMIN_API_KEY", "admin-secret-key")
+        if admin_key != expected_key:
+            raise HTTPException(status_code=401, detail="Invalid admin key")
+
+        # Deactivate the code (soft delete)
+        result = db.client.table("va_discount_codes").update({
+            "is_active": False
+        }).eq("code", code.upper()).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Code not found")
+
+        logger.info(f"Deactivated discount code: {code}")
+
+        return {
+            "success": True,
+            "message": f"Code {code} deactivated"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -1322,6 +1623,12 @@ if __name__ == "__main__":
     print("  POST   /payments/create-checkout      - Create checkout session")
     print("  POST   /payments/create-portal        - Create customer portal")
     print("  POST   /payments/webhook              - Stripe webhook handler")
+    print("\nDiscount Codes:")
+    print("  POST   /codes/redeem                  - Redeem a discount code")
+    print("  POST   /admin/codes                   - Create discount code")
+    print("  GET    /admin/codes                   - List all codes")
+    print("  DELETE /admin/codes/{code}            - Deactivate code")
+    print("  POST   /admin/add-minutes             - Add bonus minutes to user")
     print("\n" + "=" * 60)
 
     uvicorn.run(
