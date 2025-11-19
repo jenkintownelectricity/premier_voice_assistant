@@ -97,7 +97,7 @@ def simulate_chat(user_id: str, minutes_to_use: int = 1) -> tuple:
 
     except FeatureGateError as e:
         return (
-            f"❌ Feature Gate Error:\n\n{e.message}\n\nPlan: {e.current_plan}\nUpgrade needed: {e.upgrade_required}",
+            f"❌ Feature Gate Error:\n\n{e.message}\n\nFeature: {e.feature_key}\nCurrent: {e.current}\nLimit: {e.limit}",
             get_subscription_info(user_id),
             "error"
         )
@@ -121,7 +121,7 @@ def test_voice_clone(user_id: str) -> tuple:
         )
     except FeatureGateError as e:
         return (
-            f"❌ Voice Clone Blocked:\n\n{e.message}\n\nPlan: {e.current_plan}",
+            f"❌ Voice Clone Blocked:\n\n{e.message}\n\nCurrent: {e.current}\nLimit: {e.limit}",
             get_subscription_info(user_id),
             "error"
         )
@@ -142,9 +142,9 @@ with gr.Blocks(
 
     with gr.Row():
         user_id_input = gr.Textbox(
-            label="Test User ID",
-            value="test-user-123",
-            placeholder="Enter user ID to test"
+            label="Test User ID (UUID format)",
+            value="00000000-0000-0000-0000-000000000001",
+            placeholder="Enter user UUID to test"
         )
         refresh_btn = gr.Button("🔄 Refresh Status", size="sm")
 
@@ -196,7 +196,7 @@ with gr.Blocks(
     with gr.Accordion("⚙️ Admin Functions", open=False):
         gr.Markdown("### Admin Upgrade User")
         with gr.Row():
-            admin_user_id = gr.Textbox(label="User ID", value="test-user-123")
+            admin_user_id = gr.Textbox(label="User ID", value="00000000-0000-0000-0000-000000000001")
             admin_plan = gr.Dropdown(
                 choices=["free", "starter", "pro", "enterprise"],
                 value="starter",
