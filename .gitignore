@@ -60,3 +60,8 @@ htmlcov/
 # Audio temp files
 *.tmp
 temp_audio/
+
+# Node.js
+node_modules/
+.next/
+out/
