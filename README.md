@@ -1,39 +1,139 @@
 # Premier Voice Assistant
 
-Production-ready voice AI system with subscription-based feature gates and usage tracking. Built with open-source models and serverless infrastructure for predictable costs and scalable monetization.
+Production-ready voice AI system with subscription-based feature gates, usage tracking, Stripe payments, and discount codes. Built with open-source models and serverless infrastructure for predictable costs and scalable monetization.
 
-## 🤖 Claude Code Session Info
+---
 
-**Branch:** `claude/teleport-session-setup-016eUFyiHmqa7YtihKkDL7a4`
-**Local Path:** `C:\Users\ArmandLefebvre\AppData\Roaming\0_Apps_Library\premier_voice_assistant`
+## 🎯 Current Milestone: Backend Complete - Ready for UI Development
+
+**Status:** ✅ Backend API fully functional with subscriptions, payments, and discount codes
+**Last Updated:** 2025-11-19
+
+### What's Complete
+- ✅ Full subscription system (Free, Starter, Pro, Enterprise)
+- ✅ Feature gates with usage enforcement
+- ✅ Stripe payment integration (checkout, portal, webhooks)
+- ✅ Discount code system with bonus minutes
+- ✅ Admin endpoints for user management
+- ✅ Client-safe functions for iOS/Android/Web
+- ✅ All database migrations (001-005)
+- ✅ API test suite passing
 
 ### Test User
 - **User ID:** `ea97ae74-a597-4dc8-9c6e-1c6981324ce5`
-- **Current Plan:** Pro (10000 minutes)
-- **Minutes Used:** ~46
-
-### Quick Start (Local)
-```powershell
-cd "C:\Users\ArmandLefebvre\AppData\Roaming\0_Apps_Library\premier_voice_assistant"
-venv\Scripts\activate
-
-# Terminal 1 - FastAPI
-python -m backend.main
-
-# Terminal 2 - Gradio Test UI
-python test_ui.py
-
-# Run tests
-python quick_test.py
-```
-
-### Next Steps
-1. Test admin upgrade endpoint via Gradio UI (need FastAPI running)
-2. Update `quick_test.py` to use API for upgrades
-3. Add usage reset for billing periods
-4. Integrate Stripe payments
+- **Current Plan:** Pro (10,000 minutes)
+- **Status:** All API tests passing
 
 ---
+
+## 🚀 Quick Start
+
+### 1. Clone and Setup
+```bash
+git clone <repo>
+cd premier_voice_assistant
+pip install -r requirements.txt
+```
+
+### 2. Configure Environment
+```bash
+cp .env.example .env
+# Edit .env with your credentials:
+# - SUPABASE_URL
+# - SUPABASE_SERVICE_ROLE_KEY
+# - SUPABASE_ANON_KEY
+# - ADMIN_API_KEY
+# - STRIPE_SECRET_KEY (optional)
+# - STRIPE_WEBHOOK_SECRET (optional)
+```
+
+### 3. Run Database Migrations
+In Supabase SQL Editor, run in order:
+1. `supabase/migrations/001_add_subscription_system.sql`
+2. `supabase/migrations/002_add_client_permissions.sql`
+3. `supabase/migrations/003_add_stripe_fields.sql`
+4. `supabase/migrations/004_add_discount_codes.sql`
+5. `supabase/migrations/005_add_client_permissions_v2.sql`
+
+Then seed features:
+```bash
+python scripts/seed_plan_features.py
+```
+
+### 4. Start Server and Test
+```bash
+# Terminal 1 - Start API
+python -m backend.main
+
+# Terminal 2 - Run tests
+python api_test.py
+```
+
+---
+
+## 📋 Next Session: Build Production UI
+
+### Priority Tasks
+
+1. **Admin Dashboard**
+   - User management (search, upgrade, add minutes)
+   - Discount code creation/management
+   - Usage analytics and charts
+   - Revenue tracking
+
+2. **User-Facing UI**
+   - Subscription management page
+   - Usage dashboard with progress bars
+   - Upgrade flow with Stripe checkout
+   - Discount code redemption
+
+3. **Mobile Integration**
+   - iOS Swift SDK wrapper
+   - Android Kotlin SDK wrapper
+   - React Native / Flutter support
+
+### API Endpoints Available
+
+**Subscription & Usage:**
+- `GET /subscription` - User's plan
+- `GET /usage` - Current usage stats
+- `GET /feature-limits` - All limits
+
+**Admin Controls:**
+- `POST /admin/upgrade-user` - Upgrade plan
+- `POST /admin/add-minutes` - Add bonus minutes
+- `POST /admin/codes` - Create discount code
+- `POST /admin/reset-usage` - Reset usage
+- `POST /admin/start-billing-period` - New billing period
+
+**Discount Codes:**
+- `POST /codes/redeem` - Redeem a code
+
+**Stripe Payments:**
+- `POST /payments/create-checkout` - Start checkout
+- `POST /payments/create-portal` - Customer portal
+- `POST /webhooks/stripe` - Webhook handler
+
+### Database Functions for Clients
+
+Mobile/Web apps can call directly via Supabase:
+```typescript
+// Check if user can use feature
+supabase.rpc('va_client_check_feature', { p_feature_key: 'max_minutes', p_requested_amount: 1 })
+
+// Get usage with bonus minutes
+supabase.rpc('va_client_get_my_usage')
+
+// Redeem discount code
+supabase.rpc('va_client_redeem_code', { p_code: 'WELCOME2024' })
+
+// Validate code before showing to user
+supabase.rpc('va_client_validate_code', { p_code: 'WELCOME2024' })
+```
+
+---
+
+## 🔧 Architecture Overview
 
 ## 🚀 Features
 
