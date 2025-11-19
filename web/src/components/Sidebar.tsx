@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { clsx } from 'clsx';
@@ -15,7 +16,7 @@ interface SidebarProps {
   title?: string;
 }
 
-export function Sidebar({ items, title = 'Premier Voice' }: SidebarProps) {
+export function Sidebar({ items, title = 'HIVE215' }: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -23,16 +24,13 @@ export function Sidebar({ items, title = 'Premier Voice' }: SidebarProps) {
       {/* Logo area */}
       <div className="p-6 border-b border-gold/20">
         <div className="flex items-center gap-3">
-          {/* Honeycomb logo placeholder */}
-          <div
-            className="w-10 h-10 flex items-center justify-center"
-            style={{
-              background: 'linear-gradient(135deg, #D4AF37 0%, #FFD700 50%, #B8860B 100%)',
-              clipPath: 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)',
-            }}
-          >
-            <span className="text-black font-bold text-lg">P</span>
-          </div>
+          <Image
+            src="/HIVE215Logo.png"
+            alt="HIVE215 Logo"
+            width={40}
+            height={40}
+            className="rounded"
+          />
           <span className="text-lg font-bold text-gold-gradient bg-clip-text text-transparent bg-gradient-to-r from-gold to-gold-shine">
             {title}
           </span>
@@ -67,7 +65,7 @@ export function Sidebar({ items, title = 'Premier Voice' }: SidebarProps) {
       {/* Footer */}
       <div className="p-4 border-t border-gold/20">
         <div className="text-xs text-gray-500 text-center">
-          Premier Voice Assistant v0.2.0
+          HIVE215 v0.2.0
         </div>
       </div>
     </div>

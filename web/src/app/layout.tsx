@@ -2,8 +2,12 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Premier Voice Assistant',
+  title: 'HIVE215 - Premier Voice Assistant',
   description: 'Production-ready voice AI system with subscription management',
+  icons: {
+    icon: '/HIVE215Logo.png',
+    apple: '/HIVE215Logo.png',
+  },
 }
 
 export default function RootLayout({
