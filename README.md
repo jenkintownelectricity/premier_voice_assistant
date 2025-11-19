@@ -4,9 +4,9 @@ Production-ready voice AI system with subscription-based feature gates, usage tr
 
 ---
 
-## 🎯 Current Milestone: Full Stack Deployed
+## 🎯 Current Milestone: Full Stack + Mobile SDKs
 
-**Status:** ✅ Backend + Frontend deployed and live
+**Status:** ✅ Backend + Frontend + Mobile Apps Complete
 **Last Updated:** 2025-11-19
 
 ### Live URLs
@@ -19,14 +19,17 @@ Production-ready voice AI system with subscription-based feature gates, usage tr
 - ✅ Stripe payment integration (checkout, portal, webhooks)
 - ✅ Discount code system with bonus minutes
 - ✅ Admin endpoints for user management
-- ✅ Client-safe functions for iOS/Android/Web
 - ✅ All database migrations (001-005)
 - ✅ API test suite passing
-- ✅ **Admin Dashboard** - User management, discount codes, analytics
-- ✅ **User Dashboard** - Usage tracking, subscription management
+- ✅ **Supabase Auth** - Login/signup with protected routes
+- ✅ **Admin Dashboard** - User management, discount codes, analytics (connected to real API)
+- ✅ **User Dashboard** - Usage tracking, subscription management (connected to real API)
 - ✅ **HIVE215 Branding** - OLED black + gold honeycomb design
 - ✅ **Vercel Deployment** - Frontend live
 - ✅ **Railway Deployment** - Backend API live
+- ✅ **iOS Swift SDK** - Swift Package for developers
+- ✅ **Android Kotlin SDK** - Gradle library for developers
+- ✅ **React Native Mobile App** - Cross-platform iOS/Android app
 
 ### Test User
 - **User ID:** `ea97ae74-a597-4dc8-9c6e-1c6981324ce5`
@@ -88,74 +91,63 @@ Copy and paste this to start your next session:
 
 ### Context
 Repository: premier_voice_assistant
-Branch to pull: `claude/clean-web-ui-01NobBNSoHwFfoqbnm3SQk19`
+Branch: `main`
 
 ### Current State
-Full stack is deployed and live:
+Full stack deployed with mobile apps:
 - **Frontend:** https://hive215.vercel.app/
 - **Backend:** https://web-production-1b085.up.railway.app/
-
-The UI currently uses mock data. Need to connect to real API.
-
-### Task: Connect Real API Data
-
-Start by pulling the latest code:
-```bash
-git pull origin claude/clean-web-ui-01NobBNSoHwFfoqbnm3SQk19
-```
-
-**Priority 1: Add Supabase Auth**
-1. Install packages: `@supabase/supabase-js`, `@supabase/auth-helpers-nextjs`
-2. Create Supabase client in `web/src/lib/supabase.ts`
-3. Add auth context provider
-4. Create login/signup pages at `/login` and `/signup`
-5. Protect dashboard routes (redirect if not logged in)
-
-**Priority 2: Connect Admin Dashboard to Real API**
-- `/admin/page.tsx` - Fetch real stats from API
-- `/admin/users/page.tsx` - Connect user search and upgrade actions
-- `/admin/codes/page.tsx` - Connect code creation/listing
-- `/admin/analytics/page.tsx` - Fetch real usage/revenue data
-
-**Priority 3: Connect User Dashboard to Real API**
-- `/dashboard/page.tsx` - Fetch user's subscription and usage
-- `/dashboard/usage/page.tsx` - Fetch usage history
-- `/dashboard/subscription/page.tsx` - Connect Stripe checkout flow
-- `/dashboard/redeem/page.tsx` - Connect code redemption
-
-**Priority 4: Add Loading States & Error Handling**
-- Loading spinners during API calls
-- Error messages for failed requests
-- Retry logic for network errors
-
-### Key Files
-- `web/src/lib/api.ts` - API client (already built)
-- `backend/main.py` - All API endpoints
-- `api_test.py` - Example API calls
+- **Mobile:** React Native Expo app in `/mobile`
+- **SDKs:** iOS Swift & Android Kotlin in `/sdks`
 
 ### Environment Variables Needed
+
 **Vercel (frontend):**
-- `NEXT_PUBLIC_API_URL` = `https://web-production-1b085.up.railway.app`
-- `NEXT_PUBLIC_SUPABASE_URL` = your Supabase URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` = your Supabase anon key
+```
+NEXT_PUBLIC_API_URL=https://web-production-1b085.up.railway.app
+NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+```
+
+**Mobile (.env in /mobile):**
+```
+EXPO_PUBLIC_SUPABASE_URL=your-supabase-url
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+```
 
 ### Test User
 - ID: `ea97ae74-a597-4dc8-9c6e-1c6981324ce5`
 - Plan: Pro (10,000 minutes)
 
+### Key Directories
+- `web/` - Next.js frontend
+- `mobile/` - React Native Expo app
+- `sdks/ios/` - Swift Package SDK
+- `sdks/android/` - Kotlin SDK
+- `backend/` - FastAPI backend
+
 ---
 
 ## 📋 Future Tasks
 
-1. **Mobile Integration**
-   - iOS Swift SDK wrapper
-   - Android Kotlin SDK wrapper
-   - React Native / Flutter support
+1. **Voice Recording**
+   - Add voice conversation UI to mobile app
+   - Record audio and send to `/chat` endpoint
+   - Play back AI responses
 
-2. **Production Hardening**
+2. **Real-time Streaming**
+   - Pipecat integration
+   - WebSocket support
+   - Voice Activity Detection
+
+3. **Production Hardening**
    - Rate limiting
    - Monitoring and alerts
    - Caching layer
+
+4. **App Store Deployment**
+   - EAS Build for iOS/Android
+   - App Store / Play Store submission
 
 ---
 

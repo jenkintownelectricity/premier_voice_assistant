@@ -106,6 +106,43 @@ class AddBonusMinutesRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class CreateAssistantRequest(BaseModel):
+    name: str
+    system_prompt: str
+    description: Optional[str] = None
+    voice_id: Optional[str] = "default"
+    model: Optional[str] = "claude-3-5-sonnet-20241022"
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = 150
+    first_message: Optional[str] = None
+    # Advanced latency optimization settings
+    vad_sensitivity: Optional[float] = 0.5
+    endpointing_ms: Optional[int] = 600
+    enable_bargein: Optional[bool] = True
+    streaming_chunks: Optional[bool] = True
+    first_message_latency_ms: Optional[int] = 800
+    turn_detection_mode: Optional[str] = "server_vad"
+
+
+class UpdateAssistantRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None
+    voice_id: Optional[str] = None
+    model: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    first_message: Optional[str] = None
+    is_active: Optional[bool] = None
+    # Advanced latency optimization settings
+    vad_sensitivity: Optional[float] = None
+    endpointing_ms: Optional[int] = None
+    enable_bargein: Optional[bool] = None
+    streaming_chunks: Optional[bool] = None
+    first_message_latency_ms: Optional[int] = None
+    turn_detection_mode: Optional[str] = None
+
+
 class VoiceAssistant:
     """
     Main voice assistant orchestrator with Supabase integration.
@@ -798,6 +835,403 @@ async def get_feature_limits(
 
     except Exception as e:
         logger.error(f"Error getting feature limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# ASSISTANTS ROUTES
+# ============================================================================
+
+@app.get("/assistants")
+async def list_assistants(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's AI assistants.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        result = db.client.table("va_assistants").select(
+            "id, name, description, voice_id, model, is_active, created_at, updated_at"
+        ).eq("user_id", user_id).order("created_at", desc=True).execute()
+
+        # Get call counts for each assistant
+        assistants = []
+        for assistant in result.data:
+            call_count = db.client.table("va_call_logs").select(
+                "id", count="exact"
+            ).eq("assistant_id", assistant["id"]).execute()
+
+            assistant["call_count"] = call_count.count if call_count.count else 0
+            assistants.append(assistant)
+
+        return {"assistants": assistants}
+
+    except Exception as e:
+        logger.error(f"Error getting assistants: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/assistants/{assistant_id}")
+async def get_assistant(
+    assistant_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get a single assistant's details.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        result = db.client.table("va_assistants").select("*").eq(
+            "id", assistant_id
+        ).eq("user_id", user_id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Assistant not found")
+
+        return {"assistant": result.data[0]}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting assistant: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/assistants")
+async def create_assistant(
+    request: CreateAssistantRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Create a new AI assistant.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        # Check assistant limit
+        feature_gate = get_feature_gate()
+        try:
+            feature_gate.enforce_feature(user_id, "max_assistants", 1)
+        except FeatureGateError as e:
+            raise HTTPException(status_code=402, detail=e.message)
+
+        # Create assistant
+        assistant_data = {
+            "user_id": user_id,
+            "name": request.name,
+            "description": request.description,
+            "system_prompt": request.system_prompt,
+            "voice_id": request.voice_id,
+            "model": request.model,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "first_message": request.first_message,
+            "is_active": True,
+            # Advanced latency optimization settings
+            "vad_sensitivity": request.vad_sensitivity,
+            "endpointing_ms": request.endpointing_ms,
+            "enable_bargein": request.enable_bargein,
+            "streaming_chunks": request.streaming_chunks,
+            "first_message_latency_ms": request.first_message_latency_ms,
+            "turn_detection_mode": request.turn_detection_mode
+        }
+
+        result = db.client.table("va_assistants").insert(assistant_data).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to create assistant")
+
+        logger.info(f"Created assistant {result.data[0]['id']} for user {user_id}")
+
+        return {
+            "success": True,
+            "assistant": result.data[0]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating assistant: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/assistants/{assistant_id}")
+async def update_assistant(
+    assistant_id: str,
+    request: UpdateAssistantRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Update an assistant.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        # Verify ownership
+        existing = db.client.table("va_assistants").select("id").eq(
+            "id", assistant_id
+        ).eq("user_id", user_id).execute()
+
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Assistant not found")
+
+        # Build update dict
+        updates = {}
+        for field in ["name", "description", "system_prompt", "voice_id",
+                      "model", "temperature", "max_tokens", "first_message", "is_active",
+                      "vad_sensitivity", "endpointing_ms", "enable_bargein",
+                      "streaming_chunks", "first_message_latency_ms", "turn_detection_mode"]:
+            value = getattr(request, field)
+            if value is not None:
+                updates[field] = value
+
+        if not updates:
+            return {"success": True, "message": "No changes"}
+
+        result = db.client.table("va_assistants").update(updates).eq(
+            "id", assistant_id
+        ).eq("user_id", user_id).execute()
+
+        logger.info(f"Updated assistant {assistant_id}")
+
+        return {
+            "success": True,
+            "assistant": result.data[0] if result.data else None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating assistant: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/assistants/{assistant_id}")
+async def delete_assistant(
+    assistant_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Delete an assistant.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        result = db.client.table("va_assistants").delete().eq(
+            "id", assistant_id
+        ).eq("user_id", user_id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Assistant not found")
+
+        logger.info(f"Deleted assistant {assistant_id}")
+
+        return {"success": True, "message": "Assistant deleted"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting assistant: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# CALL LOGS ROUTES
+# ============================================================================
+
+@app.get("/calls")
+async def list_calls(
+    user_id: str = Header(..., alias="X-User-ID"),
+    limit: int = 50,
+    offset: int = 0,
+    assistant_id: Optional[str] = None,
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's call history.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Query:
+        limit: Number of calls to return (default 50)
+        offset: Pagination offset (default 0)
+        assistant_id: Filter by assistant (optional)
+    """
+    try:
+        query = db.client.table("va_call_logs").select(
+            "id, assistant_id, call_type, phone_number, status, started_at, "
+            "ended_at, duration_seconds, cost_cents, summary, sentiment, ended_reason"
+        ).eq("user_id", user_id)
+
+        if assistant_id:
+            query = query.eq("assistant_id", assistant_id)
+
+        result = query.order("started_at", desc=True).range(
+            offset, offset + limit - 1
+        ).execute()
+
+        # Get assistant names
+        calls = []
+        for call in result.data:
+            if call.get("assistant_id"):
+                assistant = db.client.table("va_assistants").select("name").eq(
+                    "id", call["assistant_id"]
+                ).execute()
+                call["assistant_name"] = assistant.data[0]["name"] if assistant.data else "Deleted"
+            else:
+                call["assistant_name"] = "Unknown"
+            calls.append(call)
+
+        # Get total count
+        count_query = db.client.table("va_call_logs").select(
+            "id", count="exact"
+        ).eq("user_id", user_id)
+        if assistant_id:
+            count_query = count_query.eq("assistant_id", assistant_id)
+        total = count_query.execute()
+
+        return {
+            "calls": calls,
+            "total": total.count if total.count else 0,
+            "limit": limit,
+            "offset": offset
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting calls: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/calls/{call_id}")
+async def get_call(
+    call_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get a single call's details including transcript.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        result = db.client.table("va_call_logs").select("*").eq(
+            "id", call_id
+        ).eq("user_id", user_id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Call not found")
+
+        call = result.data[0]
+
+        # Get assistant name
+        if call.get("assistant_id"):
+            assistant = db.client.table("va_assistants").select("name").eq(
+                "id", call["assistant_id"]
+            ).execute()
+            call["assistant_name"] = assistant.data[0]["name"] if assistant.data else "Deleted"
+        else:
+            call["assistant_name"] = "Unknown"
+
+        return {"call": call}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting call: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/calls/stats/summary")
+async def get_call_stats(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get call statistics summary.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        # Get all calls for stats
+        result = db.client.table("va_call_logs").select(
+            "duration_seconds, cost_cents, status, started_at"
+        ).eq("user_id", user_id).execute()
+
+        calls = result.data
+
+        if not calls:
+            return {
+                "stats": {
+                    "total_calls": 0,
+                    "total_duration_seconds": 0,
+                    "total_cost_cents": 0,
+                    "avg_duration_seconds": 0,
+                    "completed_calls": 0,
+                    "failed_calls": 0,
+                    "calls_today": 0,
+                    "calls_this_week": 0,
+                    "calls_this_month": 0
+                }
+            }
+
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_ago = now - timedelta(days=7)
+        month_ago = now - timedelta(days=30)
+
+        total_duration = sum(c.get("duration_seconds", 0) or 0 for c in calls)
+        total_cost = sum(c.get("cost_cents", 0) or 0 for c in calls)
+        completed = sum(1 for c in calls if c.get("status") == "completed")
+        failed = sum(1 for c in calls if c.get("status") == "failed")
+
+        calls_today = 0
+        calls_week = 0
+        calls_month = 0
+
+        for c in calls:
+            started = c.get("started_at")
+            if started:
+                call_time = datetime.fromisoformat(started.replace("Z", "+00:00")).replace(tzinfo=None)
+                if call_time >= today:
+                    calls_today += 1
+                if call_time >= week_ago:
+                    calls_week += 1
+                if call_time >= month_ago:
+                    calls_month += 1
+
+        return {
+            "stats": {
+                "total_calls": len(calls),
+                "total_duration_seconds": total_duration,
+                "total_cost_cents": total_cost,
+                "avg_duration_seconds": int(total_duration / len(calls)) if calls else 0,
+                "completed_calls": completed,
+                "failed_calls": failed,
+                "calls_today": calls_today,
+                "calls_this_week": calls_week,
+                "calls_this_month": calls_month
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting call stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
