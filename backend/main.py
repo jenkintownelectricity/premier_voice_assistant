@@ -1144,6 +1144,596 @@ async def get_usage_analytics(
 
 
 # ============================================================================
+# AI USAGE COACH ROUTES (Unique Feature)
+# ============================================================================
+
+@app.get("/insights/weekly")
+async def get_weekly_insights(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get AI-powered weekly usage insights and recommendations.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Returns:
+        Weekly analysis with personalized recommendations from AI coach
+    """
+    try:
+        from datetime import datetime, timedelta
+        import anthropic
+
+        # Get data for current week and previous week
+        now = datetime.utcnow()
+        week_start = now - timedelta(days=7)
+        prev_week_start = now - timedelta(days=14)
+
+        # Current week metrics
+        current_week = db.client.table("va_usage_metrics").select(
+            "cost_cents, input_tokens, output_tokens, total_latency_ms, event_type, error, created_at"
+        ).eq("user_id", user_id).gte("created_at", week_start.isoformat()).execute()
+
+        # Previous week metrics
+        prev_week = db.client.table("va_usage_metrics").select(
+            "cost_cents, input_tokens, output_tokens, total_latency_ms, event_type, error, created_at"
+        ).eq("user_id", user_id).gte(
+            "created_at", prev_week_start.isoformat()
+        ).lt("created_at", week_start.isoformat()).execute()
+
+        # Calculate current week stats
+        current_data = current_week.data if current_week.data else []
+        prev_data = prev_week.data if prev_week.data else []
+
+        current_cost = sum(m.get("cost_cents", 0) for m in current_data) / 100
+        prev_cost = sum(m.get("cost_cents", 0) for m in prev_data) / 100
+
+        current_tokens = sum(
+            m.get("input_tokens", 0) + m.get("output_tokens", 0)
+            for m in current_data
+        )
+        prev_tokens = sum(
+            m.get("input_tokens", 0) + m.get("output_tokens", 0)
+            for m in prev_data
+        )
+
+        current_requests = len(current_data)
+        prev_requests = len(prev_data)
+
+        current_errors = len([m for m in current_data if m.get("error")])
+        prev_errors = len([m for m in prev_data if m.get("error")])
+
+        # Calculate average latency (only for non-error requests)
+        latencies = [m.get("total_latency_ms", 0) for m in current_data if m.get("total_latency_ms")]
+        avg_latency = sum(latencies) / len(latencies) if latencies else 0
+
+        # Event type distribution
+        event_types = {}
+        for m in current_data:
+            et = m.get("event_type", "unknown")
+            event_types[et] = event_types.get(et, 0) + 1
+
+        # Calculate percentage changes
+        cost_change = ((current_cost - prev_cost) / prev_cost * 100) if prev_cost > 0 else 0
+        tokens_change = ((current_tokens - prev_tokens) / prev_tokens * 100) if prev_tokens > 0 else 0
+        requests_change = ((current_requests - prev_requests) / prev_requests * 100) if prev_requests > 0 else 0
+
+        # Prepare AI analysis prompt
+        analysis_prompt = f"""You are an AI Usage Coach helping users optimize their voice AI platform usage.
+
+Current Week Summary:
+- Total Cost: ${current_cost:.2f}
+- Total Tokens: {current_tokens:,}
+- Total Requests: {current_requests}
+- Errors: {current_errors}
+- Average Latency: {avg_latency:.0f}ms
+- Event Types: {event_types}
+
+Previous Week Comparison:
+- Cost Change: {cost_change:+.1f}%
+- Tokens Change: {tokens_change:+.1f}%
+- Requests Change: {requests_change:+.1f}%
+
+Based on this data, provide:
+1. A brief summary of usage trends (2-3 sentences)
+2. Three specific, actionable recommendations to optimize costs or performance
+3. One positive highlight from their usage patterns
+
+Format as JSON:
+{{
+    "summary": "Brief trend analysis...",
+    "recommendations": [
+        {{"title": "Rec 1", "description": "...", "impact": "high|medium|low"}},
+        {{"title": "Rec 2", "description": "...", "impact": "high|medium|low"}},
+        {{"title": "Rec 3", "description": "...", "impact": "high|medium|low"}}
+    ],
+    "highlight": "Positive observation..."
+}}"""
+
+        # Call Claude for AI insights
+        try:
+            client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            response = client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1000,
+                temperature=0.7,
+                messages=[{
+                    "role": "user",
+                    "content": analysis_prompt
+                }]
+            )
+
+            import json
+            ai_insights = json.loads(response.content[0].text)
+        except Exception as e:
+            logger.warning(f"AI insights generation failed: {e}")
+            # Fallback to rule-based insights
+            ai_insights = {
+                "summary": f"Your usage {'increased' if cost_change > 0 else 'decreased'} by {abs(cost_change):.1f}% this week. Current spending is ${current_cost:.2f} across {current_requests} requests.",
+                "recommendations": [
+                    {
+                        "title": "Monitor Cost Trends",
+                        "description": "Keep track of your weekly spending patterns to avoid unexpected costs.",
+                        "impact": "medium"
+                    },
+                    {
+                        "title": "Optimize Token Usage",
+                        "description": "Review your prompts to minimize unnecessary tokens while maintaining quality.",
+                        "impact": "high"
+                    },
+                    {
+                        "title": "Set Budget Alerts",
+                        "description": "Configure budget alerts to stay informed about spending thresholds.",
+                        "impact": "high"
+                    }
+                ],
+                "highlight": "Your error rate is low, indicating stable performance."
+            }
+
+        return {
+            "period": {
+                "start": week_start.isoformat(),
+                "end": now.isoformat(),
+            },
+            "metrics": {
+                "current_week": {
+                    "cost_dollars": current_cost,
+                    "total_tokens": current_tokens,
+                    "total_requests": current_requests,
+                    "error_count": current_errors,
+                    "avg_latency_ms": round(avg_latency),
+                    "event_types": event_types
+                },
+                "changes": {
+                    "cost_percent": round(cost_change, 1),
+                    "tokens_percent": round(tokens_change, 1),
+                    "requests_percent": round(requests_change, 1)
+                }
+            },
+            "ai_insights": ai_insights
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting weekly insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/insights/cost-optimizer")
+async def get_cost_optimization_suggestions(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get AI-powered cost optimization suggestions based on usage patterns.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Returns:
+        Detailed cost optimization recommendations
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        # Get last 30 days of data
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+
+        metrics = db.client.table("va_usage_metrics").select(
+            "cost_cents, input_tokens, output_tokens, event_type, total_latency_ms, metadata, created_at"
+        ).eq("user_id", user_id).gte("created_at", thirty_days_ago.isoformat()).execute()
+
+        data = metrics.data if metrics.data else []
+
+        if not data:
+            return {
+                "optimizations": [],
+                "potential_savings": 0,
+                "message": "Not enough usage data to generate recommendations."
+            }
+
+        # Analyze usage patterns
+        total_cost = sum(m.get("cost_cents", 0) for m in data) / 100
+        total_requests = len(data)
+
+        # Group by event type
+        by_event = {}
+        for m in data:
+            et = m.get("event_type", "unknown")
+            if et not in by_event:
+                by_event[et] = {"cost": 0, "count": 0, "tokens": 0}
+            by_event[et]["cost"] += m.get("cost_cents", 0) / 100
+            by_event[et]["count"] += 1
+            by_event[et]["tokens"] += m.get("input_tokens", 0) + m.get("output_tokens", 0)
+
+        # Find highest cost event types
+        sorted_events = sorted(by_event.items(), key=lambda x: x[1]["cost"], reverse=True)
+
+        # Calculate token efficiency
+        total_tokens = sum(m.get("input_tokens", 0) + m.get("output_tokens", 0) for m in data)
+        avg_tokens_per_request = total_tokens / total_requests if total_requests > 0 else 0
+
+        # Generate optimization suggestions
+        optimizations = []
+        potential_savings = 0
+
+        # High token usage optimization
+        if avg_tokens_per_request > 1000:
+            savings = total_cost * 0.15  # Estimate 15% savings
+            potential_savings += savings
+            optimizations.append({
+                "title": "Reduce Prompt Tokens",
+                "description": f"Your average request uses {avg_tokens_per_request:.0f} tokens. Consider shorter, more focused prompts to reduce costs.",
+                "potential_savings_dollars": round(savings, 2),
+                "impact": "high",
+                "category": "token_optimization"
+            })
+
+        # Event type specific optimizations
+        if sorted_events and sorted_events[0][1]["cost"] > total_cost * 0.6:
+            event_name = sorted_events[0][0]
+            event_cost = sorted_events[0][1]["cost"]
+            optimizations.append({
+                "title": f"Optimize {event_name.replace('_', ' ').title()} Usage",
+                "description": f"{event_name} accounts for ${event_cost:.2f} ({event_cost/total_cost*100:.0f}%) of your costs. Review if all these calls are necessary.",
+                "potential_savings_dollars": round(event_cost * 0.1, 2),
+                "impact": "high",
+                "category": "usage_pattern"
+            })
+            potential_savings += event_cost * 0.1
+
+        # Caching recommendation
+        optimizations.append({
+            "title": "Implement Response Caching",
+            "description": "Cache frequently repeated queries to reduce API calls and costs. Estimated 10-20% savings for typical usage patterns.",
+            "potential_savings_dollars": round(total_cost * 0.15, 2),
+            "impact": "medium",
+            "category": "caching"
+        })
+        potential_savings += total_cost * 0.15
+
+        # Model selection optimization
+        optimizations.append({
+            "title": "Review Model Selection",
+            "description": "Consider using Claude Haiku for simple tasks instead of Sonnet. Haiku is 10x cheaper for suitable use cases.",
+            "potential_savings_dollars": round(total_cost * 0.25, 2),
+            "impact": "high",
+            "category": "model_selection"
+        })
+        potential_savings += total_cost * 0.25
+
+        return {
+            "period_days": 30,
+            "current_monthly_cost": round(total_cost, 2),
+            "total_requests": total_requests,
+            "optimizations": optimizations[:4],  # Top 4 recommendations
+            "potential_monthly_savings": round(potential_savings, 2),
+            "top_cost_drivers": [
+                {
+                    "event_type": event,
+                    "cost_dollars": round(data["cost"], 2),
+                    "percentage": round(data["cost"] / total_cost * 100, 1),
+                    "count": data["count"]
+                }
+                for event, data in sorted_events[:3]
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting cost optimization suggestions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# ADVANCED OBSERVABILITY ROUTES (Latency Percentiles)
+# ============================================================================
+
+@app.get("/observability/latency")
+async def get_latency_percentiles(
+    user_id: str = Header(..., alias="X-User-ID"),
+    days: int = 7,
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get latency percentiles (P50, P75, P90, P95, P99) for performance monitoring.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Query Parameters:
+        days: Number of days to analyze (default: 7)
+
+    Returns:
+        Detailed latency analysis with percentiles
+    """
+    try:
+        from datetime import datetime, timedelta
+        import statistics
+
+        start_date = datetime.utcnow() - timedelta(days=days)
+
+        # Get all metrics with latency data
+        metrics = db.client.table("va_usage_metrics").select(
+            "stt_latency_ms, llm_latency_ms, tts_latency_ms, total_latency_ms, event_type, created_at"
+        ).eq("user_id", user_id).gte("created_at", start_date.isoformat()).execute()
+
+        data = metrics.data if metrics.data else []
+
+        if not data:
+            return {
+                "message": "No latency data available for the specified period.",
+                "percentiles": {}
+            }
+
+        def calculate_percentiles(values):
+            """Calculate P50, P75, P90, P95, P99 percentiles"""
+            if not values:
+                return {}
+
+            sorted_vals = sorted(values)
+            n = len(sorted_vals)
+
+            return {
+                "p50": sorted_vals[int(n * 0.50)] if n > 0 else 0,
+                "p75": sorted_vals[int(n * 0.75)] if n > 0 else 0,
+                "p90": sorted_vals[int(n * 0.90)] if n > 0 else 0,
+                "p95": sorted_vals[int(n * 0.95)] if n > 0 else 0,
+                "p99": sorted_vals[int(n * 0.99)] if n > 0 else 0,
+                "min": min(sorted_vals),
+                "max": max(sorted_vals),
+                "mean": round(statistics.mean(sorted_vals), 2),
+                "median": statistics.median(sorted_vals),
+                "count": n
+            }
+
+        # Extract latency values (filter out None/0 values)
+        stt_latencies = [m["stt_latency_ms"] for m in data if m.get("stt_latency_ms")]
+        llm_latencies = [m["llm_latency_ms"] for m in data if m.get("llm_latency_ms")]
+        tts_latencies = [m["tts_latency_ms"] for m in data if m.get("tts_latency_ms")]
+        total_latencies = [m["total_latency_ms"] for m in data if m.get("total_latency_ms")]
+
+        # Calculate percentiles for each component
+        percentiles = {
+            "stt": calculate_percentiles(stt_latencies),
+            "llm": calculate_percentiles(llm_latencies),
+            "tts": calculate_percentiles(tts_latencies),
+            "total": calculate_percentiles(total_latencies)
+        }
+
+        # Breakdown by event type
+        by_event_type = {}
+        for m in data:
+            et = m.get("event_type", "unknown")
+            if et not in by_event_type:
+                by_event_type[et] = []
+            if m.get("total_latency_ms"):
+                by_event_type[et].append(m["total_latency_ms"])
+
+        event_percentiles = {
+            event: calculate_percentiles(latencies)
+            for event, latencies in by_event_type.items()
+        }
+
+        # Time-based analysis (hourly breakdown)
+        hourly_breakdown = {}
+        for m in data:
+            if m.get("total_latency_ms") and m.get("created_at"):
+                hour = datetime.fromisoformat(m["created_at"].replace("Z", "+00:00")).hour
+                if hour not in hourly_breakdown:
+                    hourly_breakdown[hour] = []
+                hourly_breakdown[hour].append(m["total_latency_ms"])
+
+        hourly_percentiles = {
+            f"{hour:02d}:00": {
+                "p50": statistics.median(latencies),
+                "p95": sorted(latencies)[int(len(latencies) * 0.95)] if len(latencies) > 0 else 0,
+                "count": len(latencies)
+            }
+            for hour, latencies in sorted(hourly_breakdown.items())
+        }
+
+        # Performance health score (0-100)
+        # Based on P95 latency - lower is better
+        p95_total = percentiles["total"].get("p95", 0)
+        if p95_total == 0:
+            health_score = 100
+        elif p95_total < 1000:  # < 1s is excellent
+            health_score = 100
+        elif p95_total < 2000:  # < 2s is good
+            health_score = 90
+        elif p95_total < 3000:  # < 3s is acceptable
+            health_score = 75
+        elif p95_total < 5000:  # < 5s is concerning
+            health_score = 60
+        else:
+            health_score = max(30, 100 - (p95_total / 100))
+
+        return {
+            "period": {
+                "start_date": start_date.isoformat(),
+                "end_date": datetime.utcnow().isoformat(),
+                "days": days
+            },
+            "overall_percentiles": percentiles,
+            "by_event_type": event_percentiles,
+            "hourly_analysis": hourly_percentiles,
+            "performance_score": round(health_score),
+            "insights": {
+                "fastest_component": min(
+                    [("stt", percentiles["stt"].get("mean", float('inf'))),
+                     ("llm", percentiles["llm"].get("mean", float('inf'))),
+                     ("tts", percentiles["tts"].get("mean", float('inf')))],
+                    key=lambda x: x[1]
+                )[0] if percentiles else "N/A",
+                "slowest_component": max(
+                    [("stt", percentiles["stt"].get("mean", 0)),
+                     ("llm", percentiles["llm"].get("mean", 0)),
+                     ("tts", percentiles["tts"].get("mean", 0))],
+                    key=lambda x: x[1]
+                )[0] if percentiles else "N/A",
+                "total_requests_analyzed": len(data)
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error calculating latency percentiles: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/observability/error-correlation")
+async def get_error_correlation(
+    user_id: str = Header(..., alias="X-User-ID"),
+    days: int = 7,
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Analyze error patterns and correlations with latency/usage.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Query Parameters:
+        days: Number of days to analyze (default: 7)
+
+    Returns:
+        Error pattern analysis and correlations
+    """
+    try:
+        from datetime import datetime, timedelta
+        import statistics
+
+        start_date = datetime.utcnow() - timedelta(days=days)
+
+        # Get all metrics
+        metrics = db.client.table("va_usage_metrics").select(
+            "error, total_latency_ms, event_type, created_at"
+        ).eq("user_id", user_id).gte("created_at", start_date.isoformat()).execute()
+
+        data = metrics.data if metrics.data else []
+
+        if not data:
+            return {
+                "message": "No data available for the specified period.",
+                "correlations": {}
+            }
+
+        # Separate errors and successes
+        errors = [m for m in data if m.get("error")]
+        successes = [m for m in data if not m.get("error")]
+
+        total_requests = len(data)
+        error_count = len(errors)
+        success_count = len(successes)
+        error_rate = (error_count / total_requests * 100) if total_requests > 0 else 0
+
+        # Error types
+        error_types = {}
+        for m in errors:
+            error_msg = m.get("error", "Unknown")
+            # Extract error type (first part before colon or first 50 chars)
+            error_type = error_msg.split(":")[0][:50] if ":" in error_msg else error_msg[:50]
+            error_types[error_type] = error_types.get(error_type, 0) + 1
+
+        # Latency correlation
+        error_latencies = [m.get("total_latency_ms") for m in errors if m.get("total_latency_ms")]
+        success_latencies = [m.get("total_latency_ms") for m in successes if m.get("total_latency_ms")]
+
+        avg_error_latency = statistics.mean(error_latencies) if error_latencies else 0
+        avg_success_latency = statistics.mean(success_latencies) if success_latencies else 0
+
+        # Event type correlation
+        error_by_event = {}
+        success_by_event = {}
+
+        for m in errors:
+            et = m.get("event_type", "unknown")
+            error_by_event[et] = error_by_event.get(et, 0) + 1
+
+        for m in successes:
+            et = m.get("event_type", "unknown")
+            success_by_event[et] = success_by_event.get(et, 0) + 1
+
+        event_error_rates = {}
+        for event in set(list(error_by_event.keys()) + list(success_by_event.keys())):
+            event_errors = error_by_event.get(event, 0)
+            event_total = event_errors + success_by_event.get(event, 0)
+            event_error_rates[event] = {
+                "error_count": event_errors,
+                "total_count": event_total,
+                "error_rate_percent": round((event_errors / event_total * 100) if event_total > 0 else 0, 2)
+            }
+
+        # Time-based patterns (errors by hour)
+        hourly_errors = {}
+        for m in errors:
+            if m.get("created_at"):
+                hour = datetime.fromisoformat(m["created_at"].replace("Z", "+00:00")).hour
+                hourly_errors[hour] = hourly_errors.get(hour, 0) + 1
+
+        # Find peak error times
+        peak_error_hours = sorted(hourly_errors.items(), key=lambda x: x[1], reverse=True)[:3]
+
+        return {
+            "period": {
+                "start_date": start_date.isoformat(),
+                "end_date": datetime.utcnow().isoformat(),
+                "days": days
+            },
+            "summary": {
+                "total_requests": total_requests,
+                "error_count": error_count,
+                "success_count": success_count,
+                "error_rate_percent": round(error_rate, 2),
+                "success_rate_percent": round(100 - error_rate, 2)
+            },
+            "error_types": dict(sorted(error_types.items(), key=lambda x: x[1], reverse=True)[:10]),
+            "latency_correlation": {
+                "avg_error_latency_ms": round(avg_error_latency, 2),
+                "avg_success_latency_ms": round(avg_success_latency, 2),
+                "latency_difference_ms": round(avg_error_latency - avg_success_latency, 2),
+                "correlation": "Errors have higher latency" if avg_error_latency > avg_success_latency else "No significant correlation"
+            },
+            "by_event_type": event_error_rates,
+            "temporal_patterns": {
+                "peak_error_hours": [
+                    {"hour": f"{hour:02d}:00", "error_count": count}
+                    for hour, count in peak_error_hours
+                ],
+                "hourly_distribution": hourly_errors
+            },
+            "recommendations": [
+                f"Focus on {max(error_types.items(), key=lambda x: x[1])[0]}" if error_types else "No errors to address",
+                f"Review {max(event_error_rates.items(), key=lambda x: x[1]['error_rate_percent'])[0]} event type" if event_error_rates else "Maintain current performance",
+                f"Peak errors at {peak_error_hours[0][0]:02d}:00 UTC" if peak_error_hours else "No peak error times identified"
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error analyzing error correlation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # ASSISTANTS ROUTES
 # ============================================================================
 
@@ -2333,6 +2923,533 @@ async def delete_discount_code(
         raise
     except Exception as e:
         logger.error(f"Error deleting code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# TEAM COLLABORATION ROUTES
+# ============================================================================
+
+@app.get("/teams")
+async def list_user_teams(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get all teams the user is part of (owned or member).
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Returns:
+        List of teams with member counts and role
+    """
+    try:
+        # Get teams owned by user
+        owned_teams = db.client.table("va_teams").select(
+            "id, name, description, owner_id, created_at"
+        ).eq("owner_id", user_id).execute()
+
+        # Get teams where user is a member
+        member_teams = db.client.table("va_team_members").select(
+            "team_id, role, va_teams(id, name, description, owner_id, created_at)"
+        ).eq("user_id", user_id).execute()
+
+        teams = []
+
+        # Add owned teams
+        for team in owned_teams.data:
+            # Get member count
+            member_count = db.client.table("va_team_members").select(
+                "id", count="exact"
+            ).eq("team_id", team["id"]).execute()
+
+            teams.append({
+                **team,
+                "role": "owner",
+                "member_count": member_count.count if member_count.count else 0
+            })
+
+        # Add member teams
+        for membership in member_teams.data:
+            if membership.get("va_teams"):
+                team = membership["va_teams"]
+                # Get member count
+                member_count = db.client.table("va_team_members").select(
+                    "id", count="exact"
+                ).eq("team_id", team["id"]).execute()
+
+                teams.append({
+                    **team,
+                    "role": membership["role"],
+                    "member_count": member_count.count if member_count.count else 0
+                })
+
+        return {"teams": teams}
+
+    except Exception as e:
+        logger.error(f"Error listing teams: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/teams")
+async def create_team(
+    name: str,
+    description: str = None,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Create a new team.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Body:
+        name: Team name
+        description: Optional team description
+    """
+    try:
+        # Create team
+        team_data = {
+            "name": name,
+            "description": description,
+            "owner_id": user_id
+        }
+
+        result = db.client.table("va_teams").insert(team_data).execute()
+        team = result.data[0] if result.data else None
+
+        if not team:
+            raise HTTPException(status_code=500, detail="Failed to create team")
+
+        # Add owner as team member
+        member_data = {
+            "team_id": team["id"],
+            "user_id": user_id,
+            "role": "owner",
+            "invited_by": user_id
+        }
+
+        db.client.table("va_team_members").insert(member_data).execute()
+
+        return {
+            "team": team,
+            "message": "Team created successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"Error creating team: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/teams/{team_id}")
+async def get_team_details(
+    team_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get detailed team information including members.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Path:
+        team_id: Team UUID
+    """
+    try:
+        # Verify user is team member
+        membership = db.client.table("va_team_members").select("role").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        if not membership.data:
+            # Check if user is owner
+            team = db.client.table("va_teams").select("*").eq("id", team_id).eq(
+                "owner_id", user_id
+            ).execute()
+            if not team.data:
+                raise HTTPException(status_code=403, detail="Not a team member")
+            user_role = "owner"
+            team_data = team.data[0]
+        else:
+            user_role = membership.data[0]["role"]
+            # Get team details
+            team = db.client.table("va_teams").select("*").eq("id", team_id).execute()
+            team_data = team.data[0] if team.data else None
+
+        if not team_data:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        # Get team members with user info
+        members = db.client.table("va_team_members").select(
+            "id, user_id, role, joined_at"
+        ).eq("team_id", team_id).execute()
+
+        return {
+            "team": team_data,
+            "members": members.data if members.data else [],
+            "user_role": user_role
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting team details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/teams/{team_id}/members")
+async def add_team_member(
+    team_id: str,
+    member_user_id: str,
+    role: str = "member",
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Add a member to the team (requires owner or admin role).
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Path:
+        team_id: Team UUID
+
+    Body:
+        member_user_id: User ID to add
+        role: Role to assign (member, admin, viewer)
+    """
+    try:
+        # Verify user has permission (owner or admin)
+        membership = db.client.table("va_team_members").select("role").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        team = db.client.table("va_teams").select("owner_id").eq("id", team_id).execute()
+        if not team.data:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        is_owner = team.data[0]["owner_id"] == user_id
+        is_admin = membership.data and membership.data[0]["role"] in ["owner", "admin"]
+
+        if not (is_owner or is_admin):
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+        # Validate role
+        valid_roles = ["member", "admin", "viewer"]
+        if role not in valid_roles:
+            raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+
+        # Add member
+        member_data = {
+            "team_id": team_id,
+            "user_id": member_user_id,
+            "role": role,
+            "invited_by": user_id
+        }
+
+        result = db.client.table("va_team_members").insert(member_data).execute()
+
+        return {
+            "member": result.data[0] if result.data else None,
+            "message": "Member added successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding team member: {e}")
+        if "duplicate key" in str(e).lower():
+            raise HTTPException(status_code=400, detail="User is already a team member")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/teams/{team_id}/members/{member_user_id}")
+async def remove_team_member(
+    team_id: str,
+    member_user_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Remove a member from the team (requires owner or admin role).
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Path:
+        team_id: Team UUID
+        member_user_id: User ID to remove
+    """
+    try:
+        # Verify user has permission
+        membership = db.client.table("va_team_members").select("role").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        team = db.client.table("va_teams").select("owner_id").eq("id", team_id).execute()
+        if not team.data:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        is_owner = team.data[0]["owner_id"] == user_id
+        is_admin = membership.data and membership.data[0]["role"] in ["owner", "admin"]
+
+        if not (is_owner or is_admin):
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+        # Cannot remove owner
+        if member_user_id == team.data[0]["owner_id"]:
+            raise HTTPException(status_code=400, detail="Cannot remove team owner")
+
+        # Remove member
+        db.client.table("va_team_members").delete().eq(
+            "team_id", team_id
+        ).eq("user_id", member_user_id).execute()
+
+        return {"message": "Member removed successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing team member: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/teams/{team_id}/analytics")
+async def get_team_analytics(
+    team_id: str,
+    days: int = 30,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get aggregated analytics for all team members.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Path:
+        team_id: Team UUID
+
+    Query:
+        days: Number of days to analyze (default: 30)
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        # Verify user is team member
+        membership = db.client.table("va_team_members").select("role").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        team = db.client.table("va_teams").select("owner_id").eq("id", team_id).execute()
+        if not team.data:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        is_member = membership.data or team.data[0]["owner_id"] == user_id
+
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Not a team member")
+
+        # Get all team members
+        members = db.client.table("va_team_members").select("user_id").eq(
+            "team_id", team_id
+        ).execute()
+
+        member_ids = [m["user_id"] for m in members.data] if members.data else []
+        # Add owner if not in list
+        if team.data[0]["owner_id"] not in member_ids:
+            member_ids.append(team.data[0]["owner_id"])
+
+        if not member_ids:
+            return {
+                "team_totals": {},
+                "by_member": [],
+                "message": "No team members found"
+            }
+
+        # Get metrics for all members
+        start_date = datetime.utcnow() - timedelta(days=days)
+
+        # Aggregate team metrics
+        all_metrics = []
+        for member_id in member_ids:
+            metrics = db.client.table("va_usage_metrics").select(
+                "cost_cents, input_tokens, output_tokens, event_type, created_at, error"
+            ).eq("user_id", member_id).gte("created_at", start_date.isoformat()).execute()
+
+            if metrics.data:
+                all_metrics.extend([{**m, "member_id": member_id} for m in metrics.data])
+
+        # Calculate team totals
+        total_cost = sum(m.get("cost_cents", 0) for m in all_metrics) / 100
+        total_tokens = sum(
+            m.get("input_tokens", 0) + m.get("output_tokens", 0)
+            for m in all_metrics
+        )
+        total_requests = len(all_metrics)
+        total_errors = len([m for m in all_metrics if m.get("error")])
+
+        # By member breakdown
+        by_member = {}
+        for m in all_metrics:
+            mid = m["member_id"]
+            if mid not in by_member:
+                by_member[mid] = {
+                    "cost": 0,
+                    "tokens": 0,
+                    "requests": 0,
+                    "errors": 0
+                }
+            by_member[mid]["cost"] += m.get("cost_cents", 0) / 100
+            by_member[mid]["tokens"] += m.get("input_tokens", 0) + m.get("output_tokens", 0)
+            by_member[mid]["requests"] += 1
+            if m.get("error"):
+                by_member[mid]["errors"] += 1
+
+        return {
+            "period": {
+                "start": start_date.isoformat(),
+                "end": datetime.utcnow().isoformat(),
+                "days": days
+            },
+            "team_totals": {
+                "total_cost_dollars": round(total_cost, 2),
+                "total_tokens": total_tokens,
+                "total_requests": total_requests,
+                "total_errors": total_errors,
+                "error_rate_percent": round((total_errors / total_requests * 100) if total_requests > 0 else 0, 2)
+            },
+            "by_member": [
+                {
+                    "user_id": mid,
+                    "cost_dollars": round(data["cost"], 2),
+                    "tokens": data["tokens"],
+                    "requests": data["requests"],
+                    "errors": data["errors"]
+                }
+                for mid, data in by_member.items()
+            ],
+            "member_count": len(member_ids)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting team analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/teams/{team_id}/dashboards")
+async def list_team_dashboards(
+    team_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get all shared dashboards for a team.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Path:
+        team_id: Team UUID
+    """
+    try:
+        # Verify user is team member
+        membership = db.client.table("va_team_members").select("role").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        team = db.client.table("va_teams").select("owner_id").eq("id", team_id).execute()
+        if not team.data:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        is_member = membership.data or team.data[0]["owner_id"] == user_id
+
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Not a team member")
+
+        # Get dashboards
+        dashboards = db.client.table("va_team_dashboards").select(
+            "id, name, description, config, shared_by, is_public, created_at"
+        ).eq("team_id", team_id).execute()
+
+        return {
+            "dashboards": dashboards.data if dashboards.data else []
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing team dashboards: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/teams/{team_id}/dashboards")
+async def create_team_dashboard(
+    team_id: str,
+    name: str,
+    description: str = None,
+    config: dict = None,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Create a shared dashboard for the team.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Path:
+        team_id: Team UUID
+
+    Body:
+        name: Dashboard name
+        description: Optional description
+        config: Dashboard configuration (JSON)
+    """
+    try:
+        # Verify user is team member with sufficient permissions
+        membership = db.client.table("va_team_members").select("role").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        team = db.client.table("va_teams").select("owner_id").eq("id", team_id).execute()
+        if not team.data:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        is_owner = team.data[0]["owner_id"] == user_id
+        has_permission = is_owner or (
+            membership.data and membership.data[0]["role"] in ["owner", "admin", "member"]
+        )
+
+        if not has_permission:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+        # Create dashboard
+        dashboard_data = {
+            "team_id": team_id,
+            "name": name,
+            "description": description,
+            "config": config or {},
+            "shared_by": user_id,
+            "is_public": False
+        }
+
+        result = db.client.table("va_team_dashboards").insert(dashboard_data).execute()
+
+        return {
+            "dashboard": result.data[0] if result.data else None,
+            "message": "Dashboard created successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating team dashboard: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
