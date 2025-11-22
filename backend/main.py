@@ -896,6 +896,114 @@ async def get_feature_limits(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class SetBudgetRequest(BaseModel):
+    monthly_budget_dollars: float
+    alert_thresholds: list[int] = [80, 90, 100]
+
+
+@app.get("/budget")
+async def get_budget(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get user's budget settings and current usage status."""
+    try:
+        # Get budget settings
+        budget_result = db.client.table("va_user_budgets").select("*").eq(
+            "user_id", user_id
+        ).execute()
+
+        # If no budget set, return defaults
+        if not budget_result.data:
+            return {
+                "budget": {
+                    "monthly_budget_cents": 5000,  # $50 default
+                    "monthly_budget_dollars": 50.00,
+                    "alert_thresholds": [80, 90, 100],
+                    "is_active": False
+                },
+                "current_month": {
+                    "cost_cents": 0,
+                    "cost_dollars": 0.00,
+                    "percentage_used": 0,
+                    "remaining_cents": 5000,
+                    "remaining_dollars": 50.00
+                }
+            }
+
+        budget = budget_result.data[0]
+
+        # Get current month's usage
+        from datetime import datetime
+        now = datetime.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        usage_result = db.client.table("va_usage_metrics").select(
+            "cost_cents"
+        ).eq("user_id", user_id).gte(
+            "created_at", month_start.isoformat()
+        ).execute()
+
+        total_cost_cents = sum(m.get("cost_cents", 0) or 0 for m in usage_result.data)
+        budget_cents = budget["monthly_budget_cents"]
+        percentage_used = (total_cost_cents / budget_cents * 100) if budget_cents > 0 else 0
+
+        return {
+            "budget": {
+                "monthly_budget_cents": budget_cents,
+                "monthly_budget_dollars": budget_cents / 100,
+                "alert_thresholds": budget.get("alert_thresholds", [80, 90, 100]),
+                "is_active": budget.get("is_active", True),
+                "last_alert_sent_at": budget.get("last_alert_sent_at"),
+                "last_alert_threshold": budget.get("last_alert_threshold")
+            },
+            "current_month": {
+                "cost_cents": total_cost_cents,
+                "cost_dollars": total_cost_cents / 100,
+                "percentage_used": round(percentage_used, 2),
+                "remaining_cents": max(0, budget_cents - total_cost_cents),
+                "remaining_dollars": max(0, (budget_cents - total_cost_cents) / 100),
+                "status": "over_budget" if percentage_used > 100 else "warning" if percentage_used > 90 else "healthy"
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting budget: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/budget")
+async def set_budget(
+    request: SetBudgetRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Set or update user's monthly budget."""
+    try:
+        budget_cents = int(request.monthly_budget_dollars * 100)
+
+        # Upsert budget
+        result = db.client.table("va_user_budgets").upsert({
+            "user_id": user_id,
+            "monthly_budget_cents": budget_cents,
+            "alert_thresholds": request.alert_thresholds,
+            "is_active": True
+        }, on_conflict="user_id").execute()
+
+        return {
+            "success": True,
+            "budget": {
+                "monthly_budget_cents": budget_cents,
+                "monthly_budget_dollars": request.monthly_budget_dollars,
+                "alert_thresholds": request.alert_thresholds
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error setting budget: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/usage/analytics")
 async def get_usage_analytics(
     user_id: str = Header(..., alias="X-User-ID"),

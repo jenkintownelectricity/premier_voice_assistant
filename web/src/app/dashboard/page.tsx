@@ -31,6 +31,20 @@ export default function DashboardPage() {
       days_remaining: 0,
     },
   });
+  const [budget, setBudgetData] = useState<{
+    budget: {
+      monthly_budget_dollars: number;
+      alert_thresholds: number[];
+      is_active: boolean;
+    };
+    current_month: {
+      cost_dollars: number;
+      percentage_used: number;
+      remaining_dollars: number;
+      status: 'healthy' | 'warning' | 'over_budget';
+    };
+  } | null>(null);
+
   const [analytics, setAnalytics] = useState<{
     totals: {
       input_tokens: number;
@@ -63,11 +77,12 @@ export default function DashboardPage() {
         setLoading(true);
         setError(null);
 
-        const [subResponse, usageResponse, limitsResponse, analyticsResponse] = await Promise.all([
+        const [subResponse, usageResponse, limitsResponse, analyticsResponse, budgetResponse] = await Promise.all([
           api.getSubscription(user.id),
           api.getUsage(user.id),
           api.getFeatureLimits(user.id),
           api.getUsageAnalytics(user.id, 30),
+          api.getBudget(user.id),
         ]);
 
         // Calculate days remaining
@@ -106,6 +121,9 @@ export default function DashboardPage() {
           averages: analyticsResponse.averages,
           errors: analyticsResponse.errors,
         });
+
+        // Set budget data
+        setBudgetData(budgetResponse);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
       } finally {
@@ -163,6 +181,63 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Budget Tracking */}
+      {budget && budget.budget.is_active && (
+        <Card className={`${
+          budget.current_month.status === 'over_budget' ? 'border-red-500/50' :
+          budget.current_month.status === 'warning' ? 'border-yellow-500/50' :
+          'border-green-500/30'
+        }`}>
+          <CardTitle>Monthly Budget</CardTitle>
+          <CardContent>
+            <div className="mt-4">
+              <ProgressBar
+                current={budget.current_month.percentage_used}
+                max={100}
+                label={`$${budget.current_month.cost_dollars.toFixed(2)} / $${budget.budget.monthly_budget_dollars.toFixed(2)}`}
+                size="lg"
+              />
+              <div className="grid grid-cols-3 gap-4 mt-6">
+                <div className="text-center">
+                  <div className="text-sm text-gray-400">Spent This Month</div>
+                  <div className={`text-2xl font-bold ${
+                    budget.current_month.status === 'over_budget' ? 'text-red-400' :
+                    budget.current_month.status === 'warning' ? 'text-yellow-400' :
+                    'text-green-400'
+                  }`}>
+                    ${budget.current_month.cost_dollars.toFixed(2)}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm text-gray-400">Budget</div>
+                  <div className="text-2xl font-bold text-gold">
+                    ${budget.budget.monthly_budget_dollars.toFixed(2)}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm text-gray-400">Remaining</div>
+                  <div className={`text-2xl font-bold ${
+                    budget.current_month.remaining_dollars > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    ${budget.current_month.remaining_dollars.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              {budget.current_month.status === 'warning' && (
+                <div className="mt-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
+                  ⚠️ Warning: You've used {budget.current_month.percentage_used.toFixed(0)}% of your monthly budget
+                </div>
+              )}
+              {budget.current_month.status === 'over_budget' && (
+                <div className="mt-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                  🚨 Alert: You've exceeded your monthly budget by ${(budget.current_month.cost_dollars - budget.budget.monthly_budget_dollars).toFixed(2)}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Usage Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
