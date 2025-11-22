@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardTitle } from '@/components/Card';
 import { ProgressBar } from '@/components/ProgressBar';
 import { useAuth } from '@/lib/auth-context';
-import api from '@/lib/api';
+import { api } from '@/lib/api';
 
 interface PercentileData {
   p50: number;

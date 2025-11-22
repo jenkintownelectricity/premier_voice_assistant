@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardTitle } from '@/components/Card';
 import { useAuth } from '@/lib/auth-context';
-import api from '@/lib/api';
+import { api } from '@/lib/api';
 
 interface Team {
   id: string;
