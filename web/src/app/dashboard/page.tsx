@@ -39,11 +39,19 @@ export default function DashboardPage() {
       cost_cents: number;
       cost_dollars: number;
       total_requests: number;
+      total_errors: number;
+      success_rate: number;
     };
     averages: {
       tokens_per_request: number;
       cost_per_request_cents: number;
       requests_per_day: number;
+      error_rate: number;
+    };
+    errors: {
+      total: number;
+      rate: number;
+      by_type: Record<string, number>;
     };
   } | null>(null);
 
@@ -96,6 +104,7 @@ export default function DashboardPage() {
         setAnalytics({
           totals: analyticsResponse.totals,
           averages: analyticsResponse.averages,
+          errors: analyticsResponse.errors,
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -209,59 +218,111 @@ export default function DashboardPage() {
 
       {/* Token Usage & Costs (Last 30 Days) */}
       {analytics && (
-        <Card glow>
-          <CardTitle>Token Usage & Running Costs (Last 30 Days)</CardTitle>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-              <div className="text-center p-4 bg-oled-gray rounded-lg">
-                <div className="text-sm text-gray-400">Total Tokens</div>
-                <div className="text-2xl font-bold text-gold">
-                  {analytics.totals.total_tokens.toLocaleString()}
+        <>
+          <Card glow>
+            <CardTitle>Token Usage & Running Costs (Last 30 Days)</CardTitle>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Total Tokens</div>
+                  <div className="text-2xl font-bold text-gold">
+                    {analytics.totals.total_tokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.averages.tokens_per_request.toLocaleString()} avg/request
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {analytics.averages.tokens_per_request.toLocaleString()} avg/request
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Input Tokens</div>
+                  <div className="text-2xl font-bold text-blue-400">
+                    {analytics.totals.input_tokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.totals.total_tokens > 0 ? ((analytics.totals.input_tokens / analytics.totals.total_tokens) * 100).toFixed(1) : '0'}% of total
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Output Tokens</div>
+                  <div className="text-2xl font-bold text-purple-400">
+                    {analytics.totals.output_tokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.totals.total_tokens > 0 ? ((analytics.totals.output_tokens / analytics.totals.total_tokens) * 100).toFixed(1) : '0'}% of total
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-gradient-to-br from-green-900/30 to-green-800/20 rounded-lg border border-green-500/20">
+                  <div className="text-sm text-gray-400">Total Cost</div>
+                  <div className="text-2xl font-bold text-green-400">
+                    ${analytics.totals.cost_dollars.toFixed(4)}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    ${(analytics.averages.cost_per_request_cents / 100).toFixed(4)} avg/request
+                  </div>
                 </div>
               </div>
-              <div className="text-center p-4 bg-oled-gray rounded-lg">
-                <div className="text-sm text-gray-400">Input Tokens</div>
-                <div className="text-2xl font-bold text-blue-400">
-                  {analytics.totals.input_tokens.toLocaleString()}
+              <div className="mt-4 p-3 bg-honey-900/10 border border-honey-500/20 rounded-lg">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-400">API Requests (30 days)</span>
+                  <span className="text-gold font-semibold">{analytics.totals.total_requests} requests</span>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {((analytics.totals.input_tokens / analytics.totals.total_tokens) * 100).toFixed(1)}% of total
-                </div>
-              </div>
-              <div className="text-center p-4 bg-oled-gray rounded-lg">
-                <div className="text-sm text-gray-400">Output Tokens</div>
-                <div className="text-2xl font-bold text-purple-400">
-                  {analytics.totals.output_tokens.toLocaleString()}
-                </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {((analytics.totals.output_tokens / analytics.totals.total_tokens) * 100).toFixed(1)}% of total
+                <div className="flex items-center justify-between text-sm mt-2">
+                  <span className="text-gray-400">Average per day</span>
+                  <span className="text-gold font-semibold">{analytics.averages.requests_per_day.toFixed(1)} requests/day</span>
                 </div>
               </div>
-              <div className="text-center p-4 bg-gradient-to-br from-green-900/30 to-green-800/20 rounded-lg border border-green-500/20">
-                <div className="text-sm text-gray-400">Total Cost</div>
-                <div className="text-2xl font-bold text-green-400">
-                  ${analytics.totals.cost_dollars.toFixed(4)}
+            </CardContent>
+          </Card>
+
+          {/* Error Tracking & Reliability */}
+          <Card>
+            <CardTitle>Error Tracking & Reliability</CardTitle>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Success Rate</div>
+                  <div className={`text-2xl font-bold ${analytics.totals.success_rate >= 99 ? 'text-green-400' : analytics.totals.success_rate >= 95 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {analytics.totals.success_rate.toFixed(2)}%
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.totals.total_requests - analytics.totals.total_errors} successful
+                  </div>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  ${(analytics.averages.cost_per_request_cents / 100).toFixed(4)} avg/request
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Error Rate</div>
+                  <div className={`text-2xl font-bold ${analytics.averages.error_rate <= 1 ? 'text-green-400' : analytics.averages.error_rate <= 5 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {analytics.averages.error_rate.toFixed(2)}%
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.totals.total_errors} errors
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Total Requests</div>
+                  <div className="text-2xl font-bold text-gold">
+                    {analytics.totals.total_requests.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Last 30 days
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="mt-4 p-3 bg-honey-900/10 border border-honey-500/20 rounded-lg">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-400">API Requests (30 days)</span>
-                <span className="text-gold font-semibold">{analytics.totals.total_requests} requests</span>
-              </div>
-              <div className="flex items-center justify-between text-sm mt-2">
-                <span className="text-gray-400">Average per day</span>
-                <span className="text-gold font-semibold">{analytics.averages.requests_per_day.toFixed(1)} requests/day</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+
+              {Object.keys(analytics.errors.by_type).length > 0 && (
+                <div className="mt-4 p-3 bg-red-900/10 border border-red-500/20 rounded-lg">
+                  <div className="text-sm font-semibold text-red-400 mb-2">Top Error Types:</div>
+                  <div className="space-y-1">
+                    {Object.entries(analytics.errors.by_type).slice(0, 5).map(([error, count]) => (
+                      <div key={error} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400 truncate flex-1">{error}</span>
+                        <span className="text-red-400 font-semibold ml-2">{count}x</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
 
       {/* Plan Features */}

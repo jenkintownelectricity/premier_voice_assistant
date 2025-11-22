@@ -317,11 +317,19 @@ export const api = {
         cost_cents: number;
         cost_dollars: number;
         total_requests: number;
+        total_errors: number;
+        success_rate: number;
       };
       averages: {
         tokens_per_request: number;
         cost_per_request_cents: number;
         requests_per_day: number;
+        error_rate: number;
+      };
+      errors: {
+        total: number;
+        rate: number;
+        by_type: Record<string, number>;
       };
       by_event_type: Record<string, {
         count: number;
@@ -335,6 +343,7 @@ export const api = {
         output_tokens: number;
         cost_cents: number;
         requests: number;
+        errors: number;
       }>;
     }>(`/usage/analytics?days=${days}`, {}, userId),
 };

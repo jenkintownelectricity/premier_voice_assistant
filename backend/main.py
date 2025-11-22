@@ -923,7 +923,7 @@ async def get_usage_analytics(
 
         # Query usage metrics
         result = db.client.table("va_usage_metrics").select(
-            "created_at, event_type, input_tokens, output_tokens, tokens_used, cost_cents"
+            "created_at, event_type, input_tokens, output_tokens, tokens_used, cost_cents, error"
         ).eq("user_id", user_id).gte(
             "created_at", start_date.isoformat()
         ).order("created_at", desc=False).execute()
@@ -934,18 +934,30 @@ async def get_usage_analytics(
         total_input_tokens = 0
         total_output_tokens = 0
         total_cost_cents = 0.0
+        total_requests = 0
+        total_errors = 0
         daily_usage = {}
         event_breakdown = {}
+        error_types = {}
 
         for metric in metrics:
             # Track total tokens
             input_tokens = metric.get("input_tokens") or 0
             output_tokens = metric.get("output_tokens") or 0
             cost_cents = metric.get("cost_cents") or 0.0
+            error = metric.get("error")
 
             total_input_tokens += input_tokens
             total_output_tokens += output_tokens
             total_cost_cents += cost_cents
+            total_requests += 1
+
+            # Track errors
+            if error:
+                total_errors += 1
+                # Categorize error types
+                error_category = error[:50] if len(error) > 50 else error  # First 50 chars
+                error_types[error_category] = error_types.get(error_category, 0) + 1
 
             # Track by event type
             event_type = metric.get("event_type", "unknown")
@@ -971,15 +983,21 @@ async def get_usage_analytics(
                         "input_tokens": 0,
                         "output_tokens": 0,
                         "cost_cents": 0.0,
-                        "requests": 0
+                        "requests": 0,
+                        "errors": 0
                     }
                 daily_usage[date_key]["input_tokens"] += input_tokens
                 daily_usage[date_key]["output_tokens"] += output_tokens
                 daily_usage[date_key]["cost_cents"] += cost_cents
                 daily_usage[date_key]["requests"] += 1
+                if error:
+                    daily_usage[date_key]["errors"] += 1
 
         # Convert daily usage dict to sorted list
         daily_usage_list = sorted(daily_usage.values(), key=lambda x: x["date"])
+
+        # Calculate error rate
+        error_rate = (total_errors / total_requests * 100) if total_requests > 0 else 0
 
         return {
             "period": {
@@ -993,12 +1011,20 @@ async def get_usage_analytics(
                 "total_tokens": total_input_tokens + total_output_tokens,
                 "cost_cents": round(total_cost_cents, 4),
                 "cost_dollars": round(total_cost_cents / 100, 6),
-                "total_requests": len(metrics)
+                "total_requests": total_requests,
+                "total_errors": total_errors,
+                "success_rate": round(((total_requests - total_errors) / total_requests * 100), 2) if total_requests > 0 else 100
             },
             "averages": {
-                "tokens_per_request": round((total_input_tokens + total_output_tokens) / len(metrics), 2) if metrics else 0,
-                "cost_per_request_cents": round(total_cost_cents / len(metrics), 4) if metrics else 0,
-                "requests_per_day": round(len(metrics) / days, 2) if days > 0 else 0
+                "tokens_per_request": round((total_input_tokens + total_output_tokens) / total_requests, 2) if total_requests > 0 else 0,
+                "cost_per_request_cents": round(total_cost_cents / total_requests, 4) if total_requests > 0 else 0,
+                "requests_per_day": round(total_requests / days, 2) if days > 0 else 0,
+                "error_rate": round(error_rate, 2)
+            },
+            "errors": {
+                "total": total_errors,
+                "rate": round(error_rate, 2),
+                "by_type": dict(sorted(error_types.items(), key=lambda x: x[1], reverse=True)[:10])  # Top 10 errors
             },
             "by_event_type": event_breakdown,
             "daily_usage": daily_usage_list
