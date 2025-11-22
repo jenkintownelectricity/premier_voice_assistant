@@ -387,6 +387,85 @@ export const api = {
         errors: number;
       }>;
     }>(`/usage/analytics?days=${days}`, {}, userId),
+
+  // AI Usage Coach endpoints
+  getWeeklyInsights: (userId: string) =>
+    fetchAPI<any>('/insights/weekly', { method: 'GET' }, userId),
+
+  getCostOptimizer: (userId: string) =>
+    fetchAPI<any>('/insights/cost-optimizer', { method: 'GET' }, userId),
+
+  // Advanced Observability endpoints
+  getLatencyPercentiles: (userId: string, days: number = 7) =>
+    fetchAPI<any>(`/observability/latency?days=${days}`, { method: 'GET' }, userId),
+
+  getErrorCorrelation: (userId: string, days: number = 7) =>
+    fetchAPI<any>(`/observability/error-correlation?days=${days}`, { method: 'GET' }, userId),
+
+  // Team Collaboration endpoints
+  listTeams: (userId: string) =>
+    fetchAPI<{ teams: any[] }>('/teams', { method: 'GET' }, userId),
+
+  createTeam: (userId: string, name: string, description?: string) =>
+    fetchAPI<{ team: any; message: string }>(
+      '/teams',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description }),
+      },
+      userId
+    ),
+
+  getTeamDetails: (userId: string, teamId: string) =>
+    fetchAPI<{ team: any; members: any[]; user_role: string }>(
+      `/teams/${teamId}`,
+      { method: 'GET' },
+      userId
+    ),
+
+  addTeamMember: (userId: string, teamId: string, memberUserId: string, role: string = 'member') =>
+    fetchAPI<{ member: any; message: string }>(
+      `/teams/${teamId}/members`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_user_id: memberUserId, role }),
+      },
+      userId
+    ),
+
+  removeTeamMember: (userId: string, teamId: string, memberUserId: string) =>
+    fetchAPI<{ message: string }>(
+      `/teams/${teamId}/members/${memberUserId}`,
+      { method: 'DELETE' },
+      userId
+    ),
+
+  getTeamAnalytics: (userId: string, teamId: string, days: number = 30) =>
+    fetchAPI<any>(
+      `/teams/${teamId}/analytics?days=${days}`,
+      { method: 'GET' },
+      userId
+    ),
+
+  listTeamDashboards: (userId: string, teamId: string) =>
+    fetchAPI<{ dashboards: any[] }>(
+      `/teams/${teamId}/dashboards`,
+      { method: 'GET' },
+      userId
+    ),
+
+  createTeamDashboard: (userId: string, teamId: string, name: string, description?: string, config?: any) =>
+    fetchAPI<{ dashboard: any; message: string }>(
+      `/teams/${teamId}/dashboards`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description, config }),
+      },
+      userId
+    ),
 };
 
 // Admin API calls
@@ -534,83 +613,4 @@ export const adminApi = {
       success: boolean;
       message: string;
     }>(`/admin/codes/${code}`, { method: 'DELETE' }, undefined, adminKey),
-
-  // AI Usage Coach endpoints
-  getWeeklyInsights: (userId: string) =>
-    fetchAPI<any>('/insights/weekly', { method: 'GET' }, userId),
-
-  getCostOptimizer: (userId: string) =>
-    fetchAPI<any>('/insights/cost-optimizer', { method: 'GET' }, userId),
-
-  // Advanced Observability endpoints
-  getLatencyPercentiles: (userId: string, days: number = 7) =>
-    fetchAPI<any>(`/observability/latency?days=${days}`, { method: 'GET' }, userId),
-
-  getErrorCorrelation: (userId: string, days: number = 7) =>
-    fetchAPI<any>(`/observability/error-correlation?days=${days}`, { method: 'GET' }, userId),
-
-  // Team Collaboration endpoints
-  listTeams: (userId: string) =>
-    fetchAPI<{ teams: any[] }>('/teams', { method: 'GET' }, userId),
-
-  createTeam: (userId: string, name: string, description?: string) =>
-    fetchAPI<{ team: any; message: string }>(
-      '/teams',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description }),
-      },
-      userId
-    ),
-
-  getTeamDetails: (userId: string, teamId: string) =>
-    fetchAPI<{ team: any; members: any[]; user_role: string }>(
-      `/teams/${teamId}`,
-      { method: 'GET' },
-      userId
-    ),
-
-  addTeamMember: (userId: string, teamId: string, memberUserId: string, role: string = 'member') =>
-    fetchAPI<{ member: any; message: string }>(
-      `/teams/${teamId}/members`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ member_user_id: memberUserId, role }),
-      },
-      userId
-    ),
-
-  removeTeamMember: (userId: string, teamId: string, memberUserId: string) =>
-    fetchAPI<{ message: string }>(
-      `/teams/${teamId}/members/${memberUserId}`,
-      { method: 'DELETE' },
-      userId
-    ),
-
-  getTeamAnalytics: (userId: string, teamId: string, days: number = 30) =>
-    fetchAPI<any>(
-      `/teams/${teamId}/analytics?days=${days}`,
-      { method: 'GET' },
-      userId
-    ),
-
-  listTeamDashboards: (userId: string, teamId: string) =>
-    fetchAPI<{ dashboards: any[] }>(
-      `/teams/${teamId}/dashboards`,
-      { method: 'GET' },
-      userId
-    ),
-
-  createTeamDashboard: (userId: string, teamId: string, name: string, description?: string, config?: any) =>
-    fetchAPI<{ dashboard: any; message: string }>(
-      `/teams/${teamId}/dashboards`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, config }),
-      },
-      userId
-    ),
 };
