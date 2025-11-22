@@ -301,6 +301,42 @@ export const api = {
         calls_this_month: number;
       };
     }>('/calls/stats/summary', {}, userId),
+
+  // Usage Analytics
+  getUsageAnalytics: (userId: string, days: number = 30) =>
+    fetchAPI<{
+      period: {
+        start_date: string;
+        end_date: string;
+        days: number;
+      };
+      totals: {
+        input_tokens: number;
+        output_tokens: number;
+        total_tokens: number;
+        cost_cents: number;
+        cost_dollars: number;
+        total_requests: number;
+      };
+      averages: {
+        tokens_per_request: number;
+        cost_per_request_cents: number;
+        requests_per_day: number;
+      };
+      by_event_type: Record<string, {
+        count: number;
+        input_tokens: number;
+        output_tokens: number;
+        cost_cents: number;
+      }>;
+      daily_usage: Array<{
+        date: string;
+        input_tokens: number;
+        output_tokens: number;
+        cost_cents: number;
+        requests: number;
+      }>;
+    }>(`/usage/analytics?days=${days}`, {}, userId),
 };
 
 // Admin API calls

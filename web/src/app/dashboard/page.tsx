@@ -31,6 +31,21 @@ export default function DashboardPage() {
       days_remaining: 0,
     },
   });
+  const [analytics, setAnalytics] = useState<{
+    totals: {
+      input_tokens: number;
+      output_tokens: number;
+      total_tokens: number;
+      cost_cents: number;
+      cost_dollars: number;
+      total_requests: number;
+    };
+    averages: {
+      tokens_per_request: number;
+      cost_per_request_cents: number;
+      requests_per_day: number;
+    };
+  } | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -40,10 +55,11 @@ export default function DashboardPage() {
         setLoading(true);
         setError(null);
 
-        const [subResponse, usageResponse, limitsResponse] = await Promise.all([
+        const [subResponse, usageResponse, limitsResponse, analyticsResponse] = await Promise.all([
           api.getSubscription(user.id),
           api.getUsage(user.id),
           api.getFeatureLimits(user.id),
+          api.getUsageAnalytics(user.id, 30),
         ]);
 
         // Calculate days remaining
@@ -74,6 +90,12 @@ export default function DashboardPage() {
               : 'N/A',
             days_remaining: daysRemaining,
           },
+        });
+
+        // Set analytics data
+        setAnalytics({
+          totals: analyticsResponse.totals,
+          averages: analyticsResponse.averages,
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -184,6 +206,63 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Token Usage & Costs (Last 30 Days) */}
+      {analytics && (
+        <Card glow>
+          <CardTitle>Token Usage & Running Costs (Last 30 Days)</CardTitle>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+              <div className="text-center p-4 bg-oled-gray rounded-lg">
+                <div className="text-sm text-gray-400">Total Tokens</div>
+                <div className="text-2xl font-bold text-gold">
+                  {analytics.totals.total_tokens.toLocaleString()}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {analytics.averages.tokens_per_request.toLocaleString()} avg/request
+                </div>
+              </div>
+              <div className="text-center p-4 bg-oled-gray rounded-lg">
+                <div className="text-sm text-gray-400">Input Tokens</div>
+                <div className="text-2xl font-bold text-blue-400">
+                  {analytics.totals.input_tokens.toLocaleString()}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {((analytics.totals.input_tokens / analytics.totals.total_tokens) * 100).toFixed(1)}% of total
+                </div>
+              </div>
+              <div className="text-center p-4 bg-oled-gray rounded-lg">
+                <div className="text-sm text-gray-400">Output Tokens</div>
+                <div className="text-2xl font-bold text-purple-400">
+                  {analytics.totals.output_tokens.toLocaleString()}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {((analytics.totals.output_tokens / analytics.totals.total_tokens) * 100).toFixed(1)}% of total
+                </div>
+              </div>
+              <div className="text-center p-4 bg-gradient-to-br from-green-900/30 to-green-800/20 rounded-lg border border-green-500/20">
+                <div className="text-sm text-gray-400">Total Cost</div>
+                <div className="text-2xl font-bold text-green-400">
+                  ${analytics.totals.cost_dollars.toFixed(4)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  ${(analytics.averages.cost_per_request_cents / 100).toFixed(4)} avg/request
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 p-3 bg-honey-900/10 border border-honey-500/20 rounded-lg">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-400">API Requests (30 days)</span>
+                <span className="text-gold font-semibold">{analytics.totals.total_requests} requests</span>
+              </div>
+              <div className="flex items-center justify-between text-sm mt-2">
+                <span className="text-gray-400">Average per day</span>
+                <span className="text-gold font-semibold">{analytics.averages.requests_per_day.toFixed(1)} requests/day</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Plan Features */}
       <Card>

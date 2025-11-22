@@ -319,6 +319,9 @@ class SupabaseManager:
         tts_latency_ms: int = None,
         total_latency_ms: int = None,
         tokens_used: int = None,
+        input_tokens: int = None,
+        output_tokens: int = None,
+        cost_cents: float = None,
         audio_duration_seconds: float = None,
         error: str = None,
         metadata: Dict = None,
@@ -334,7 +337,10 @@ class SupabaseManager:
             llm_latency_ms: LLM latency in milliseconds
             tts_latency_ms: TTS latency in milliseconds
             total_latency_ms: Total pipeline latency
-            tokens_used: Number of LLM tokens used
+            tokens_used: Number of LLM tokens used (deprecated, use input_tokens + output_tokens)
+            input_tokens: Number of input tokens
+            output_tokens: Number of output tokens
+            cost_cents: Cost of this operation in cents
             audio_duration_seconds: Duration of audio processed
             error: Error message if failed
             metadata: Additional metadata
@@ -359,6 +365,12 @@ class SupabaseManager:
                 metric_data["total_latency_ms"] = total_latency_ms
             if tokens_used is not None:
                 metric_data["tokens_used"] = tokens_used
+            if input_tokens is not None:
+                metric_data["input_tokens"] = input_tokens
+            if output_tokens is not None:
+                metric_data["output_tokens"] = output_tokens
+            if cost_cents is not None:
+                metric_data["cost_cents"] = cost_cents
             if audio_duration_seconds is not None:
                 metric_data["audio_duration_seconds"] = audio_duration_seconds
             if error:

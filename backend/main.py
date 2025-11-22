@@ -32,6 +32,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Claude API Pricing (per million tokens) - as of 2025
+# Source: https://www.anthropic.com/pricing
+CLAUDE_PRICING = {
+    "claude-3-5-sonnet-20241022": {
+        "input": 3.00,    # $3.00 per 1M input tokens
+        "output": 15.00,  # $15.00 per 1M output tokens
+    },
+    "claude-3-5-sonnet-20240620": {
+        "input": 3.00,
+        "output": 15.00,
+    },
+    "claude-3-opus-20240229": {
+        "input": 15.00,
+        "output": 75.00,
+    },
+    "claude-3-haiku-20240307": {
+        "input": 0.25,
+        "output": 1.25,
+    },
+}
+
+def calculate_claude_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """
+    Calculate the cost in cents for a Claude API call.
+
+    Args:
+        model: The Claude model name
+        input_tokens: Number of input tokens
+        output_tokens: Number of output tokens
+
+    Returns:
+        Cost in cents (e.g., 0.05 = $0.0005)
+    """
+    # Get pricing for the model (default to Sonnet if not found)
+    pricing = CLAUDE_PRICING.get(model, CLAUDE_PRICING["claude-3-5-sonnet-20241022"])
+
+    # Calculate cost: (tokens / 1,000,000) * price_per_million
+    input_cost = (input_tokens / 1_000_000) * pricing["input"]
+    output_cost = (output_tokens / 1_000_000) * pricing["output"]
+    total_cost_dollars = input_cost + output_cost
+
+    # Convert to cents
+    return total_cost_dollars * 100
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Premier Voice Assistant API",
@@ -268,8 +312,9 @@ Your role:
             start = time.time()
 
             # Call Claude API
+            model = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
             response = self.anthropic_client.messages.create(
-                model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022"),
+                model=model,
                 max_tokens=int(os.getenv("MAX_TOKENS", "150")),
                 temperature=float(os.getenv("TEMPERATURE", "0.7")),
                 system=system_prompt,
@@ -278,16 +323,26 @@ Your role:
 
             ai_text = response.content[0].text
             latency_ms = int((time.time() - start) * 1000)
-            tokens = response.usage.output_tokens
 
-            # Log metrics
+            # Track token usage
+            input_tokens = response.usage.input_tokens
+            output_tokens = response.usage.output_tokens
+            total_tokens = input_tokens + output_tokens
+
+            # Calculate cost in cents
+            cost_cents = calculate_claude_cost(model, input_tokens, output_tokens)
+
+            # Log metrics with detailed token tracking
             if user_id:
                 self.supabase.log_usage_metric(
                     user_id=user_id,
                     conversation_id=conversation_id,
                     event_type="generate",
                     llm_latency_ms=latency_ms,
-                    tokens_used=tokens,
+                    tokens_used=total_tokens,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cost_cents=cost_cents,
                 )
 
             # Save message to conversation
@@ -838,6 +893,119 @@ async def get_feature_limits(
 
     except Exception as e:
         logger.error(f"Error getting feature limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/usage/analytics")
+async def get_usage_analytics(
+    user_id: str = Header(..., alias="X-User-ID"),
+    days: int = 30,
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get detailed token usage and cost analytics for a user.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Query Parameters:
+        days: Number of days to analyze (default: 30)
+
+    Returns:
+        Token usage breakdown, costs, and trends
+    """
+    try:
+        from datetime import datetime, timedelta
+
+        # Calculate date range
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+
+        # Query usage metrics
+        result = db.client.table("va_usage_metrics").select(
+            "created_at, event_type, input_tokens, output_tokens, tokens_used, cost_cents"
+        ).eq("user_id", user_id).gte(
+            "created_at", start_date.isoformat()
+        ).order("created_at", desc=False).execute()
+
+        metrics = result.data
+
+        # Aggregate statistics
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_cost_cents = 0.0
+        daily_usage = {}
+        event_breakdown = {}
+
+        for metric in metrics:
+            # Track total tokens
+            input_tokens = metric.get("input_tokens") or 0
+            output_tokens = metric.get("output_tokens") or 0
+            cost_cents = metric.get("cost_cents") or 0.0
+
+            total_input_tokens += input_tokens
+            total_output_tokens += output_tokens
+            total_cost_cents += cost_cents
+
+            # Track by event type
+            event_type = metric.get("event_type", "unknown")
+            if event_type not in event_breakdown:
+                event_breakdown[event_type] = {
+                    "count": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cost_cents": 0.0
+                }
+            event_breakdown[event_type]["count"] += 1
+            event_breakdown[event_type]["input_tokens"] += input_tokens
+            event_breakdown[event_type]["output_tokens"] += output_tokens
+            event_breakdown[event_type]["cost_cents"] += cost_cents
+
+            # Track daily usage for charts
+            created_at = metric.get("created_at", "")
+            if created_at:
+                date_key = created_at[:10]  # YYYY-MM-DD
+                if date_key not in daily_usage:
+                    daily_usage[date_key] = {
+                        "date": date_key,
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "cost_cents": 0.0,
+                        "requests": 0
+                    }
+                daily_usage[date_key]["input_tokens"] += input_tokens
+                daily_usage[date_key]["output_tokens"] += output_tokens
+                daily_usage[date_key]["cost_cents"] += cost_cents
+                daily_usage[date_key]["requests"] += 1
+
+        # Convert daily usage dict to sorted list
+        daily_usage_list = sorted(daily_usage.values(), key=lambda x: x["date"])
+
+        return {
+            "period": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days
+            },
+            "totals": {
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "total_tokens": total_input_tokens + total_output_tokens,
+                "cost_cents": round(total_cost_cents, 4),
+                "cost_dollars": round(total_cost_cents / 100, 6),
+                "total_requests": len(metrics)
+            },
+            "averages": {
+                "tokens_per_request": round((total_input_tokens + total_output_tokens) / len(metrics), 2) if metrics else 0,
+                "cost_per_request_cents": round(total_cost_cents / len(metrics), 4) if metrics else 0,
+                "requests_per_day": round(len(metrics) / days, 2) if days > 0 else 0
+            },
+            "by_event_type": event_breakdown,
+            "daily_usage": daily_usage_list
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting usage analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
