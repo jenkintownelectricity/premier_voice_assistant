@@ -301,6 +301,92 @@ export const api = {
         calls_this_month: number;
       };
     }>('/calls/stats/summary', {}, userId),
+
+  // Budget Management
+  getBudget: (userId: string) =>
+    fetchAPI<{
+      budget: {
+        monthly_budget_cents: number;
+        monthly_budget_dollars: number;
+        alert_thresholds: number[];
+        is_active: boolean;
+        last_alert_sent_at?: string;
+        last_alert_threshold?: number;
+      };
+      current_month: {
+        cost_cents: number;
+        cost_dollars: number;
+        percentage_used: number;
+        remaining_cents: number;
+        remaining_dollars: number;
+        status: 'healthy' | 'warning' | 'over_budget';
+      };
+    }>('/budget', {}, userId),
+
+  setBudget: (userId: string, monthlyBudgetDollars: number, alertThresholds: number[] = [80, 90, 100]) =>
+    fetchAPI<{
+      success: boolean;
+      budget: {
+        monthly_budget_cents: number;
+        monthly_budget_dollars: number;
+        alert_thresholds: number[];
+      };
+    }>(
+      '/budget',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          monthly_budget_dollars: monthlyBudgetDollars,
+          alert_thresholds: alertThresholds,
+        }),
+      },
+      userId
+    ),
+
+  // Usage Analytics
+  getUsageAnalytics: (userId: string, days: number = 30) =>
+    fetchAPI<{
+      period: {
+        start_date: string;
+        end_date: string;
+        days: number;
+      };
+      totals: {
+        input_tokens: number;
+        output_tokens: number;
+        total_tokens: number;
+        cost_cents: number;
+        cost_dollars: number;
+        total_requests: number;
+        total_errors: number;
+        success_rate: number;
+      };
+      averages: {
+        tokens_per_request: number;
+        cost_per_request_cents: number;
+        requests_per_day: number;
+        error_rate: number;
+      };
+      errors: {
+        total: number;
+        rate: number;
+        by_type: Record<string, number>;
+      };
+      by_event_type: Record<string, {
+        count: number;
+        input_tokens: number;
+        output_tokens: number;
+        cost_cents: number;
+      }>;
+      daily_usage: Array<{
+        date: string;
+        input_tokens: number;
+        output_tokens: number;
+        cost_cents: number;
+        requests: number;
+        errors: number;
+      }>;
+    }>(`/usage/analytics?days=${days}`, {}, userId),
 };
 
 // Admin API calls

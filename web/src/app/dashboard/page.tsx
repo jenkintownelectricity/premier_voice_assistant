@@ -31,6 +31,43 @@ export default function DashboardPage() {
       days_remaining: 0,
     },
   });
+  const [budget, setBudgetData] = useState<{
+    budget: {
+      monthly_budget_dollars: number;
+      alert_thresholds: number[];
+      is_active: boolean;
+    };
+    current_month: {
+      cost_dollars: number;
+      percentage_used: number;
+      remaining_dollars: number;
+      status: 'healthy' | 'warning' | 'over_budget';
+    };
+  } | null>(null);
+
+  const [analytics, setAnalytics] = useState<{
+    totals: {
+      input_tokens: number;
+      output_tokens: number;
+      total_tokens: number;
+      cost_cents: number;
+      cost_dollars: number;
+      total_requests: number;
+      total_errors: number;
+      success_rate: number;
+    };
+    averages: {
+      tokens_per_request: number;
+      cost_per_request_cents: number;
+      requests_per_day: number;
+      error_rate: number;
+    };
+    errors: {
+      total: number;
+      rate: number;
+      by_type: Record<string, number>;
+    };
+  } | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -40,10 +77,12 @@ export default function DashboardPage() {
         setLoading(true);
         setError(null);
 
-        const [subResponse, usageResponse, limitsResponse] = await Promise.all([
+        const [subResponse, usageResponse, limitsResponse, analyticsResponse, budgetResponse] = await Promise.all([
           api.getSubscription(user.id),
           api.getUsage(user.id),
           api.getFeatureLimits(user.id),
+          api.getUsageAnalytics(user.id, 30),
+          api.getBudget(user.id),
         ]);
 
         // Calculate days remaining
@@ -75,6 +114,16 @@ export default function DashboardPage() {
             days_remaining: daysRemaining,
           },
         });
+
+        // Set analytics data
+        setAnalytics({
+          totals: analyticsResponse.totals,
+          averages: analyticsResponse.averages,
+          errors: analyticsResponse.errors,
+        });
+
+        // Set budget data
+        setBudgetData(budgetResponse);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
       } finally {
@@ -133,6 +182,63 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
+      {/* Budget Tracking */}
+      {budget && budget.budget.is_active && (
+        <Card className={`${
+          budget.current_month.status === 'over_budget' ? 'border-red-500/50' :
+          budget.current_month.status === 'warning' ? 'border-yellow-500/50' :
+          'border-green-500/30'
+        }`}>
+          <CardTitle>Monthly Budget</CardTitle>
+          <CardContent>
+            <div className="mt-4">
+              <ProgressBar
+                current={budget.current_month.percentage_used}
+                max={100}
+                label={`$${budget.current_month.cost_dollars.toFixed(2)} / $${budget.budget.monthly_budget_dollars.toFixed(2)}`}
+                size="lg"
+              />
+              <div className="grid grid-cols-3 gap-4 mt-6">
+                <div className="text-center">
+                  <div className="text-sm text-gray-400">Spent This Month</div>
+                  <div className={`text-2xl font-bold ${
+                    budget.current_month.status === 'over_budget' ? 'text-red-400' :
+                    budget.current_month.status === 'warning' ? 'text-yellow-400' :
+                    'text-green-400'
+                  }`}>
+                    ${budget.current_month.cost_dollars.toFixed(2)}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm text-gray-400">Budget</div>
+                  <div className="text-2xl font-bold text-gold">
+                    ${budget.budget.monthly_budget_dollars.toFixed(2)}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-sm text-gray-400">Remaining</div>
+                  <div className={`text-2xl font-bold ${
+                    budget.current_month.remaining_dollars > 0 ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    ${budget.current_month.remaining_dollars.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+              {budget.current_month.status === 'warning' && (
+                <div className="mt-4 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
+                  ⚠️ Warning: You've used {budget.current_month.percentage_used.toFixed(0)}% of your monthly budget
+                </div>
+              )}
+              {budget.current_month.status === 'over_budget' && (
+                <div className="mt-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg text-red-400 text-sm">
+                  🚨 Alert: You've exceeded your monthly budget by ${(budget.current_month.cost_dollars - budget.budget.monthly_budget_dollars).toFixed(2)}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Usage Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Minutes Used */}
@@ -184,6 +290,115 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Token Usage & Costs (Last 30 Days) */}
+      {analytics && (
+        <>
+          <Card glow>
+            <CardTitle>Token Usage & Running Costs (Last 30 Days)</CardTitle>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Total Tokens</div>
+                  <div className="text-2xl font-bold text-gold">
+                    {analytics.totals.total_tokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.averages.tokens_per_request.toLocaleString()} avg/request
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Input Tokens</div>
+                  <div className="text-2xl font-bold text-blue-400">
+                    {analytics.totals.input_tokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.totals.total_tokens > 0 ? ((analytics.totals.input_tokens / analytics.totals.total_tokens) * 100).toFixed(1) : '0'}% of total
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Output Tokens</div>
+                  <div className="text-2xl font-bold text-purple-400">
+                    {analytics.totals.output_tokens.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.totals.total_tokens > 0 ? ((analytics.totals.output_tokens / analytics.totals.total_tokens) * 100).toFixed(1) : '0'}% of total
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-gradient-to-br from-green-900/30 to-green-800/20 rounded-lg border border-green-500/20">
+                  <div className="text-sm text-gray-400">Total Cost</div>
+                  <div className="text-2xl font-bold text-green-400">
+                    ${analytics.totals.cost_dollars.toFixed(4)}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    ${(analytics.averages.cost_per_request_cents / 100).toFixed(4)} avg/request
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 p-3 bg-honey-900/10 border border-honey-500/20 rounded-lg">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-400">API Requests (30 days)</span>
+                  <span className="text-gold font-semibold">{analytics.totals.total_requests} requests</span>
+                </div>
+                <div className="flex items-center justify-between text-sm mt-2">
+                  <span className="text-gray-400">Average per day</span>
+                  <span className="text-gold font-semibold">{analytics.averages.requests_per_day.toFixed(1)} requests/day</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Error Tracking & Reliability */}
+          <Card>
+            <CardTitle>Error Tracking & Reliability</CardTitle>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Success Rate</div>
+                  <div className={`text-2xl font-bold ${analytics.totals.success_rate >= 99 ? 'text-green-400' : analytics.totals.success_rate >= 95 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {analytics.totals.success_rate.toFixed(2)}%
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.totals.total_requests - analytics.totals.total_errors} successful
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Error Rate</div>
+                  <div className={`text-2xl font-bold ${analytics.averages.error_rate <= 1 ? 'text-green-400' : analytics.averages.error_rate <= 5 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {analytics.averages.error_rate.toFixed(2)}%
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {analytics.totals.total_errors} errors
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-oled-gray rounded-lg">
+                  <div className="text-sm text-gray-400">Total Requests</div>
+                  <div className="text-2xl font-bold text-gold">
+                    {analytics.totals.total_requests.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    Last 30 days
+                  </div>
+                </div>
+              </div>
+
+              {Object.keys(analytics.errors.by_type).length > 0 && (
+                <div className="mt-4 p-3 bg-red-900/10 border border-red-500/20 rounded-lg">
+                  <div className="text-sm font-semibold text-red-400 mb-2">Top Error Types:</div>
+                  <div className="space-y-1">
+                    {Object.entries(analytics.errors.by_type).slice(0, 5).map(([error, count]) => (
+                      <div key={error} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-400 truncate flex-1">{error}</span>
+                        <span className="text-red-400 font-semibold ml-2">{count}x</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       {/* Plan Features */}
       <Card>
