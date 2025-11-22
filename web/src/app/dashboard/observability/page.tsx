@@ -95,12 +95,6 @@ export default function ObservabilityPage() {
     }
   };
 
-  const getPerformanceColor = (score: number) => {
-    if (score >= 90) return 'green';
-    if (score >= 75) return 'yellow';
-    return 'red';
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-white p-8">
@@ -145,7 +139,7 @@ export default function ObservabilityPage() {
                     <ProgressBar
                       current={latencyData.performance_score}
                       max={100}
-                      color={getPerformanceColor(latencyData.performance_score)}
+                      showPercentage={false}
                     />
                     <p className="text-sm text-gray-400 mt-2">
                       Based on P95 latency across {latencyData.insights.total_requests_analyzed} requests
