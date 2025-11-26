@@ -1,13 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { HoneycombButton } from './HoneycombButton';
-
-interface TranscriptMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp?: string;
-}
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Mic, MicOff, Phone, PhoneOff, Volume2 } from 'lucide-react';
 
 interface VoiceCallProps {
   assistantId: string;
@@ -16,47 +10,36 @@ interface VoiceCallProps {
   onClose: () => void;
 }
 
-export function VoiceCall({ assistantId, assistantName, userId, onClose }: VoiceCallProps) {
+export default function VoiceCall({
+  assistantId,
+  assistantName,
+  userId,
+  onClose,
+}: VoiceCallProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [callId, setCallId] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<Array<{ role: string; content: string }>>([]);
+  const [callDuration, setCallDuration] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const audioQueueRef = useRef<string[]>([]);
-  const isPlayingRef = useRef(false);
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // NEW: Store audio chunks instead of sending immediately
+  const audioChunksRef = useRef<Blob[]>([]);
 
-  // Auto-scroll transcript
-  useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcript]);
-
-  // Play audio from queue
-  const playNextAudio = useCallback(async () => {
-    if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
-
-    isPlayingRef.current = true;
-    const audioB64 = audioQueueRef.current.shift();
-
-    if (!audioB64) {
-      isPlayingRef.current = false;
-      return;
-    }
-
+  // Play audio from base64
+  const playAudio = useCallback(async (audioBase64: string) => {
     try {
-      // Decode base64 to audio
-      const audioData = atob(audioB64);
+      const audioData = atob(audioBase64);
       const audioArray = new Uint8Array(audioData.length);
       for (let i = 0; i < audioData.length; i++) {
         audioArray[i] = audioData.charCodeAt(i);
       }
 
-      // Create audio context if needed
       if (!audioContextRef.current) {
         audioContextRef.current = new AudioContext();
       }
@@ -65,35 +48,23 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
       const source = audioContextRef.current.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(audioContextRef.current.destination);
-
-      source.onended = () => {
-        isPlayingRef.current = false;
-        playNextAudio();
-      };
-
       source.start();
     } catch (err) {
       console.error('Error playing audio:', err);
-      isPlayingRef.current = false;
-      playNextAudio();
     }
   }, []);
 
-  // Connect to WebSocket
+  // Connect WebSocket
   const connect = useCallback(async () => {
     try {
-      setError(null);
-
-      // Get WebSocket URL from API URL
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
-      const wsUrl = apiUrl.replace('https://', 'wss://').replace('http://', 'ws://');
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8080';
+      const wsUrl = backendUrl.replace('http', 'ws');
 
       const ws = new WebSocket(`${wsUrl}/ws/voice/${assistantId}`);
       wsRef.current = ws;
 
       ws.onopen = () => {
         console.log('WebSocket connected');
-        // Send authentication
         ws.send(JSON.stringify({ type: 'auth', user_id: userId }));
       };
 
@@ -103,7 +74,11 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
         switch (data.type) {
           case 'ready':
             setIsConnected(true);
-            setCallId(data.call_id);
+            setError(null);
+            // Start duration timer
+            timerRef.current = setInterval(() => {
+              setCallDuration((prev) => prev + 1);
+            }, 1000);
             break;
 
           case 'transcript':
@@ -114,8 +89,7 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
             break;
 
           case 'audio':
-            audioQueueRef.current.push(data.data);
-            playNextAudio();
+            await playAudio(data.data);
             break;
 
           case 'speaking':
@@ -127,14 +101,9 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
             break;
 
           case 'call_ended':
-            setIsConnected(false);
+            disconnect();
             break;
         }
-      };
-
-      ws.onerror = (event) => {
-        console.error('WebSocket error:', event);
-        setError('Connection error');
       };
 
       ws.onclose = () => {
@@ -142,208 +111,257 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
         setIsConnected(false);
         setIsRecording(false);
       };
+
+      ws.onerror = (err) => {
+        console.error('WebSocket error:', err);
+        setError('Connection error');
+      };
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to connect');
+      setError('Failed to connect');
     }
-  }, [assistantId, userId, playNextAudio]);
+  }, [assistantId, userId, playAudio]);
+
+  // Disconnect
+  const disconnect = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.send(JSON.stringify({ type: 'end_call' }));
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setIsConnected(false);
+    setIsRecording(false);
+    setCallDuration(0);
+  }, []);
+
+  // NEW: Send accumulated audio as one complete file
+  const sendAccumulatedAudio = useCallback(() => {
+    if (audioChunksRef.current.length === 0) return;
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    // Combine all chunks into a single valid webm blob
+    const completeBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
+    
+    // Only send if we have meaningful audio (at least 1KB)
+    if (completeBlob.size < 1000) {
+      audioChunksRef.current = [];
+      return;
+    }
+
+    console.log(`Sending complete audio: ${completeBlob.size} bytes`);
+
+    // Convert to base64 and send
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      wsRef.current?.send(JSON.stringify({ type: 'audio', data: base64 }));
+    };
+    reader.readAsDataURL(completeBlob);
+
+    // Clear the buffer
+    audioChunksRef.current = [];
+  }, []);
 
   // Start recording
   const startRecording = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
+      // Clear any previous chunks
+      audioChunksRef.current = [];
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 48000,
+        } 
+      });
+      
       const mediaRecorder = new MediaRecorder(stream, {
         mimeType: 'audio/webm;codecs=opus',
       });
-
       mediaRecorderRef.current = mediaRecorder;
 
-      mediaRecorder.ondataavailable = async (event) => {
-        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-          // Convert to base64 and send
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            wsRef.current?.send(
-              JSON.stringify({ type: 'audio', data: base64 })
-            );
-          };
-          reader.readAsDataURL(event.data);
+      // NEW: Store chunks locally instead of sending
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
         }
       };
 
-      // Record in chunks (every 3 seconds for complete utterances)
-      mediaRecorder.start(3000);
+      // Record in smaller chunks for smoother buffering
+      mediaRecorder.start(500);
       setIsRecording(true);
     } catch (err) {
       setError('Microphone access denied');
     }
   }, []);
 
-  // Stop recording
+  // Stop recording and send accumulated audio
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current) {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
-      mediaRecorderRef.current = null;
+      
+      // Wait a moment for final chunk, then send
+      setTimeout(() => {
+        sendAccumulatedAudio();
+      }, 100);
     }
     setIsRecording(false);
-  }, []);
+  }, [sendAccumulatedAudio]);
 
-  // Send barge-in signal
-  const handleBargeIn = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN && isSpeaking) {
-      wsRef.current.send(JSON.stringify({ type: 'barge_in' }));
-      // Clear audio queue
-      audioQueueRef.current = [];
-      isPlayingRef.current = false;
-    }
-  }, [isSpeaking]);
-
-  // End call
-  const endCall = useCallback(() => {
-    stopRecording();
-
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'end_call' }));
-      wsRef.current.close();
-    }
-
-    setIsConnected(false);
-    onClose();
-  }, [stopRecording, onClose]);
-
-  // Connect on mount
-  useEffect(() => {
-    connect();
-
-    return () => {
+  // Toggle recording (push-to-talk style)
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
       stopRecording();
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
+    } else {
+      startRecording();
+    }
+  }, [isRecording, startRecording, stopRecording]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      disconnect();
     };
-  }, [connect, stopRecording]);
+  }, [disconnect]);
+
+  // Format duration
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-oled-dark border border-gold/30 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+      <div className="bg-zinc-900 rounded-2xl p-8 max-w-md w-full mx-4 border border-amber-500/20">
         {/* Header */}
-        <div className="p-4 border-b border-gold/20 flex justify-between items-center">
-          <div>
-            <h2 className="text-xl font-bold text-gold">{assistantName}</h2>
-            <p className="text-sm text-gray-400">
-              {isConnected ? (
-                <span className="text-green-400">Connected</span>
-              ) : (
-                <span className="text-yellow-400">Connecting...</span>
-              )}
-              {callId && <span className="ml-2 text-gray-500">#{callId.slice(0, 8)}</span>}
-            </p>
-          </div>
-          <button
-            onClick={endCall}
-            className="p-2 hover:bg-red-500/20 rounded-lg transition-colors"
-          >
-            <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        <div className="text-center mb-8">
+          <h2 className="text-2xl font-bold text-white mb-2">{assistantName}</h2>
+          {isConnected && (
+            <p className="text-amber-500 font-mono">{formatDuration(callDuration)}</p>
+          )}
+        </div>
+
+        {/* Status indicators */}
+        <div className="flex justify-center gap-4 mb-8">
+          {isSpeaking && (
+            <div className="flex items-center gap-2 text-amber-500">
+              <Volume2 className="w-5 h-5 animate-pulse" />
+              <span>Speaking...</span>
+            </div>
+          )}
+          {isRecording && (
+            <div className="flex items-center gap-2 text-red-500">
+              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+              <span>Recording...</span>
+            </div>
+          )}
         </div>
 
         {/* Transcript */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="bg-black/50 rounded-lg p-4 h-48 overflow-y-auto mb-8">
           {transcript.length === 0 ? (
-            <div className="text-center text-gray-500 py-8">
-              {isConnected ? 'Start speaking...' : 'Connecting to assistant...'}
-            </div>
+            <p className="text-zinc-500 text-center">
+              {isConnected ? 'Hold the mic button to speak...' : 'Press call to start'}
+            </p>
           ) : (
             transcript.map((msg, i) => (
               <div
                 key={i}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                className={`mb-2 ${
+                  msg.role === 'user' ? 'text-right' : 'text-left'
+                }`}
               >
-                <div
-                  className={`max-w-[80%] p-3 rounded-lg ${
+                <span
+                  className={`inline-block px-3 py-2 rounded-lg ${
                     msg.role === 'user'
-                      ? 'bg-gold/20 text-white'
-                      : 'bg-gray-800 text-gray-100'
+                      ? 'bg-amber-500/20 text-amber-200'
+                      : 'bg-zinc-800 text-white'
                   }`}
                 >
-                  <p className="text-xs text-gray-500 mb-1">
-                    {msg.role === 'user' ? 'You' : assistantName}
-                  </p>
-                  <p>{msg.content}</p>
-                </div>
+                  {msg.content}
+                </span>
               </div>
             ))
           )}
-          <div ref={transcriptEndRef} />
         </div>
 
         {/* Error */}
         {error && (
-          <div className="mx-4 mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm">
+          <div className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg mb-4 text-center">
             {error}
           </div>
         )}
 
         {/* Controls */}
-        <div className="p-4 border-t border-gold/20 flex justify-center gap-4">
-          {/* Barge-in button */}
-          {isSpeaking && (
+        <div className="flex justify-center gap-4">
+          {!isConnected ? (
             <button
-              onClick={handleBargeIn}
-              className="px-4 py-2 bg-orange-500/20 border border-orange-500/30 rounded-lg
-                text-orange-400 hover:bg-orange-500/30 transition-colors"
+              onClick={connect}
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-full transition-colors"
             >
-              Interrupt
+              <Phone className="w-5 h-5" />
+              Start Call
             </button>
+          ) : (
+            <>
+              {/* Push-to-talk mic button */}
+              <button
+                onMouseDown={startRecording}
+                onMouseUp={stopRecording}
+                onMouseLeave={stopRecording}
+                onTouchStart={startRecording}
+                onTouchEnd={stopRecording}
+                disabled={isSpeaking}
+                className={`p-6 rounded-full transition-all ${
+                  isRecording
+                    ? 'bg-red-600 scale-110'
+                    : isSpeaking
+                    ? 'bg-zinc-700 cursor-not-allowed'
+                    : 'bg-amber-600 hover:bg-amber-700'
+                }`}
+              >
+                {isRecording ? (
+                  <MicOff className="w-8 h-8 text-white" />
+                ) : (
+                  <Mic className="w-8 h-8 text-white" />
+                )}
+              </button>
+
+              {/* End call */}
+              <button
+                onClick={() => {
+                  disconnect();
+                  onClose();
+                }}
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full transition-colors"
+              >
+                <PhoneOff className="w-5 h-5" />
+                End
+              </button>
+            </>
           )}
-
-          {/* Record button */}
-          <button
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={!isConnected}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
-              isRecording
-                ? 'bg-red-500 animate-pulse'
-                : isConnected
-                ? 'bg-gold hover:bg-gold/80'
-                : 'bg-gray-600 cursor-not-allowed'
-            }`}
-          >
-            {isRecording ? (
-              <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <rect x="6" y="6" width="12" height="12" rx="1" />
-              </svg>
-            ) : (
-              <svg className="w-8 h-8 text-black" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-              </svg>
-            )}
-          </button>
-
-          {/* End call button */}
-          <button
-            onClick={endCall}
-            className="px-4 py-2 bg-red-500/20 border border-red-500/30 rounded-lg
-              text-red-400 hover:bg-red-500/30 transition-colors"
-          >
-            End Call
-          </button>
         </div>
 
-        {/* Status indicator */}
-        <div className="px-4 pb-4 text-center text-xs text-gray-500">
-          {isSpeaking && <span className="text-gold animate-pulse">Assistant is speaking...</span>}
-          {isRecording && !isSpeaking && <span className="text-green-400">Listening...</span>}
-          {!isRecording && !isSpeaking && isConnected && <span>Press the microphone to speak</span>}
-        </div>
+        {/* Instructions */}
+        {isConnected && (
+          <p className="text-zinc-500 text-sm text-center mt-4">
+            Hold the microphone button while speaking, release to send
+          </p>
+        )}
+
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-zinc-500 hover:text-white"
+        >
+          ✕
+        </button>
       </div>
     </div>
   );
