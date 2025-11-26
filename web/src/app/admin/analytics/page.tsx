@@ -1,245 +1,196 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from 'recharts';
+import { ProgressBar } from '@/components/ProgressBar';
+import { useAdmin } from '../layout';
+import { adminApi } from '@/lib/api';
 
-// Mock data for charts
-const usageData = [
-  { date: 'Jan', minutes: 45000, conversations: 2100 },
-  { date: 'Feb', minutes: 52000, conversations: 2400 },
-  { date: 'Mar', minutes: 48000, conversations: 2200 },
-  { date: 'Apr', minutes: 61000, conversations: 2800 },
-  { date: 'May', minutes: 75000, conversations: 3400 },
-  { date: 'Jun', minutes: 89000, conversations: 4100 },
-];
-
-const revenueData = [
-  { month: 'Jan', revenue: 45600, users: 890 },
-  { month: 'Feb', revenue: 52300, users: 945 },
-  { month: 'Mar', revenue: 58100, users: 1020 },
-  { month: 'Apr', revenue: 67400, users: 1105 },
-  { month: 'May', revenue: 78200, users: 1180 },
-  { month: 'Jun', revenue: 89200, users: 1247 },
-];
-
-const planDistribution = [
-  { name: 'Free', value: 355, color: '#6B7280' },
-  { name: 'Starter', value: 612, color: '#FBBF24' },
-  { name: 'Pro', value: 245, color: '#D4AF37' },
-  { name: 'Enterprise', value: 35, color: '#10B981' },
-];
-
-const topUsers = [
-  { id: 'user-001', minutes: 8450, plan: 'pro' },
-  { id: 'user-002', minutes: 7890, plan: 'pro' },
-  { id: 'user-003', minutes: 6234, plan: 'enterprise' },
-  { id: 'user-004', minutes: 5678, plan: 'pro' },
-  { id: 'user-005', minutes: 4321, plan: 'starter' },
-];
+interface DiscountCode {
+  id: string;
+  code: string;
+  discount_type: string;
+  discount_value: number;
+  current_uses: number;
+  max_uses: number | null;
+  is_active: boolean;
+}
 
 export default function AnalyticsPage() {
+  const { adminKey } = useAdmin();
+  const [codes, setCodes] = useState<DiscountCode[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!adminKey) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setError(null);
+        const codesRes = await adminApi.getCodes(adminKey, false);
+        setCodes(codesRes.codes || []);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load analytics');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [adminKey]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-gold text-xl">Loading analytics...</div>
+      </div>
+    );
+  }
+
+  // Calculate analytics from available data
+  const totalRedemptions = codes.reduce((sum, c) => sum + c.current_uses, 0);
+  const activeCodes = codes.filter(c => c.is_active).length;
+  const minutesCodes = codes.filter(c => c.discount_type === 'minutes');
+  const totalMinutesGiven = minutesCodes.reduce((sum, c) => sum + (c.current_uses * c.discount_value), 0);
+
+  // Top performing codes
+  const topCodes = [...codes].sort((a, b) => b.current_uses - a.current_uses).slice(0, 5);
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-gold">Analytics</h1>
-        <p className="text-gray-400 mt-1">Usage metrics and revenue insights</p>
+        <p className="text-gray-400 mt-1">Usage metrics and insights</p>
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Usage Trend */}
-        <Card>
-          <CardTitle>Usage Trend</CardTitle>
+      {/* Error */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
+          {error}
+        </div>
+      )}
+
+      {/* Key Metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card glow>
           <CardContent>
-            <div className="h-64 mt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={usageData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                  <XAxis dataKey="date" stroke="#666" />
-                  <YAxis stroke="#666" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1e1e1e',
-                      border: '1px solid #D4AF37',
-                      borderRadius: '8px',
-                    }}
-                    labelStyle={{ color: '#D4AF37' }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="minutes"
-                    stroke="#D4AF37"
-                    strokeWidth={3}
-                    dot={{ fill: '#D4AF37', strokeWidth: 2 }}
-                    activeDot={{ r: 8, fill: '#FFD700' }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="text-center mt-2 text-sm text-gray-400">
-              Total minutes used per month
-            </div>
+            <div className="text-sm text-gray-400">Total Redemptions</div>
+            <div className="text-2xl font-bold text-gold">{totalRedemptions}</div>
+            <div className="text-xs text-gray-500 mt-1">All codes</div>
           </CardContent>
         </Card>
-
-        {/* Revenue Growth */}
-        <Card>
-          <CardTitle>Revenue Growth</CardTitle>
+        <Card glow>
           <CardContent>
-            <div className="h-64 mt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={revenueData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                  <XAxis dataKey="month" stroke="#666" />
-                  <YAxis stroke="#666" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1e1e1e',
-                      border: '1px solid #D4AF37',
-                      borderRadius: '8px',
-                    }}
-                    formatter={(value: number) => [`$${(value / 100).toFixed(0)}`, 'Revenue']}
-                  />
-                  <Bar
-                    dataKey="revenue"
-                    fill="#D4AF37"
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="text-center mt-2 text-sm text-gray-400">
-              Monthly recurring revenue
-            </div>
+            <div className="text-sm text-gray-400">Active Codes</div>
+            <div className="text-2xl font-bold text-gold">{activeCodes}</div>
+            <div className="text-xs text-gray-500 mt-1">Currently valid</div>
           </CardContent>
         </Card>
-
-        {/* Plan Distribution */}
-        <Card>
-          <CardTitle>Plan Distribution</CardTitle>
+        <Card glow>
           <CardContent>
-            <div className="h-64 mt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={planDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {planDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1e1e1e',
-                      border: '1px solid #D4AF37',
-                      borderRadius: '8px',
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex justify-center gap-4 mt-2">
-              {planDistribution.map((item) => (
-                <div key={item.name} className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span className="text-xs text-gray-400">
-                    {item.name} ({item.value})
-                  </span>
-                </div>
-              ))}
-            </div>
+            <div className="text-sm text-gray-400">Minutes Given</div>
+            <div className="text-2xl font-bold text-gold">{totalMinutesGiven.toLocaleString()}</div>
+            <div className="text-xs text-gray-500 mt-1">Via codes</div>
           </CardContent>
         </Card>
-
-        {/* Top Users */}
-        <Card>
-          <CardTitle>Top Users by Usage</CardTitle>
+        <Card glow>
           <CardContent>
-            <div className="mt-4 space-y-3">
-              {topUsers.map((user, index) => (
+            <div className="text-sm text-gray-400">Total Codes</div>
+            <div className="text-2xl font-bold text-gold">{codes.length}</div>
+            <div className="text-xs text-gray-500 mt-1">Created</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Top Performing Codes */}
+      <Card>
+        <CardTitle>Top Performing Codes</CardTitle>
+        <CardContent>
+          <div className="mt-4 space-y-3">
+            {topCodes.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No code usage data yet. Create and share codes to see analytics.
+              </div>
+            ) : (
+              topCodes.map((code, index) => (
                 <div
-                  key={user.id}
+                  key={code.id}
                   className="flex items-center justify-between py-2 border-b border-gold/10 last:border-0"
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-gold font-bold w-6">{index + 1}</span>
-                    <span className="font-mono text-sm text-gray-300">{user.id}</span>
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs ${
-                        user.plan === 'enterprise'
-                          ? 'bg-green-500/20 text-green-400'
-                          : user.plan === 'pro'
-                          ? 'bg-gold/20 text-gold'
-                          : 'bg-honey-400/20 text-honey-400'
-                      }`}
-                    >
-                      {user.plan}
-                    </span>
+                    <div>
+                      <span className="font-mono text-sm text-white">{code.code}</span>
+                      <div className="text-xs text-gray-500">
+                        {code.discount_type === 'minutes' ? `+${code.discount_value} min` :
+                         code.discount_type === 'percentage' ? `${code.discount_value}% off` :
+                         `$${code.discount_value} off`}
+                      </div>
+                    </div>
                   </div>
-                  <span className="text-gold font-semibold">
-                    {user.minutes.toLocaleString()} min
-                  </span>
+                  <div className="text-right">
+                    <div className="text-gold font-semibold">
+                      {code.current_uses} uses
+                    </div>
+                    {code.max_uses && (
+                      <div className="text-xs text-gray-500">
+                        of {code.max_uses} max
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Key Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent>
-            <div className="text-sm text-gray-400">Avg Usage/User</div>
-            <div className="text-2xl font-bold text-gold">366 min</div>
-            <div className="text-xs text-green-500 mt-1">+12% vs last month</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent>
-            <div className="text-sm text-gray-400">Conversion Rate</div>
-            <div className="text-2xl font-bold text-gold">23%</div>
-            <div className="text-xs text-green-500 mt-1">+3% vs last month</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent>
-            <div className="text-sm text-gray-400">Churn Rate</div>
-            <div className="text-2xl font-bold text-gold">2.1%</div>
-            <div className="text-xs text-green-500 mt-1">-0.5% vs last month</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent>
-            <div className="text-sm text-gray-400">ARPU</div>
-            <div className="text-2xl font-bold text-gold">$71.52</div>
-            <div className="text-xs text-green-500 mt-1">+8% vs last month</div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Code Type Distribution */}
+      <Card>
+        <CardTitle>Code Type Distribution</CardTitle>
+        <CardContent>
+          <div className="space-y-4 mt-4">
+            {['minutes', 'percentage', 'fixed', 'upgrade'].map((type) => {
+              const typeCodes = codes.filter(c => c.discount_type === type);
+              const typeUses = typeCodes.reduce((sum, c) => sum + c.current_uses, 0);
+              return (
+                <div key={type}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-400 capitalize">{type}</span>
+                    <span className="text-gold">{typeCodes.length} codes ({typeUses} uses)</span>
+                  </div>
+                  <ProgressBar
+                    current={typeCodes.length}
+                    max={Math.max(codes.length, 1)}
+                    showPercentage={false}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Info Box */}
+      <Card>
+        <CardContent>
+          <div className="flex items-start gap-3">
+            <div className="text-2xl">📊</div>
+            <div>
+              <h3 className="text-gold font-semibold">More Analytics Coming Soon</h3>
+              <p className="text-gray-400 text-sm mt-1">
+                User growth charts, revenue tracking, and detailed usage metrics will be available
+                as more data is collected. Check back soon for comprehensive analytics.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

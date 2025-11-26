@@ -1,37 +1,103 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { ProgressBar } from '@/components/ProgressBar';
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { useAuth } from '@/lib/auth-context';
+import { api } from '@/lib/api';
 
-// Mock usage history
-const usageHistory = [
-  { date: 'Week 1', minutes: 420 },
-  { date: 'Week 2', minutes: 680 },
-  { date: 'Week 3', minutes: 890 },
-  { date: 'Week 4', minutes: 1255 },
-];
+interface UsageData {
+  minutes_used: number;
+  bonus_minutes: number;
+  conversations_count: number;
+  voice_clones_count: number;
+  assistants_count: number;
+}
 
-const recentSessions = [
-  { id: 1, date: '2024-02-03', duration: 12, topic: 'Customer inquiry - pricing' },
-  { id: 2, date: '2024-02-02', duration: 8, topic: 'Appointment scheduling' },
-  { id: 3, date: '2024-02-02', duration: 23, topic: 'Technical support' },
-  { id: 4, date: '2024-02-01', duration: 5, topic: 'Quick question' },
-  { id: 5, date: '2024-02-01', duration: 15, topic: 'Service consultation' },
-];
+interface LimitsData {
+  plan: string;
+  display_name: string;
+  limits: {
+    max_minutes: number;
+    max_assistants: number;
+    max_voice_clones: number;
+    custom_voices: boolean;
+    api_access: boolean;
+    priority_support: boolean;
+  };
+}
+
+interface CallData {
+  id: string;
+  assistant_name: string;
+  started_at: string;
+  duration_seconds: number;
+  summary: string | null;
+}
 
 export default function UsagePage() {
-  const totalMinutes = 10500; // including bonus
-  const usedMinutes = 3245;
-  const bonusMinutes = 500;
+  const { user } = useAuth();
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [limits, setLimits] = useState<LimitsData | null>(null);
+  const [recentCalls, setRecentCalls] = useState<CallData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user?.id) return;
+
+      try {
+        setError(null);
+        const [usageRes, limitsRes, callsRes] = await Promise.all([
+          api.getUsage(user.id),
+          api.getFeatureLimits(user.id),
+          api.getCalls(user.id, 5, 0),
+        ]);
+
+        setUsage({
+          minutes_used: usageRes.usage.minutes_used,
+          bonus_minutes: usageRes.usage.bonus_minutes || 0,
+          conversations_count: usageRes.usage.conversations_count,
+          voice_clones_count: usageRes.usage.voice_clones_count,
+          assistants_count: usageRes.usage.assistants_count,
+        });
+        setLimits(limitsRes);
+        setRecentCalls(callsRes.calls);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load usage data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [user?.id]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-gold text-xl">Loading usage data...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gold">Usage Dashboard</h1>
+          <p className="text-gray-400 mt-1">Track your voice assistant usage</p>
+        </div>
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  const totalMinutes = (limits?.limits.max_minutes || 100) + (usage?.bonus_minutes || 0);
+  const usedMinutes = usage?.minutes_used || 0;
 
   return (
     <div className="space-y-6">
@@ -62,7 +128,7 @@ export default function UsagePage() {
               <div className="text-center">
                 <div className="text-sm text-gray-400">Bonus</div>
                 <div className="text-2xl font-bold text-green-500">
-                  +{bonusMinutes}
+                  +{usage?.bonus_minutes || 0}
                 </div>
               </div>
               <div className="text-center">
@@ -76,62 +142,61 @@ export default function UsagePage() {
         </CardContent>
       </Card>
 
-      {/* Usage Chart */}
-      <Card>
-        <CardTitle>Usage Trend</CardTitle>
-        <CardContent>
-          <div className="h-64 mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={usageHistory}>
-                <defs>
-                  <linearGradient id="goldGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#D4AF37" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#D4AF37" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="date" stroke="#666" />
-                <YAxis stroke="#666" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#1e1e1e',
-                    border: '1px solid #D4AF37',
-                    borderRadius: '8px',
-                  }}
-                  formatter={(value: number) => [`${value} min`, 'Usage']}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="minutes"
-                  stroke="#D4AF37"
-                  strokeWidth={2}
-                  fill="url(#goldGradient)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent>
+            <div className="text-sm text-gray-400">Conversations</div>
+            <div className="text-2xl font-bold text-gold">{usage?.conversations_count || 0}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <div className="text-sm text-gray-400">Assistants</div>
+            <div className="text-2xl font-bold text-gold">{usage?.assistants_count || 0}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <div className="text-sm text-gray-400">Voice Clones</div>
+            <div className="text-2xl font-bold text-gold">{usage?.voice_clones_count || 0}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent>
+            <div className="text-sm text-gray-400">Plan</div>
+            <div className="text-2xl font-bold text-gold">{limits?.display_name || 'Free'}</div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Recent Sessions */}
       <Card>
         <CardTitle>Recent Sessions</CardTitle>
         <CardContent>
           <div className="mt-4 space-y-3">
-            {recentSessions.map((session) => (
-              <div
-                key={session.id}
-                className="flex items-center justify-between py-3 border-b border-gold/10 last:border-0"
-              >
-                <div>
-                  <div className="text-sm text-white">{session.topic}</div>
-                  <div className="text-xs text-gray-500">{session.date}</div>
-                </div>
-                <div className="text-gold font-semibold">
-                  {session.duration} min
-                </div>
+            {recentCalls.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No calls yet. Start using your voice assistants to see activity here.
               </div>
-            ))}
+            ) : (
+              recentCalls.map((call) => (
+                <div
+                  key={call.id}
+                  className="flex items-center justify-between py-3 border-b border-gold/10 last:border-0"
+                >
+                  <div>
+                    <div className="text-sm text-white">{call.summary || call.assistant_name}</div>
+                    <div className="text-xs text-gray-500">
+                      {new Date(call.started_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="text-gold font-semibold">
+                    {Math.ceil(call.duration_seconds / 60)} min
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>

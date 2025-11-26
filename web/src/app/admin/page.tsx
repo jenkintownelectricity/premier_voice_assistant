@@ -4,29 +4,71 @@ import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { ProgressBar } from '@/components/ProgressBar';
 import { HoneycombButton } from '@/components/HoneycombButton';
+import { useAdmin } from './layout';
+import { adminApi } from '@/lib/api';
 
-// Mock data - replace with API calls
-const mockStats = {
-  totalUsers: 1247,
-  activeSubscriptions: 892,
-  monthlyRevenue: 89200,
-  minutesUsed: 456789,
-};
+interface AdminStats {
+  totalUsers: number;
+  activeSubscriptions: number;
+  totalMinutesUsed: number;
+  activeCodes: number;
+}
 
-const mockRecentActivity = [
-  { id: 1, type: 'signup', user: 'user-abc123', plan: 'starter', time: '5 min ago' },
-  { id: 2, type: 'upgrade', user: 'user-def456', plan: 'pro', time: '23 min ago' },
-  { id: 3, type: 'redemption', user: 'user-ghi789', code: 'WELCOME2024', time: '1 hr ago' },
-  { id: 4, type: 'signup', user: 'user-jkl012', plan: 'free', time: '2 hrs ago' },
-];
+interface DiscountCode {
+  id: string;
+  code: string;
+  discount_type: string;
+  discount_value: number;
+  current_uses: number;
+  is_active: boolean;
+}
 
 export default function AdminDashboard() {
-  const [isLoading, setIsLoading] = useState(true);
+  const { adminKey } = useAdmin();
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [codes, setCodes] = useState<DiscountCode[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Simulate loading
-    setTimeout(() => setIsLoading(false), 500);
-  }, []);
+    const fetchData = async () => {
+      if (!adminKey) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setError(null);
+        const codesRes = await adminApi.getCodes(adminKey, false);
+        setCodes(codesRes.codes || []);
+
+        // Calculate stats from codes data
+        const activeCodes = codesRes.codes?.filter(c => c.is_active).length || 0;
+        const totalRedemptions = codesRes.codes?.reduce((sum, c) => sum + c.current_uses, 0) || 0;
+
+        setStats({
+          totalUsers: 0, // Will be populated when backend supports user list
+          activeSubscriptions: 0,
+          totalMinutesUsed: totalRedemptions,
+          activeCodes,
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load admin data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [adminKey]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-gold text-xl">Loading admin dashboard...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -36,110 +78,80 @@ export default function AdminDashboard() {
         <p className="text-gray-400 mt-1">Overview of your Premier Voice Assistant</p>
       </div>
 
+      {/* Error */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400">
+          {error}
+        </div>
+      )}
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card glow>
           <CardContent>
-            <div className="text-sm text-gray-400 mb-1">Total Users</div>
-            <div className="text-3xl font-bold text-gold">{mockStats.totalUsers.toLocaleString()}</div>
-            <div className="text-xs text-green-500 mt-1">+12% from last month</div>
+            <div className="text-sm text-gray-400 mb-1">Active Codes</div>
+            <div className="text-3xl font-bold text-gold">{stats?.activeCodes || 0}</div>
+            <div className="text-xs text-gray-500 mt-1">Promotional codes</div>
           </CardContent>
         </Card>
 
         <Card glow>
           <CardContent>
-            <div className="text-sm text-gray-400 mb-1">Active Subscriptions</div>
-            <div className="text-3xl font-bold text-gold">{mockStats.activeSubscriptions.toLocaleString()}</div>
-            <div className="text-xs text-green-500 mt-1">+8% from last month</div>
+            <div className="text-sm text-gray-400 mb-1">Total Redemptions</div>
+            <div className="text-3xl font-bold text-gold">{stats?.totalMinutesUsed || 0}</div>
+            <div className="text-xs text-gray-500 mt-1">Code uses</div>
           </CardContent>
         </Card>
 
         <Card glow>
           <CardContent>
-            <div className="text-sm text-gray-400 mb-1">Monthly Revenue</div>
-            <div className="text-3xl font-bold text-gold">${(mockStats.monthlyRevenue / 100).toLocaleString()}</div>
-            <div className="text-xs text-green-500 mt-1">+15% from last month</div>
+            <div className="text-sm text-gray-400 mb-1">Total Codes</div>
+            <div className="text-3xl font-bold text-gold">{codes.length}</div>
+            <div className="text-xs text-gray-500 mt-1">All time</div>
           </CardContent>
         </Card>
 
         <Card glow>
           <CardContent>
-            <div className="text-sm text-gray-400 mb-1">Minutes Used</div>
-            <div className="text-3xl font-bold text-gold">{mockStats.minutesUsed.toLocaleString()}</div>
-            <div className="text-xs text-honey-400 mt-1">+23% from last month</div>
+            <div className="text-sm text-gray-400 mb-1">Status</div>
+            <div className="text-3xl font-bold text-green-500">Online</div>
+            <div className="text-xs text-gray-500 mt-1">System healthy</div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Plan Distribution */}
+      {/* Recent Codes */}
       <Card>
-        <CardTitle>Plan Distribution</CardTitle>
-        <CardContent>
-          <div className="space-y-4 mt-4">
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-400">Free</span>
-                <span className="text-gold">355 users (28%)</span>
-              </div>
-              <ProgressBar current={355} max={1247} showPercentage={false} />
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-400">Starter ($99/mo)</span>
-                <span className="text-gold">612 users (49%)</span>
-              </div>
-              <ProgressBar current={612} max={1247} showPercentage={false} />
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-400">Pro ($299/mo)</span>
-                <span className="text-gold">245 users (20%)</span>
-              </div>
-              <ProgressBar current={245} max={1247} showPercentage={false} />
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-400">Enterprise</span>
-                <span className="text-gold">35 users (3%)</span>
-              </div>
-              <ProgressBar current={35} max={1247} showPercentage={false} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Recent Activity */}
-      <Card>
-        <CardTitle>Recent Activity</CardTitle>
+        <CardTitle>Recent Discount Codes</CardTitle>
         <CardContent>
           <div className="mt-4 space-y-3">
-            {mockRecentActivity.map((activity) => (
-              <div
-                key={activity.id}
-                className="flex items-center justify-between py-3 border-b border-gold/10 last:border-0"
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      activity.type === 'upgrade'
-                        ? 'bg-green-500'
-                        : activity.type === 'redemption'
-                        ? 'bg-honey-400'
-                        : 'bg-gold'
-                    }`}
-                  />
-                  <div>
-                    <div className="text-sm text-white">
-                      {activity.type === 'signup' && `New signup: ${activity.plan} plan`}
-                      {activity.type === 'upgrade' && `Upgraded to ${activity.plan}`}
-                      {activity.type === 'redemption' && `Code redeemed: ${activity.code}`}
-                    </div>
-                    <div className="text-xs text-gray-500">{activity.user}</div>
-                  </div>
-                </div>
-                <div className="text-xs text-gray-500">{activity.time}</div>
+            {codes.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No discount codes created yet. Create your first code to get started.
               </div>
-            ))}
+            ) : (
+              codes.slice(0, 5).map((code) => (
+                <div
+                  key={code.id}
+                  className="flex items-center justify-between py-3 border-b border-gold/10 last:border-0"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-2 h-2 rounded-full ${code.is_active ? 'bg-green-500' : 'bg-gray-500'}`}
+                    />
+                    <div>
+                      <div className="text-sm text-white font-mono">{code.code}</div>
+                      <div className="text-xs text-gray-500">
+                        {code.discount_type === 'minutes' ? `+${code.discount_value} min` :
+                         code.discount_type === 'percentage' ? `${code.discount_value}% off` :
+                         `$${code.discount_value} off`}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-500">{code.current_uses} uses</div>
+                </div>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>
