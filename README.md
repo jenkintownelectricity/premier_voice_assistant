@@ -1,231 +1,654 @@
-# Premier Voice Assistant - HIVE215
+# HIVE215 - AI Phone Assistant Platform
 
-Production-ready voice AI platform with **revolutionary developer dashboard**, subscription-based feature gates, usage tracking, Stripe payments, and AI-powered insights. Built with open-source models and serverless infrastructure for predictable costs and scalable monetization.
+> **Mission**: A Vapi alternative that's 95% cheaper and easier to use. Answer calls, take orders, collect job info - all controlled from any device.
 
 ---
 
-## 🎯 **Latest Updates (January 2025)**
+## Table of Contents
+- [Vision](#vision)
+- [How We're 95% Cheaper](#how-were-95-cheaper)
+- [Platform Architecture](#platform-architecture)
+- [User Tiers & Pricing](#user-tiers--pricing)
+- [Core Features](#core-features)
+- [Dashboard Types](#dashboard-types)
+- [Database Schema Philosophy](#database-schema-philosophy)
+- [Use Cases](#use-cases)
+- [Referral System](#referral-system)
+- [Viral Growth Features](#viral-growth-features)
+- [Technical Stack](#technical-stack)
+- [Roadmap](#roadmap)
+- [Quick Start](#quick-start)
+- [API Reference](#api-reference)
 
-**Status:** ✅ **Advanced Dashboard Features Complete**
-**Last Updated:** 2025-01-22
+---
 
-### **🚀 NEW: Developer Dashboard v2.0**
+## Vision
 
-We've added **revolutionary features** that rival industry leaders like Stripe, Datadog, and OpenAI:
+HIVE215 is an AI-powered phone answering service that:
+- Answers business and personal calls using Claude AI
+- Reads user's profession/skills from their profile
+- Logs all pertinent call information
+- Works identically on iPhone, Android, and Web
+- Costs 95% less than competitors like Vapi
 
-#### **1. Token Usage & Cost Tracking** ⭐ **INDUSTRY-LEADING**
-- ✅ Real-time token tracking (input + output) for all Claude API calls
-- ✅ Automatic cost calculation using official Claude pricing
-- ✅ 30-day analytics with trends and averages
-- ✅ Beautiful 4-card dashboard: Total Tokens | Input | Output | Cost
-- ✅ Per-request cost breakdown ($0.0001 avg/request)
-- **Competitive Edge:** Better cost transparency than OpenAI or Anthropic consoles
+**Target Users**:
+- Small business owners (electricians, plumbers, caterers, etc.)
+- Freelancers and contractors
+- Teams needing shared phone lines
+- Anyone who misses important calls
 
-#### **2. Error Rate Tracking** ⭐ **PRODUCTION-GRADE**
-- ✅ Real-time success rate monitoring (99.95% typical)
-- ✅ Error rate percentage with color-coding (green/yellow/red)
-- ✅ Top error types categorization with occurrence counts
-- ✅ Daily error tracking for trend analysis
-- **Competitive Edge:** $0/month vs. $26/month for Sentry
+---
 
-#### **3. Budget Tracking & Alerts** ⭐ **PREVENT BILL SHOCK**
-- ✅ Monthly budget setting with progress bars
-- ✅ Real-time usage vs. budget tracking
-- ✅ Automatic alerts at 80%, 90%, 100% thresholds
-- ✅ Color-coded status: Healthy (green) → Warning (yellow) → Over Budget (red)
-- ✅ Overage amount display when budget exceeded
-- **Competitive Edge:** Proactive bill protection (unique feature)
+## How We're 95% Cheaper
 
-### **💰 Cost Savings vs. SaaS Alternatives**
-
-| Our Implementation | SaaS Alternative | Monthly Cost | Annual Savings |
-|-------------------|------------------|--------------|----------------|
-| Token Tracking | N/A (unique) | $0 | - |
-| Cost Analytics | Stripe Usage Billing | $25 | $300 |
-| Error Tracking | Sentry | $26 | $312 |
-| Budget Alerts | AWS Budgets | $10 | $120 |
-| Dashboard UI | Retool | $50 | $600 |
-| **TOTAL** | **$111/month** | **$0/month** | **$1,332/year** |
-
-### **📊 Dashboard Capabilities**
-
-Your new developer dashboard shows:
+### Claude Prompt Caching Strategy
 
 ```
-┌─────────────────────────────────────────────────────┐
-│ TOKEN USAGE & RUNNING COSTS (Last 30 Days)         │
-├──────────┬───────────┬────────────┬──────────────┤
-│ Total    │ Input     │ Output     │ Cost         │
-│ 12,345   │ 8,234     │ 4,111      │ $0.0234     │
-│ 150/req  │ (67%)     │ (33%)      │ $0.0001/req │
-└──────────┴───────────┴────────────┴──────────────┘
-
-┌─────────────────────────────────────────────────────┐
-│ ERROR TRACKING & RELIABILITY                       │
-├─────────────┬────────────┬──────────────────────┤
-│ Success Rate│ Error Rate │ Total Requests       │
-│ 99.95%      │ 0.05%      │ 1,234                │
-│ 1,233 OK    │ 1 error    │ Last 30 days         │
-└─────────────┴────────────┴──────────────────────┘
-
-┌─────────────────────────────────────────────────────┐
-│ MONTHLY BUDGET                                     │
-│ ████████████████████░░░ $42.50 / $50.00 (85%)    │
-│ Spent: $42.50 | Budget: $50.00 | Remaining: $7.50│
-│ ⚠️ Warning: You've used 85% of your budget        │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    5-MINUTE CACHE WINDOW                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Call 1 (0:00)  ──► FULL COST (loads skill + user profile)  │
+│  Call 2 (1:30)  ──► 95% OFF (cache hit)                     │
+│  Call 3 (3:00)  ──► 95% OFF (cache hit)                     │
+│  Call 4 (4:30)  ──► 95% OFF (cache hit)                     │
+│  Call 5 (6:00)  ──► FULL COST (cache expired, reload)       │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### **🗂️ New Files (January 2025)**
+**The Math**:
+- Vapi: ~$0.05-0.10 per minute
+- HIVE215 with caching: ~$0.005 per minute (after first call in window)
+- **More users = More cache hits = Lower costs for everyone**
 
-**Database Migrations:**
-- `supabase/migrations/20250122_add_token_tracking.sql` - Token & cost columns
-- `supabase/migrations/20250122_add_budget_tracking.sql` - Budget alerts table
+### Shared Skill Architecture
 
-**Documentation:**
-- `IMPLEMENTATION_SUMMARY.md` - Complete feature guide & deployment checklist
-- `DASHBOARD_COMPETITIVE_ANALYSIS.md` - 67-page industry comparison
-- `LEGACY_TOOLS_AI_REVAMP.md` - Cost-effective monitoring strategies
-- `NEXT_SESSION.md` - Roadmap for AI Usage Coach & advanced features
-
-**Backend:**
-- Enhanced `backend/main.py` with budget and analytics endpoints
-- Updated `backend/supabase_client.py` with token tracking
-
-**Frontend:**
-- Enhanced `web/src/app/dashboard/page.tsx` with new cards
-- Updated `web/src/lib/api.ts` with new API methods
-
-### **📈 Competitive Positioning**
-
-**Your Dashboard Score: 75%** (was 18.6% before these features)
-
-| Feature | You | Stripe | OpenAI | Datadog | Winner |
-|---------|-----|--------|--------|---------|--------|
-| Token Tracking | ✅ Full | ❌ | ❌ | ✅ | TIE |
-| Cost Analytics | ✅ | ✅ | ❌ | ✅ | TIE |
-| Error Tracking | ✅ | ❌ | ❌ | ✅ | TIE |
-| Budget Alerts | ✅ | ✅ | ❌ | ✅ | TIE |
-| **Cost** | **$0** | **$111** | **N/A** | **$800** | **YOU WIN** |
-
-**Path to 90%:** Implement AI Usage Coach, Advanced Observability, Team Collaboration (see `NEXT_SESSION.md`)
+Every user gets the SAME Claude skill (expert phone answerer). The only variable is the user's profile text file. This means:
+- One optimized system prompt cached across ALL users
+- User-specific data is minimal (just their profile)
+- Massive economies of scale
 
 ---
 
-## 🎯 Current Milestone: Full Stack + Advanced Dashboard
+## Platform Architecture
 
-**Status:** ✅ Backend + Frontend + Mobile Apps Complete
-**Last Updated:** 2025-11-19
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         HIVE215 PLATFORM                          │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐               │
+│  │   iPhone    │  │   Android   │  │     Web     │               │
+│  │     App     │  │     App     │  │   Browser   │               │
+│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘               │
+│         │                │                │                       │
+│         └────────────────┼────────────────┘                       │
+│                          │                                        │
+│                          ▼                                        │
+│              ┌───────────────────────┐                            │
+│              │      API Gateway      │                            │
+│              └───────────┬───────────┘                            │
+│                          │                                        │
+│         ┌────────────────┼────────────────┐                       │
+│         │                │                │                       │
+│         ▼                ▼                ▼                       │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐               │
+│  │   Twilio    │  │   Claude    │  │  Supabase   │               │
+│  │  (Phones)   │  │    (AI)     │  │    (DB)     │               │
+│  └─────────────┘  └─────────────┘  └─────────────┘               │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
 
-### Live URLs
-- **Frontend:** https://hive215.vercel.app/
-- **Backend:** https://web-production-1b085.up.railway.app/
+### All Platforms, All Features
 
-### What's Complete
-- ✅ Full subscription system (Free, Starter, Pro, Enterprise)
-- ✅ Feature gates with usage enforcement
-- ✅ Stripe payment integration (checkout, portal, webhooks)
-- ✅ Discount code system with bonus minutes
-- ✅ Admin endpoints for user management
-- ✅ All database migrations (001-005)
-- ✅ API test suite passing
-- ✅ **Supabase Auth** - Login/signup with protected routes
-- ✅ **Admin Dashboard** - User management, discount codes, analytics (connected to real API)
-- ✅ **User Dashboard** - Usage tracking, subscription management (connected to real API)
-- ✅ **HIVE215 Branding** - OLED black + gold honeycomb design
-- ✅ **Vercel Deployment** - Frontend live
-- ✅ **Railway Deployment** - Backend API live
-- ✅ **iOS Swift SDK** - Swift Package for developers
-- ✅ **Android Kotlin SDK** - Gradle library for developers
-- ✅ **React Native Mobile App** - Cross-platform iOS/Android app
-
-### Test User
-- **User ID:** `ea97ae74-a597-4dc8-9c6e-1c6981324ce5`
-- **Current Plan:** Pro (10,000 minutes)
-- **Status:** All API tests passing
+| Feature | iPhone | Android | Web |
+|---------|--------|---------|-----|
+| Answer calls | ✅ | ✅ | ✅ |
+| View call logs | ✅ | ✅ | ✅ |
+| Edit profile/skills | ✅ | ✅ | ✅ |
+| Share logs (text/email) | ✅ | ✅ | ✅ |
+| Team management | ✅ | ✅ | ✅ |
+| Webhook integrations | ✅ | ✅ | ✅ |
+| Real-time notifications | ✅ | ✅ | ✅ |
 
 ---
 
-## 🚀 Quick Start
+## User Tiers & Pricing
 
-### 1. Clone and Setup
+### Transparent Pricing Model
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        SUBSCRIPTION TIERS                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  FREE TIER ($0/mo)                                               │
+│  ├── 30 minutes/month                                            │
+│  ├── 1 profile field (60 chars)                                  │
+│  ├── Basic call logs                                             │
+│  └── Web access only                                             │
+│                                                                  │
+│  STARTER ($9.99/mo)                                              │
+│  ├── 200 minutes/month                                           │
+│  ├── 2 profile fields (60 chars each)                            │
+│  ├── Full call logs + sharing                                    │
+│  ├── All platforms (iOS, Android, Web)                           │
+│  └── Email/text sharing                                          │
+│                                                                  │
+│  PROFESSIONAL ($29.99/mo)                                        │
+│  ├── 1000 minutes/month                                          │
+│  ├── 5 profile fields (120 chars each)                           │
+│  ├── Team features (3 members)                                   │
+│  ├── Webhook integrations                                        │
+│  ├── Priority AI responses                                       │
+│  └── Custom greeting                                             │
+│                                                                  │
+│  BUSINESS ($79.99/mo)                                            │
+│  ├── 5000 minutes/month                                          │
+│  ├── 10 profile fields (unlimited chars)                         │
+│  ├── Team features (10 members)                                  │
+│  ├── Multiple phone lines                                        │
+│  ├── Advanced analytics                                          │
+│  ├── CRM integrations                                            │
+│  └── Dedicated phone number                                      │
+│                                                                  │
+│  ENTERPRISE (Custom pricing)                                     │
+│  ├── Unlimited minutes                                           │
+│  ├── Unlimited profile fields                                    │
+│  ├── Unlimited team members                                      │
+│  ├── White-label option                                          │
+│  ├── Custom integrations                                         │
+│  ├── SLA guarantee                                               │
+│  └── Dedicated support                                           │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Profile Fields by Tier
+
+| Tier | Fields | Chars/Field | Example Use |
+|------|--------|-------------|-------------|
+| Free | 1 | 60 | "Licensed electrician, residential" |
+| Starter | 2 | 60 | Business type + Service area |
+| Professional | 5 | 120 | Full business description |
+| Business | 10 | Unlimited | Detailed services, pricing, FAQ |
+| Enterprise | Unlimited | Unlimited | Complete business knowledge base |
+
+---
+
+## Core Features
+
+### 1. AI Phone Answering
+
+The Claude skill is trained to:
+- Answer calls professionally
+- Read and understand user's profile/trade info
+- Collect relevant information based on context
+- Handle objections and questions
+- Schedule callbacks or appointments
+- Transfer to team members when needed
+
+### 2. Call Logs System
+
+Every call generates a structured log:
+
+```json
+{
+  "call_id": "uuid",
+  "timestamp": "2025-01-26T10:30:00Z",
+  "duration_seconds": 180,
+  "caller": {
+    "phone": "+1234567890",
+    "name": "John Smith",
+    "contact_id": "uuid (if existing)"
+  },
+  "summary": "Requesting quote for electrical panel upgrade",
+  "key_info": {
+    "service_requested": "Panel upgrade 100A to 200A",
+    "address": "123 Main St, Philadelphia",
+    "timeline": "ASAP, within 2 weeks",
+    "budget": "Mentioned $2000-3000 range"
+  },
+  "action_items": [
+    "Call back with quote",
+    "Schedule site visit"
+  ],
+  "sentiment": "positive",
+  "urgency": "high"
+}
+```
+
+### 3. Sharing & Export
+
+Share call logs instantly via:
+- **SMS**: One-tap text to anyone
+- **Email**: Formatted summary with details
+- **Webhook**: POST to any URL (Zapier, Make, custom)
+- **Copy**: Clipboard for paste anywhere
+- **PDF**: Downloadable report
+
+### 4. Phone Lines & Texting
+
+- Get a dedicated business phone number
+- Forward existing number to HIVE215
+- SMS/text message handling
+- Transfer calls to team members
+- Voicemail with AI transcription
+
+### 5. Team Features
+
+- Invite team members
+- Assign permission levels
+- Shared call logs
+- Call routing rules
+- Activity dashboard
+
+---
+
+## Dashboard Types
+
+### 1. Developer Dashboard (Admin)
+
+For you and your team to manage the platform:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  DEVELOPER DASHBOARD                                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  METRICS                                                     │
+│  ├── Total users: 12,450                                     │
+│  ├── Active calls right now: 47                              │
+│  ├── API costs today: $124.50                                │
+│  ├── Cache hit rate: 87%                                     │
+│  └── Revenue today: $890.00                                  │
+│                                                              │
+│  SYSTEM HEALTH                                               │
+│  ├── Twilio status: ✅ Operational                           │
+│  ├── Claude API: ✅ Operational                              │
+│  ├── Database: ✅ Operational                                │
+│  └── Average latency: 230ms                                  │
+│                                                              │
+│  TOOLS                                                       │
+│  ├── User management                                         │
+│  ├── Subscription management                                 │
+│  ├── System logs                                             │
+│  ├── Feature flags                                           │
+│  ├── A/B testing                                             │
+│  └── Deployment controls                                     │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 2. Business Owner Dashboard
+
+For business owners managing their account:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  BUSINESS DASHBOARD                          [Acme Electric] │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  THIS MONTH                                                  │
+│  ├── Calls answered: 156                                     │
+│  ├── Minutes used: 487 / 1000                                │
+│  ├── Leads captured: 42                                      │
+│  └── Estimated value: $12,400                                │
+│                                                              │
+│  RECENT CALLS                           [View All] [Export]  │
+│  ├── John Smith - Panel upgrade quote - 3 min ago           │
+│  ├── Sarah Jones - Emergency outlet - 1 hour ago            │
+│  └── Mike Brown - Lighting install - 2 hours ago            │
+│                                                              │
+│  QUICK ACTIONS                                               │
+│  ├── [Edit Profile/Skills]                                   │
+│  ├── [Manage Team]                                           │
+│  ├── [Phone Settings]                                        │
+│  └── [Integrations]                                          │
+│                                                              │
+│  TEAM (3 members)                                            │
+│  ├── You (Owner) - All permissions                           │
+│  ├── Tom (Tech) - View calls, receive transfers              │
+│  └── Lisa (Office) - View calls, manage schedule             │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 3. Employee/Civilian Dashboard
+
+For individual users or team members:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  MY DASHBOARD                                    [Tom Tech]  │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  MY CALLS TODAY                                              │
+│  ├── 3 calls transferred to me                               │
+│  ├── 2 callbacks needed                                      │
+│  └── 1 urgent flagged                                        │
+│                                                              │
+│  ASSIGNED TASKS                                              │
+│  ├── ⚡ Call back John Smith (panel quote)                   │
+│  ├── 📞 Schedule site visit - Sarah Jones                    │
+│  └── ✅ Mike Brown - completed                               │
+│                                                              │
+│  MY SETTINGS                                                 │
+│  ├── Availability: 9am - 5pm                                 │
+│  ├── Transfer calls: ✅ Enabled                              │
+│  └── Notifications: Push + Email                             │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Database Schema Philosophy
+
+### Core Principle: Generic & Flexible
+
+**"A contact is a contact"** - No industry-specific tables. Everything is generic with permission toggles.
+
+```sql
+-- CONTACTS (universal)
+contacts (
+  id, user_id, phone, email, name,
+  permission_level, -- 'blocked', 'normal', 'vip', 'team'
+  tags[], -- flexible categorization
+  metadata JSONB, -- any extra data
+  created_at, updated_at
+)
+
+-- CALLS (universal)
+calls (
+  id, user_id, contact_id,
+  direction, -- 'inbound', 'outbound'
+  duration_seconds,
+  transcript TEXT,
+  summary TEXT,
+  key_info JSONB, -- flexible structured data
+  action_items JSONB,
+  sentiment, urgency,
+  created_at
+)
+
+-- USERS (universal)
+users (
+  id, email, phone,
+  tier, -- 'free', 'starter', 'professional', 'business', 'enterprise'
+  profile_fields JSONB, -- their trade/skill info
+  settings JSONB,
+  team_id, -- null if individual
+  role, -- 'owner', 'admin', 'member'
+  created_at
+)
+
+-- TEAMS (for business accounts)
+teams (
+  id, name, owner_id,
+  settings JSONB,
+  created_at
+)
+```
+
+### Why This Works
+
+1. **Never needs reconfiguration** - JSONB fields handle any data type
+2. **Permission levels cascade** - Owner > Admin > Member
+3. **Tags for flexibility** - "lead", "customer", "vendor", etc.
+4. **Same schema for all industries** - Electrician, caterer, lawyer - same tables
+
+---
+
+## Use Cases
+
+### Electrician Example
+
+**Profile Fields**:
+```
+Field 1: "Licensed master electrician, 20 years experience"
+Field 2: "Residential & commercial, Philadelphia metro area"
+Field 3: "Services: panel upgrades, rewiring, EV chargers, generators"
+Field 4: "Emergency service available 24/7, $150 service call"
+Field 5: "Free estimates for jobs over $500"
+```
+
+**AI Behavior**:
+- Answers: "Thank you for calling Acme Electric, this is our AI assistant..."
+- Collects: Address, service needed, timeline, access info
+- Logs: Full job details ready for quote
+- Shares: One-tap text to electrician with all info
+
+### Caterer Example
+
+**Profile Fields**:
+```
+Field 1: "Full-service catering for events 20-500 guests"
+Field 2: "Cuisines: American, Italian, Mexican, BBQ"
+Field 3: "Services: delivery, setup, full-service with staff"
+Field 4: "Pricing: $25-75 per person depending on menu"
+Field 5: "Book 2+ weeks in advance, rush orders +25%"
+```
+
+**AI Behavior**:
+- Answers: "Thank you for calling Delicious Catering..."
+- Collects: Event date, guest count, cuisine preference, dietary restrictions, budget
+- Logs: Complete order details
+- Shares: Email to catering team with full event specs
+
+### Personal Use Example
+
+**Profile Fields**:
+```
+Field 1: "Screen my calls, I'm usually busy with work"
+```
+
+**AI Behavior**:
+- Answers: "Hi, you've reached [Name]'s assistant..."
+- Screens: Asks who's calling and purpose
+- Logs: Caller info and message
+- Notifies: Push notification with summary
+
+---
+
+## Referral System
+
+### Earn More Minutes
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     REFERRAL REWARDS                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  YOUR REFERRAL CODE: HIVE-ABC123                             │
+│                                                              │
+│  REWARDS                                                     │
+│  ├── Each signup: +50 minutes (you) + 50 minutes (them)      │
+│  ├── Each paid conversion: +200 minutes                      │
+│  ├── 5 referrals: Bronze badge + 10% bonus minutes           │
+│  ├── 10 referrals: Silver badge + 20% bonus minutes          │
+│  └── 25 referrals: Gold badge + 1 month free                 │
+│                                                              │
+│  YOUR STATS                                                  │
+│  ├── Referrals sent: 12                                      │
+│  ├── Signups: 8                                              │
+│  ├── Paid conversions: 3                                     │
+│  └── Minutes earned: 1,150                                   │
+│                                                              │
+│  [Share via Text] [Share via Email] [Copy Link]              │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Why Referrals = Lower Costs
+
+More users = Higher cache hit rates = Lower per-call costs = We pass savings to users
+
+---
+
+## Viral Growth Features
+
+### Future Roadmap for Viral Growth
+
+Based on market research, these features drive viral adoption:
+
+#### 1. AI Companion Mode
+- Give your assistant a personality & name
+- Daily check-ins via push notification
+- Remembers your preferences and context
+
+#### 2. Voice Journaling + Sentiment Analysis
+- Speak your thoughts, AI transcribes & analyzes
+- Mood tracking over time
+- Mental health insights
+
+#### 3. Gamification System
+- Streak counter for daily usage
+- XP & levels for conversations
+- Unlock new voices/personalities
+- Achievements & badges
+
+#### 4. Social Sharing
+- Share AI call summaries as clips
+- Create voice memos to share
+- TikTok-style short voice content
+
+#### 5. Transparent Usage Dashboard
+- Real-time cost tracking
+- "You saved $X vs competitors"
+- Cache hit visualization
+
+---
+
+## Market Research
+
+### Competitor Analysis
+
+| Feature | Vapi | HIVE215 |
+|---------|------|---------|
+| Price per minute | $0.05-0.10 | $0.005 (with caching) |
+| Setup complexity | High | Low |
+| Mobile apps | Limited | Full iOS/Android/Web |
+| Team features | Enterprise only | All paid tiers |
+| Customization | Complex API | Simple UI |
+
+### Market Opportunity
+- Global voice AI market: $3.14B (2024) → $47.5B (2034)
+- 34.8% CAGR
+- 22% of recent YC batch = voice AI companies
+- ElevenLabs: $90M → $200M ARR in 10 months
+
+### Top Revenue Generators
+
+| App | Downloads | Revenue | Model |
+|-----|-----------|---------|-------|
+| ChatGPT | 917M | $1.1B | Freemium + $20/mo |
+| Ask AI | 57M | $78M | Subscriptions |
+| Nova | 89M | $44M | Voice GPT |
+| Parrot (Voice Clone) | 4.2M | $5M | Per-voice pricing |
+| ElevenLabs | - | $200M ARR | Tiered credits |
+
+### Why Character AI / Replika Are ADDICTIVE (Apply These)
+
+1. **Proactive Notifications** - AI reaches out first ("I've been thinking about you")
+2. **Empathy & Validation** - Never disagrees, always supportive
+3. **Gamification** - XP, coins, achievements, unlockable content
+4. **Memory & Personalization** - Remembers past conversations
+5. **Voice + Video Calls** - More intimate than text
+6. **Interactive Activities** - Games, stories, tarot, journaling
+
+### Sources
+- [a16z: AI Voice Agents 2025](https://a16z.com/ai-voice-agents-2025-update/)
+- [NFX: Voice AI is Working](https://www.nfx.com/post/voice-ai-is-working)
+- [ElevenLabs Revenue](https://sacra.com/c/elevenlabs/)
+- [Top AI Apps 2025](https://www.blog.udonis.co/mobile-marketing/mobile-apps/top-ai-apps)
+- [TechPolicy: AI Chatbot Addiction](https://www.techpolicy.press/ai-chatbots-and-addiction-what-does-the-research-say/)
+- [AWS: Voice AI Startups](https://aws.amazon.com/startups/learn/ai-has-found-its-voice-and-startups-are-listening)
+
+---
+
+## Technical Stack
+
+### Current Stack
+- **Frontend**: Next.js 14, React Native (Expo)
+- **Backend**: FastAPI (Python)
+- **Database**: Supabase (PostgreSQL)
+- **Auth**: Supabase Auth
+- **AI**: Anthropic Claude (with prompt caching)
+- **Voice**: Modal (Kokoro TTS, Whisper STT)
+- **Phone**: Twilio (planned)
+- **Payments**: Stripe
+- **Hosting**: Vercel (web), Modal (AI), Railway (backend)
+
+### Planned Integrations
+- Twilio (phone lines, SMS)
+- Zapier/Make (webhooks)
+- Google Calendar (scheduling)
+- Various CRMs (Salesforce, HubSpot, etc.)
+
+---
+
+## Roadmap
+
+### Phase 1: MVP (Current)
+- [x] Web dashboard
+- [x] User authentication
+- [x] Subscription tiers
+- [x] Basic call logs
+- [x] Claude AI integration
+- [x] Claude AI startup modal
+- [ ] Twilio phone integration
+- [ ] SMS handling
+
+### Phase 2: Mobile Apps
+- [x] iOS app foundation (React Native)
+- [x] Android app foundation (React Native)
+- [ ] Push notifications
+- [ ] Mobile call handling
+
+### Phase 3: Team Features
+- [ ] Team creation/management
+- [ ] Role-based permissions
+- [ ] Shared call logs
+- [ ] Call transfer between team
+
+### Phase 4: Integrations
+- [ ] Webhook system
+- [ ] Zapier integration
+- [ ] Calendar sync
+- [ ] CRM integrations
+
+### Phase 5: Viral Features
+- [ ] Referral system
+- [ ] Gamification
+- [ ] Social sharing
+- [ ] Voice journaling
+
+---
+
+## Quick Start
+
+### For Developers
 ```bash
-git clone <repo>
-cd premier_voice_assistant
-pip install -r requirements.txt
-```
+# Clone the repo
+git clone https://github.com/jenkintownelectricity/premier_voice_assistant.git
 
-### 2. Configure Environment
-```bash
+# Install dependencies
+cd premier_voice_assistant/web && npm install
+cd ../backend && pip install -r requirements.txt
+
+# Set up environment
 cp .env.example .env
-# Edit .env with your credentials:
-# - SUPABASE_URL
-# - SUPABASE_SERVICE_ROLE_KEY
-# - SUPABASE_ANON_KEY
-# - ADMIN_API_KEY
-# - STRIPE_SECRET_KEY (optional)
-# - STRIPE_WEBHOOK_SECRET (optional)
+# Edit .env with your API keys
+
+# Run development servers
+npm run dev  # Frontend (http://localhost:3000)
+python -m backend.main  # Backend (http://localhost:8000)
 ```
 
-### 3. Run Database Migrations
-In Supabase SQL Editor, run in order:
-1. `supabase/migrations/001_add_subscription_system.sql`
-2. `supabase/migrations/002_add_client_permissions.sql`
-3. `supabase/migrations/003_add_stripe_fields.sql`
-4. `supabase/migrations/004_add_discount_codes.sql`
-5. `supabase/migrations/005_add_client_permissions_v2.sql`
-
-Then seed features:
-```bash
-python scripts/seed_plan_features.py
-```
-
-### 4. Start Server and Test
-```bash
-# Terminal 1 - Start API
-python -m backend.main
-
-# Terminal 2 - Run tests
-python api_test.py
-```
-
----
-
-## 📋 Instructions for Next Claude Code Session
-
-Copy and paste this to start your next session:
-
----
-
-### Context
-Repository: premier_voice_assistant
-Branch: `main`
-Last Updated: 2025-11-19
-
-### Current State
-Full stack deployed with mobile apps:
-- **Frontend:** https://hive215.vercel.app/
-- **Backend:** https://web-production-1b085.up.railway.app/
-- **Mobile:** React Native Expo app in `/mobile`
-- **SDKs:** iOS Swift & Android Kotlin in `/sdks`
-- **Supabase:** Project `appio-ai` (needs RLS security setup)
-
-### Recent Session Accomplishments (2025-11-19)
-1. **Home Buttons** - Clickable logo in sidebar navigates to dashboard
-2. **Logo Watermark** - HIVE215 logo as 8% opacity background on dashboard
-3. **API Test Dashboard** - `/dashboard/admin/tests` for testing all endpoints
-4. **Vercel Build Fix** - Fixed Supabase URL validation for static page generation
-5. **Deployment Pipeline** - Vercel deploys from main, Railway hosts backend
-
-### Known Issues to Address
-1. **Signup not working** - Check Supabase Auth settings:
-   - Authentication > URL Configuration > Site URL = `https://hive215.vercel.app`
-   - Authentication > URL Configuration > Redirect URLs = `https://hive215.vercel.app/**`
-   - May need to disable email confirmation for testing
-2. **Supabase Security** - 22 RLS warnings in dashboard (tables not protected)
-3. **Deprecated packages** - @supabase/auth-helpers-nextjs should migrate to @supabase/ssr
-
-### Environment Variables Needed
+### Environment Variables
 
 **Vercel (frontend):**
 ```
@@ -243,595 +666,72 @@ ADMIN_API_KEY=your-admin-key
 ANTHROPIC_API_KEY=your-claude-key
 ```
 
-**Mobile (.env in /mobile):**
-```
-EXPO_PUBLIC_SUPABASE_URL=your-supabase-url
-EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
-```
-
-### Test User
-- ID: `ea97ae74-a597-4dc8-9c6e-1c6981324ce5`
-- Plan: Pro (10,000 minutes)
-
-### Key Files Modified Recently
-- `web/src/lib/supabase.ts` - Supabase client with URL validation
-- `web/src/app/dashboard/layout.tsx` - Logo watermark background
-- `web/src/components/Sidebar.tsx` - Clickable home logo
-- `web/src/app/dashboard/admin/tests/page.tsx` - API test dashboard
-- `mobile/App.tsx` - Home button in mobile headers
-
-### Key Directories
-- `web/` - Next.js frontend (Vercel)
-- `mobile/` - React Native Expo app
-- `backend/` - FastAPI backend (Railway)
-- `modal_deployment/` - GPU functions for STT/TTS
-- `sdks/ios/` - Swift Package SDK
-- `sdks/android/` - Kotlin SDK
-
-### Voice Pipeline Architecture
-```
-User speaks → WebSocket → STT (Modal/Whisper) → Claude LLM → TTS (Modal/Coqui) → Audio response
-```
-
-Key files:
-- `/backend/main.py` - WebSocket at `/ws/voice/{assistant_id}` (lines 2038-2368)
-- `/web/src/components/VoiceCall.tsx` - WebSocket client
-- `/modal_deployment/whisper_stt.py` - Speech-to-text
-- `/modal_deployment/coqui_tts.py` - Text-to-speech
+### Live URLs
+- **Frontend:** https://hive215.vercel.app/
+- **Backend:** https://web-production-1b085.up.railway.app/
 
 ---
 
-## 📋 Future Tasks
+## API Reference
 
-1. **Voice Recording**
-   - Add voice conversation UI to mobile app
-   - Record audio and send to `/chat` endpoint
-   - Play back AI responses
+### Core Endpoints
 
-2. **Real-time Streaming**
-   - Pipecat integration
-   - WebSocket support
-   - Voice Activity Detection
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/subscription` | GET | User's current plan |
+| `/usage` | GET | Current usage stats |
+| `/feature-limits` | GET | All feature limits |
+| `/chat` | POST | AI conversation (STT → LLM → TTS) |
+| `/transcribe` | POST | Audio → Text |
+| `/speak` | POST | Text → Audio |
 
-3. **Production Hardening**
-   - Rate limiting
-   - Monitoring and alerts
-   - Caching layer
+### Admin Endpoints
 
-4. **App Store Deployment**
-   - EAS Build for iOS/Android
-   - App Store / Play Store submission
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/admin/upgrade-user` | POST | Upgrade user plan |
+| `/admin/add-minutes` | POST | Add bonus minutes |
+| `/admin/codes` | POST | Create discount code |
+| `/admin/reset-usage` | POST | Reset user usage |
 
----
-
-## 🖥️ Web UI
-
-The web interface is built with Next.js 14 and deployed on Vercel.
-
-### Local Development
-```bash
-cd web
-npm install
-npm run dev
-# Open http://localhost:3000
-```
-
-### Pages
-- `/` - Landing page
-- `/dashboard` - User usage overview
-- `/dashboard/usage` - Detailed usage tracking
-- `/dashboard/subscription` - Plan management
-- `/dashboard/redeem` - Discount code redemption
-- `/admin` - Admin dashboard overview
-- `/admin/users` - User management
-- `/admin/codes` - Discount code management
-- `/admin/analytics` - Usage and revenue charts
-
-### Design System
-- **OLED Black** background (#000000)
-- **Gold accents** (#D4AF37)
-- **Honeycomb patterns** throughout
-- **Hexagonal buttons** with shimmer effects
-- **Color-coded progress bars** (green → yellow → red)
-
-### API Endpoints Available
-
-**Subscription & Usage:**
-- `GET /subscription` - User's plan
-- `GET /usage` - Current usage stats
-- `GET /feature-limits` - All limits
-
-**Admin Controls:**
-- `POST /admin/upgrade-user` - Upgrade plan
-- `POST /admin/add-minutes` - Add bonus minutes
-- `POST /admin/codes` - Create discount code
-- `POST /admin/reset-usage` - Reset usage
-- `POST /admin/start-billing-period` - New billing period
-
-**Discount Codes:**
-- `POST /codes/redeem` - Redeem a code
-
-**Stripe Payments:**
-- `POST /payments/create-checkout` - Start checkout
-- `POST /payments/create-portal` - Customer portal
-- `POST /webhooks/stripe` - Webhook handler
-
-### Database Functions for Clients
-
-Mobile/Web apps can call directly via Supabase:
-```typescript
-// Check if user can use feature
-supabase.rpc('va_client_check_feature', { p_feature_key: 'max_minutes', p_requested_amount: 1 })
-
-// Get usage with bonus minutes
-supabase.rpc('va_client_get_my_usage')
-
-// Redeem discount code
-supabase.rpc('va_client_redeem_code', { p_code: 'WELCOME2024' })
-
-// Validate code before showing to user
-supabase.rpc('va_client_validate_code', { p_code: 'WELCOME2024' })
-```
+### Webhook Events
+- `call.started` - New call received
+- `call.completed` - Call ended
+- `call.transcribed` - Transcript ready
+- `user.upgraded` - Plan upgraded
+- `minutes.low` - Usage warning
 
 ---
 
-## 🔧 Architecture Overview
-
-## 🚀 Features
-
-- ✅ **Voice Pipeline**: Whisper STT → Claude LLM → Coqui TTS
-- ✅ **Subscription System**: Free, Starter, Pro, Enterprise plans
-- ✅ **Feature Gates**: Usage limits enforced at API level
-- ✅ **Usage Tracking**: Real-time monitoring and billing
-- ✅ **Mobile & Web Ready**: Native SDK support for iOS, Android, and Web
-- ✅ **Voice Cloning**: Custom voices with Coqui XTTS-v2
-- ✅ **Client-Safe APIs**: Direct Supabase queries for subscription/usage data
-
-## 💰 Subscription Plans
-
-| Plan | Price | Minutes/mo | Assistants | Custom Voices | Economics |
-|------|-------|------------|------------|---------------|-----------|
-| **Free** | $0 | 100 | 1 | ❌ | -$1.15/user (acquisition) |
-| **Starter** | $99/mo | 2,000 | 3 | ✅ 2 max | +$76/user (77% margin) |
-| **Pro** | $299/mo | 10,000 | Unlimited | Unlimited | +$184/user (62% margin) |
-| **Enterprise** | Custom | Unlimited | Unlimited | Unlimited | Custom pricing |
-
-### Cost Breakdown
-- **STT**: Whisper on Modal T4 GPU (~$0.0002/min)
-- **LLM**: Claude API with caching (~$0.003/min)
-- **TTS**: Coqui on Modal T4 GPU (~$0.0002/min)
-- **Total**: ~$0.0115/minute at scale
-
-## 🎯 Quick Start
-
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Set Up Supabase
-
-See [`supabase/README.md`](supabase/README.md) for complete setup:
-
-1. **Run base schema**: `supabase/schema.sql`
-2. **Run subscription migration**: `supabase/migrations/001_add_subscription_system.sql`
-3. **Run client permissions**: `supabase/migrations/002_add_client_permissions.sql`
-4. **Seed plan features**: Run the seed SQL in Supabase SQL Editor
-5. **Get API keys** from Supabase dashboard
-
-### 3. Configure Environment
-
-```bash
-# Copy example and edit
-cp .env.example .env
-
-# Required variables:
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-ANTHROPIC_API_KEY=sk-ant-your-key
-ADMIN_API_KEY=your-admin-key  # For admin endpoints
-```
-
-### 4. Deploy Modal Endpoints
-
-```bash
-modal deploy modal_deployment/whisper_stt.py
-modal deploy modal_deployment/coqui_tts.py
-```
-
-### 5. Run Backend
-
-```bash
-# Development
-python -m backend.main
-
-# Production
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
-```
-
-## 🗂️ Project Structure
+## Project Structure
 
 ```
 premier_voice_assistant/
-├── backend/
-│   ├── main.py                  # FastAPI app with feature gates
-│   ├── supabase_client.py       # Database operations
-│   └── feature_gates.py         # Subscription enforcement
-│
-├── modal_deployment/            # Serverless GPU functions
-│   ├── whisper_stt.py          # Speech-to-text
-│   ├── coqui_tts.py            # Text-to-speech with cloning
-│   └── voice_cloner.py         # Voice management
-│
-├── supabase/
-│   ├── schema.sql              # Base database schema
-│   └── migrations/             # Subscription system migration
-│       ├── 001_add_subscription_system.sql
-│       └── README.md
-│
-├── scripts/
-│   ├── seed_plan_features.py   # Populate subscription plans
-│   └── test_feature_gates.py   # Test subscription limits
-│
-├── voices/                      # Voice samples for cloning
-├── agent/                       # Voice agent logic (future)
-├── telephony/                   # VoIP integration (future)
-└── knowledge/                   # Business logic (future)
+├── web/                    # Next.js frontend (Vercel)
+│   ├── src/app/           # Pages
+│   ├── src/components/    # React components
+│   └── src/lib/           # API client, utilities
+├── mobile/                 # React Native app (Expo)
+├── backend/               # FastAPI backend (Railway)
+│   ├── main.py           # API routes
+│   ├── supabase_client.py
+│   └── feature_gates.py
+├── modal_deployment/      # GPU functions (Modal)
+│   ├── whisper_stt.py    # Speech-to-text
+│   └── kokoro_tts.py     # Text-to-speech
+├── supabase/             # Database migrations
+└── sdks/                 # iOS & Android SDKs
 ```
-
-## 🔐 API Endpoints
-
-### Core Voice Pipeline
-
-- `POST /transcribe` - Audio → Text (Whisper)
-- `POST /speak` - Text → Audio (Coqui)
-- `POST /chat` - Full conversation (STT → LLM → TTS) **[PROTECTED]**
-
-### Voice Cloning
-
-- `POST /clone-voice` - Clone custom voice **[PROTECTED]**
-- `GET /voice-clones` - List user's voices
-
-### Conversations
-
-- `GET /conversations` - List user conversations
-- `GET /conversations/{id}/messages` - Get messages
-- `GET /profile` - User profile & preferences
-- `PATCH /profile` - Update preferences
-
-### Subscription & Usage
-
-- `GET /subscription` - Current subscription plan
-- `GET /usage` - Monthly usage statistics
-- `GET /feature-limits` - All feature limits
-- `POST /admin/upgrade-user` - Admin: Upgrade user plan
-
-### Health
-
-- `GET /health` - Service health check
-
-## 🛡️ Feature Gate Enforcement
-
-### Protected Endpoints
-
-**`POST /chat`**
-- ✅ Checks `max_minutes` before processing
-- ✅ Tracks actual usage after completion
-- ❌ Blocks with `402 Payment Required` if limit reached
-
-**`POST /clone-voice`**
-- ✅ Checks `custom_voices` capability
-- ✅ Checks `max_voice_clones` limit
-- ❌ Blocks if plan doesn't support custom voices
-
-### Example: Free Plan Limit
-
-```bash
-# User on Free plan makes 100 chat calls
-curl -X POST http://api.example.com/chat \
-  -H "X-User-ID: user-123" \
-  -F "audio=@test.wav"
-
-# Response: 200 OK (for calls 1-100)
-
-# 101st call
-curl -X POST http://api.example.com/chat \
-  -H "X-User-ID: user-123" \
-  -F "audio=@test.wav"
-
-# Response: 402 Payment Required
-# {
-#   "detail": "Monthly minute limit reached. You've used 100 of 100 minutes..."
-# }
-```
-
-## 🧪 Testing
-
-### Test Feature Gates
-
-```bash
-# Run comprehensive test suite
-python scripts/test_feature_gates.py
-```
-
-This tests:
-1. ✅ Free plan creation
-2. ✅ Limit enforcement (100 minutes)
-3. ✅ Limit blocking after usage
-4. ✅ Admin upgrade to Pro
-5. ✅ Pro plan features (10,000 minutes)
-
-### Manual Testing
-
-```bash
-# Check user's subscription
-curl http://localhost:8000/subscription \
-  -H "X-User-ID: user-123"
-
-# Check usage
-curl http://localhost:8000/usage \
-  -H "X-User-ID: user-123"
-
-# Upgrade user (admin only)
-curl -X POST http://localhost:8000/admin/upgrade-user \
-  -H "X-Admin-Key: your-admin-key" \
-  -H "Content-Type: application/json" \
-  -d '{"target_user_id": "user-123", "plan_name": "pro"}'
-```
-
-## 📊 Monitoring & Analytics
-
-### Real-Time Usage Tracking
-
-All usage is automatically tracked:
-- Minutes used per billing period
-- Conversations count
-- Voice clones created
-- API calls made
-
-### Database Views
-
-```sql
--- Current usage summary
-SELECT * FROM va_current_usage_summary WHERE user_id = 'user-id';
-
--- Subscription details
-SELECT * FROM va_user_subscription_details WHERE user_id = 'user-id';
-```
-
-### Usage Alerts
-
-Consider adding alerts for:
-- Users at 80% of limit (upgrade opportunity)
-- Users hitting limits frequently
-- Unusual usage patterns
-
-## 🏗️ Architecture
-
-### Voice Pipeline
-
-```
-Mobile App → FastAPI Backend → Modal GPU Workers
-    ↓            ↓                    ↓
-  Auth     Feature Gates         Whisper STT
-           Usage Tracking        Coqui TTS
-              ↓
-         Supabase DB
-```
-
-### Feature Gate Flow
-
-```
-1. Request arrives at /chat endpoint
-2. Check user's plan and current usage
-3. Enforce feature gate (block if over limit)
-4. Process request (STT → LLM → TTS)
-5. Track actual usage in database
-6. Return response to user
-```
-
-## 📱 Mobile & Web Integration
-
-The system is fully integrated for iOS, Android, and Web clients with native SDK support.
-
-### Client Architecture
-
-```
-Mobile/Web App (anon key)
-    ↓
-Supabase Auth (Phone/Email/OAuth)
-    ↓
-Direct DB Queries (Read subscription/usage)
-    ↓ (API calls with X-User-ID)
-Backend API (Feature gate enforcement)
-    ↓ (service role key)
-Supabase DB + Modal Workers
-```
-
-### Client-Safe Functions
-
-Mobile and web clients can directly call:
-- `va_client_get_my_subscription()` - Get user's plan
-- `va_client_get_my_usage()` - Get current usage
-- `va_client_check_feature(feature, amount)` - Check if can use feature
-- `va_client_get_available_plans()` - Get all plans for upgrade UI
-
-### Quick Examples
-
-**iOS (Swift)**
-```swift
-// Check if user can start a chat
-let canChat = try await supabase
-    .rpc("va_client_check_feature", params: [
-        "p_feature_key": "max_minutes",
-        "p_requested_amount": 1
-    ])
-
-if !canChat.allowed {
-    showUpgradeModal()
-}
-```
-
-**Android (Kotlin)**
-```kotlin
-// Get current usage
-val usage = supabase.postgrest
-    .rpc("va_client_get_my_usage")
-    .decodeSingleOrNull<Usage>()
-
-if (usage.isNearLimit) {
-    showUsageWarning()
-}
-```
-
-**Web (TypeScript)**
-```typescript
-// Get available plans for upgrade screen
-const plans = await supabase
-    .rpc('va_client_get_available_plans')
-
-renderPricingTable(plans)
-```
-
-See **[Mobile Integration Guide](docs/MOBILE_INTEGRATION.md)** for complete documentation.
-
-## 📈 Development Phases
-
-### ✅ Phase 1: Core Voice Pipeline (Complete)
-- [x] Modal environment setup
-- [x] Whisper STT deployment
-- [x] Coqui TTS deployment
-- [x] Claude integration
-- [x] Basic integration tests
-
-### ✅ Phase 1.5: Subscription System (Complete)
-- [x] Database schema for subscriptions
-- [x] Feature gate enforcement
-- [x] Usage tracking
-- [x] Admin management endpoints
-- [x] Testing suite
-
-### 🔄 Phase 2: Pipecat Integration (Next)
-- [ ] Real-time voice streaming
-- [ ] Context management
-- [ ] Response caching
-- [ ] Barge-in / interruption handling
-- [ ] Voice Activity Detection (VAD)
-
-### Phase 3: Telephony
-- [ ] VoIP.ms SIP integration
-- [ ] Inbound call handling
-- [ ] Call routing
-- [ ] WebRTC fallback
-
-### Phase 4: Business Logic
-- [ ] Jenkintown Electricity knowledge base
-- [ ] Appointment scheduling
-- [ ] Emergency detection
-- [ ] Pricing database
-
-## 💡 Best Practices
-
-### For Backend Developers
-
-1. **Always check feature gates** before expensive operations
-2. **Track usage immediately** after completion
-3. **Use service role key** only in backend (never expose to clients)
-4. **Implement retry logic** for database operations
-5. **Log all feature gate denials** for monitoring
-
-### For Mobile Developers
-
-1. **Check `/feature-limits`** before showing UI options
-2. **Handle `402 Payment Required`** gracefully
-3. **Show usage statistics** in settings
-4. **Implement upgrade flow** for premium features
-5. **Cache subscription status** (revalidate periodically)
-
-### For Product
-
-1. **Monitor conversion rates** (Free → Starter → Pro)
-2. **Track feature gate denials** (upgrade opportunities)
-3. **Analyze usage patterns** by plan
-4. **A/B test plan limits** to optimize revenue
-5. **Send upgrade prompts** at 80% usage
-
-## 📚 Documentation
-
-- **[Feature Gates Implementation](FEATURE_GATES_IMPLEMENTATION.md)** - Complete guide
-- **[Mobile & Web Integration](docs/MOBILE_INTEGRATION.md)** - iOS, Android, Web SDK guide
-- **[Supabase Setup](supabase/README.md)** - Database configuration
-- **[Migration Guide](supabase/migrations/README.md)** - Subscription system setup
-- **[Voice Cloning](voices/README.md)** - Recording guidelines
-
-## 🐛 Troubleshooting
-
-### "Feature gate check failed"
-- Verify migration ran successfully
-- Check user has subscription: `SELECT * FROM va_user_subscriptions WHERE user_id = 'user-id'`
-- Check Supabase logs for errors
-
-### "No subscription found"
-- New users should get Free plan automatically via trigger
-- Manually create: `python scripts/seed_plan_features.py`
-
-### "Usage not tracking"
-- Check backend logs for errors
-- Verify `va_increment_usage` function exists
-- Check RLS policies on `va_usage_tracking` table
-
-## 🔧 Configuration
-
-### Environment Variables
-
-```bash
-# Supabase
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-
-# Claude API
-ANTHROPIC_API_KEY=sk-ant-your-key
-CLAUDE_MODEL=claude-3-5-sonnet-20241022
-MAX_TOKENS=150
-TEMPERATURE=0.7
-
-# Admin
-ADMIN_API_KEY=your-secure-admin-key
-
-# Server
-PORT=8000
-DEBUG=false
-```
-
-### Feature Customization
-
-Edit plan limits in `scripts/seed_plan_features.py`:
-
-```python
-plan_features = {
-    "free": {
-        "max_minutes": 100,  # Change this
-        "max_assistants": 1,
-        # ...
-    }
-}
-```
-
-Then re-run: `python scripts/seed_plan_features.py`
-
-## 🆘 Support
-
-- **GitHub Issues**: Report bugs and feature requests
-- **Supabase Logs**: Monitor database errors
-- **Backend Logs**: Check feature gate denials
-
-## 📜 License
-
-Proprietary - BuildingSystems.ai
 
 ---
 
-**Status**: ✅ Production Ready with Feature Gates
+## Contact
 
-**Last Updated**: 2025-11-18
+- **Website**: [hive215.com](https://hive215.vercel.app)
+- **Support**: support@hive215.com
+
+---
+
+*Built with Claude AI, designed for humans.*
+
+**Last Updated**: 2025-11-26
