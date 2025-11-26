@@ -3582,7 +3582,7 @@ async def websocket_voice_endpoint(
         # Check feature gate for minutes
         feature_gate = get_feature_gate()
         try:
-            feature_gate.check_feature_available(user_id, "max_minutes")
+            allowed, details = feature_gate.check_feature(user_id, "max_minutes")
         except FeatureGateError as e:
             await websocket.send_json({"type": "error", "message": e.message})
             await websocket.close()
