@@ -65,3 +65,4 @@ temp_audio/
 node_modules/
 .next/
 out/
+web/tsconfig.tsbuildinfo
