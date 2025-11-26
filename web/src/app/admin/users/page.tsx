@@ -7,7 +7,7 @@ import { Input, Select } from '@/components/Input';
 import { Modal } from '@/components/Modal';
 import { ProgressBar } from '@/components/ProgressBar';
 import { adminApi, api } from '@/lib/api';
-import { useAdmin } from '../layout';
+import { useAdmin } from '@/lib/admin-context';
 
 interface UserData {
   id: string;

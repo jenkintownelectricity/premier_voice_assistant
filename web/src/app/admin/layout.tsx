@@ -1,26 +1,11 @@
 'use client';
 
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { Card, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { Input } from '@/components/Input';
-
-// Admin context for sharing admin key
-interface AdminContextType {
-  adminKey: string;
-  setAdminKey: (key: string) => void;
-}
-
-const AdminContext = createContext<AdminContextType | undefined>(undefined);
-
-export function useAdmin() {
-  const context = useContext(AdminContext);
-  if (!context) {
-    throw new Error('useAdmin must be used within AdminLayout');
-  }
-  return context;
-}
+import { AdminContext } from '@/lib/admin-context';
 
 // SVG icons for navigation
 const DashboardIcon = () => (
