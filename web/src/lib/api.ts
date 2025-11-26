@@ -33,6 +33,27 @@ async function fetchAPI<T>(
   return response.json();
 }
 
+// Anthropic Claude API call
+export const claudeApi = {
+  chat: async (message: string, systemPrompt?: string): Promise<{ response: string }> => {
+    const response = await fetch(`${API_URL}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message,
+        system_prompt: systemPrompt || 'You are a helpful AI assistant for HIVE215, a premier voice assistant platform. Be concise, friendly, and helpful.',
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Chat request failed' }));
+      throw new Error(error.detail || `Chat Error: ${response.status}`);
+    }
+
+    return response.json();
+  },
+};
+
 // User API calls
 export const api = {
   // Subscription & Usage

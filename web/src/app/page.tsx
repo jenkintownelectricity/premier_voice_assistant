@@ -1,12 +1,32 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { Card, CardContent } from '@/components/Card';
+import { StartupModal } from '@/components/StartupModal';
 
 export default function HomePage() {
+  const [showStartupModal, setShowStartupModal] = useState(false);
+
+  // Show modal on startup (only once per session)
+  useEffect(() => {
+    const hasSeenModal = sessionStorage.getItem('hive215_startup_modal_seen');
+    if (!hasSeenModal) {
+      setShowStartupModal(true);
+    }
+  }, []);
+
+  const handleCloseModal = () => {
+    setShowStartupModal(false);
+    sessionStorage.setItem('hive215_startup_modal_seen', 'true');
+  };
+
   return (
     <div className="min-h-screen bg-oled-black bg-honeycomb">
+      {/* Startup Modal */}
+      {showStartupModal && <StartupModal onClose={handleCloseModal} />}
+
       {/* Header */}
       <header className="border-b border-gold/20">
         <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
@@ -28,7 +48,12 @@ export default function HomePage() {
             <a href="/admin" className="text-gray-400 hover:text-gold transition-colors">
               Admin
             </a>
-            <HoneycombButton size="sm">Get Started</HoneycombButton>
+            <HoneycombButton size="sm" variant="outline" onClick={() => setShowStartupModal(true)}>
+              Ask AI
+            </HoneycombButton>
+            <HoneycombButton size="sm" onClick={() => window.location.href = '/dashboard'}>
+              Get Started
+            </HoneycombButton>
           </nav>
         </div>
       </header>

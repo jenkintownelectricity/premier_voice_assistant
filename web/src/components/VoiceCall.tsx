@@ -138,8 +138,6 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
             </>
           )}
         </div>
-          )}
-        </div>
       </div>
     </div>
   );
