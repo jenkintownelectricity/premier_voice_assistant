@@ -489,6 +489,281 @@ export const api = {
     ),
 };
 
+// Phone & SMS API
+export const phoneApi = {
+  getPhoneNumbers: (userId: string) =>
+    fetchAPI<{ phone_numbers: Array<{
+      id: string;
+      phone_number: string;
+      phone_type: string;
+      is_verified: boolean;
+      is_primary: boolean;
+      created_at: string;
+    }> }>('/phone-numbers', {}, userId),
+
+  addPhoneNumber: (userId: string, phoneNumber: string, phoneType: string = 'mobile') =>
+    fetchAPI<{ success: boolean; message: string; phone_number: string; dev_code?: string }>(
+      '/phone-numbers',
+      { method: 'POST', body: JSON.stringify({ phone_number: phoneNumber, phone_type: phoneType }) },
+      userId
+    ),
+
+  verifyPhone: (userId: string, phoneNumber: string, code: string) =>
+    fetchAPI<{ success: boolean; message: string }>(
+      '/phone-numbers/verify',
+      { method: 'POST', body: JSON.stringify({ phone_number: phoneNumber, code }) },
+      userId
+    ),
+
+  deletePhone: (userId: string, phoneId: string) =>
+    fetchAPI<{ success: boolean }>(`/phone-numbers/${phoneId}`, { method: 'DELETE' }, userId),
+
+  sendSMS: (userId: string, toNumber: string, message: string) =>
+    fetchAPI<{ success: boolean; message: string }>(
+      '/sms/send',
+      { method: 'POST', body: JSON.stringify({ to_number: toNumber, message }) },
+      userId
+    ),
+
+  getSMSHistory: (userId: string, limit: number = 50, offset: number = 0) =>
+    fetchAPI<{ messages: Array<any>; total: number }>(
+      `/sms?limit=${limit}&offset=${offset}`,
+      {},
+      userId
+    ),
+};
+
+// Profile & Settings API
+export const profileApi = {
+  getExtendedProfile: (userId: string) =>
+    fetchAPI<{
+      profile: {
+        display_name?: string;
+        business_name?: string;
+        profession?: string;
+        service_area?: string;
+        greeting_name?: string;
+        assistant_name?: string;
+        assistant_personality?: string;
+        profile_fields?: Array<{ label: string; value: string }>;
+        business_hours?: Record<string, { start: string; end: string }>;
+        timezone?: string;
+      };
+      field_limits: {
+        max_fields: number;
+        max_chars_per_field: number;
+      };
+      plan: string;
+    }>('/profile/extended', {}, userId),
+
+  updateProfile: (userId: string, data: {
+    display_name?: string;
+    business_name?: string;
+    profession?: string;
+    service_area?: string;
+    greeting_name?: string;
+    assistant_name?: string;
+    assistant_personality?: string;
+    profile_fields?: Array<{ label: string; value: string }>;
+    business_hours?: Record<string, { start: string; end: string }>;
+    timezone?: string;
+  }) =>
+    fetchAPI<{ success: boolean; profile: any }>(
+      '/profile/extended',
+      { method: 'PATCH', body: JSON.stringify(data) },
+      userId
+    ),
+
+  getSettings: (userId: string) =>
+    fetchAPI<{
+      settings: {
+        ai_enabled: boolean;
+        ai_greeting_enabled: boolean;
+        ai_transcription_enabled: boolean;
+        ai_summary_enabled: boolean;
+        call_screening_enabled: boolean;
+        voicemail_enabled: boolean;
+        call_recording_enabled: boolean;
+        call_forwarding_enabled: boolean;
+        sms_enabled: boolean;
+        push_notifications_enabled: boolean;
+        email_notifications_enabled: boolean;
+        sms_notifications_enabled: boolean;
+        notify_on_missed_call: boolean;
+        notify_on_voicemail: boolean;
+        notify_on_urgent: boolean;
+        daily_summary_enabled: boolean;
+        weekly_summary_enabled: boolean;
+        share_call_logs_with_team: boolean;
+        theme: string;
+        language: string;
+        webhook_enabled: boolean;
+        webhook_url?: string;
+      };
+    }>('/settings', {}, userId),
+
+  updateSettings: (userId: string, data: Partial<{
+    ai_enabled: boolean;
+    ai_greeting_enabled: boolean;
+    ai_transcription_enabled: boolean;
+    ai_summary_enabled: boolean;
+    call_screening_enabled: boolean;
+    voicemail_enabled: boolean;
+    call_recording_enabled: boolean;
+    call_forwarding_enabled: boolean;
+    sms_enabled: boolean;
+    push_notifications_enabled: boolean;
+    email_notifications_enabled: boolean;
+    sms_notifications_enabled: boolean;
+    notify_on_missed_call: boolean;
+    notify_on_voicemail: boolean;
+    notify_on_urgent: boolean;
+    daily_summary_enabled: boolean;
+    weekly_summary_enabled: boolean;
+    share_call_logs_with_team: boolean;
+    theme: string;
+    language: string;
+    webhook_enabled: boolean;
+    webhook_url: string;
+  }>) =>
+    fetchAPI<{ success: boolean; settings: any }>(
+      '/settings',
+      { method: 'PATCH', body: JSON.stringify(data) },
+      userId
+    ),
+};
+
+// Contacts API
+export const contactsApi = {
+  getContacts: (userId: string, limit: number = 50, offset: number = 0, contactType?: string) =>
+    fetchAPI<{
+      contacts: Array<{
+        id: string;
+        name: string;
+        phone?: string;
+        email?: string;
+        company?: string;
+        contact_type: string;
+        permission_level: string;
+        notes?: string;
+        tags?: string[];
+        total_calls: number;
+        last_call_at?: string;
+      }>;
+      total: number;
+    }>(`/contacts?limit=${limit}&offset=${offset}${contactType ? `&contact_type=${contactType}` : ''}`, {}, userId),
+
+  createContact: (userId: string, data: {
+    name: string;
+    phone?: string;
+    email?: string;
+    company?: string;
+    contact_type?: string;
+    permission_level?: string;
+    notes?: string;
+    tags?: string[];
+  }) =>
+    fetchAPI<{ success: boolean; contact: any }>(
+      '/contacts',
+      { method: 'POST', body: JSON.stringify(data) },
+      userId
+    ),
+
+  getContact: (userId: string, contactId: string) =>
+    fetchAPI<{ contact: any }>(`/contacts/${contactId}`, {}, userId),
+
+  updateContact: (userId: string, contactId: string, data: any) =>
+    fetchAPI<{ success: boolean; contact: any }>(
+      `/contacts/${contactId}`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+      userId
+    ),
+
+  deleteContact: (userId: string, contactId: string) =>
+    fetchAPI<{ success: boolean }>(`/contacts/${contactId}`, { method: 'DELETE' }, userId),
+};
+
+// Call Sharing API
+export const callShareApi = {
+  shareCall: (userId: string, callId: string, options: {
+    share_type: 'email' | 'sms' | 'webhook' | 'link';
+    recipient?: string;
+    include_transcript?: boolean;
+    include_summary?: boolean;
+    include_recording?: boolean;
+    include_key_info?: boolean;
+  }) =>
+    fetchAPI<{ success: boolean; share: any; share_url: string }>(
+      `/calls/${callId}/share`,
+      { method: 'POST', body: JSON.stringify(options) },
+      userId
+    ),
+
+  shareWithTeam: (userId: string, callId: string, teamId: string) =>
+    fetchAPI<{ success: boolean; message: string }>(
+      `/calls/${callId}/share-team/${teamId}`,
+      { method: 'POST' },
+      userId
+    ),
+};
+
+// Referral API
+export const referralApi = {
+  getReferralInfo: (userId: string) =>
+    fetchAPI<{
+      referral_code: {
+        id: string;
+        code: string;
+        referrer_reward_value: number;
+        referee_reward_value: number;
+        total_referrals: number;
+        successful_referrals: number;
+        total_rewards_earned: number;
+      };
+      referrals: Array<{
+        id: string;
+        referee_id: string;
+        status: string;
+        signed_up_at?: string;
+        converted_at?: string;
+      }>;
+      share_url: string;
+    }>('/referral', {}, userId),
+
+  redeemReferral: (userId: string, code: string) =>
+    fetchAPI<{ success: boolean; message: string; minutes_earned: number }>(
+      '/referral/redeem',
+      { method: 'POST', body: JSON.stringify({ code }) },
+      userId
+    ),
+};
+
+// Team Enhancements
+export const teamApi = {
+  ...api,
+
+  inviteMember: (userId: string, teamId: string, email: string, role: string = 'member') =>
+    fetchAPI<{ success: boolean; message: string; invite_url: string }>(
+      `/teams/${teamId}/invite`,
+      { method: 'POST', body: JSON.stringify({ email, role }) },
+      userId
+    ),
+
+  joinTeam: (userId: string, token: string) =>
+    fetchAPI<{ success: boolean; message: string }>(
+      `/teams/join/${token}`,
+      { method: 'POST' },
+      userId
+    ),
+
+  getTeamCalls: (userId: string, teamId: string, limit: number = 50, offset: number = 0) =>
+    fetchAPI<{ calls: Array<any>; total: number }>(
+      `/teams/${teamId}/calls?limit=${limit}&offset=${offset}`,
+      {},
+      userId
+    ),
+};
+
 // Admin API calls
 export const adminApi = {
   // User management

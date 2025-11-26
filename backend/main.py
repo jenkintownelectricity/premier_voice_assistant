@@ -3826,6 +3826,904 @@ async def websocket_voice_endpoint(
             pass
 
 
+# ============================================================================
+# PHONE NUMBERS & TWILIO INTEGRATION
+# ============================================================================
+
+class PhoneNumberRequest(BaseModel):
+    phone_number: str
+    phone_type: str = "mobile"
+    country_code: str = "+1"
+
+class VerifyPhoneRequest(BaseModel):
+    phone_number: str
+    code: str
+
+class SendSMSRequest(BaseModel):
+    to_number: str
+    message: str
+
+@app.get("/phone-numbers")
+async def list_phone_numbers(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get user's phone numbers."""
+    try:
+        result = db.client.table("va_phone_numbers").select("*").eq(
+            "user_id", user_id
+        ).execute()
+        return {"phone_numbers": result.data or []}
+    except Exception as e:
+        logger.error(f"Error getting phone numbers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/phone-numbers")
+async def add_phone_number(
+    request: PhoneNumberRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Add a new phone number (starts verification)."""
+    import random
+    try:
+        # Generate verification code
+        code = str(random.randint(100000, 999999))
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+        # Store verification
+        db.client.table("va_phone_verifications").insert({
+            "user_id": user_id,
+            "phone_number": request.phone_number,
+            "verification_code": code,
+            "expires_at": expires_at.isoformat()
+        }).execute()
+
+        # TODO: Send SMS via Twilio
+        # For now, return code in dev mode
+        return {
+            "success": True,
+            "message": "Verification code sent",
+            "phone_number": request.phone_number,
+            "dev_code": code if os.getenv("DEBUG", "true").lower() == "true" else None
+        }
+    except Exception as e:
+        logger.error(f"Error adding phone number: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/phone-numbers/verify")
+async def verify_phone_number(
+    request: VerifyPhoneRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Verify a phone number with code."""
+    try:
+        # Check verification code
+        result = db.client.table("va_phone_verifications").select("*").eq(
+            "user_id", user_id
+        ).eq("phone_number", request.phone_number).eq(
+            "verification_code", request.code
+        ).is_("verified_at", "null").order("created_at", desc=True).limit(1).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+        verification = result.data[0]
+        if datetime.fromisoformat(verification["expires_at"].replace("Z", "")) < datetime.utcnow():
+            raise HTTPException(status_code=400, detail="Code expired")
+
+        # Mark as verified
+        db.client.table("va_phone_verifications").update({
+            "verified_at": datetime.utcnow().isoformat()
+        }).eq("id", verification["id"]).execute()
+
+        # Add phone number
+        db.client.table("va_phone_numbers").insert({
+            "user_id": user_id,
+            "phone_number": request.phone_number,
+            "is_verified": True,
+            "is_primary": True
+        }).execute()
+
+        return {"success": True, "message": "Phone number verified"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying phone: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/phone-numbers/{phone_id}")
+async def delete_phone_number(
+    phone_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Delete a phone number."""
+    try:
+        db.client.table("va_phone_numbers").delete().eq(
+            "id", phone_id
+        ).eq("user_id", user_id).execute()
+        return {"success": True, "message": "Phone number deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/sms/send")
+async def send_sms(
+    request: SendSMSRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Send an SMS message."""
+    try:
+        # Get user's primary phone number
+        phone_result = db.client.table("va_phone_numbers").select("*").eq(
+            "user_id", user_id
+        ).eq("is_primary", True).execute()
+
+        if not phone_result.data:
+            raise HTTPException(status_code=400, detail="No verified phone number")
+
+        from_number = phone_result.data[0]["phone_number"]
+
+        # Log the SMS
+        db.client.table("va_sms_messages").insert({
+            "user_id": user_id,
+            "direction": "outbound",
+            "from_number": from_number,
+            "to_number": request.to_number,
+            "body": request.message,
+            "status": "sent"
+        }).execute()
+
+        # TODO: Actually send via Twilio
+        return {"success": True, "message": "SMS sent"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/sms")
+async def list_sms(
+    user_id: str = Header(..., alias="X-User-ID"),
+    limit: int = 50,
+    offset: int = 0,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get SMS message history."""
+    try:
+        result = db.client.table("va_sms_messages").select("*").eq(
+            "user_id", user_id
+        ).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        return {"messages": result.data or [], "total": len(result.data or [])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# USER PROFILE & SETTINGS
+# ============================================================================
+
+class UpdateProfileRequest(BaseModel):
+    display_name: Optional[str] = None
+    business_name: Optional[str] = None
+    profession: Optional[str] = None
+    service_area: Optional[str] = None
+    greeting_name: Optional[str] = None
+    assistant_name: Optional[str] = None
+    assistant_personality: Optional[str] = None
+    profile_fields: Optional[List[Dict]] = None
+    business_hours: Optional[Dict] = None
+    timezone: Optional[str] = None
+
+class UpdateSettingsRequest(BaseModel):
+    ai_enabled: Optional[bool] = None
+    ai_greeting_enabled: Optional[bool] = None
+    ai_transcription_enabled: Optional[bool] = None
+    ai_summary_enabled: Optional[bool] = None
+    call_screening_enabled: Optional[bool] = None
+    voicemail_enabled: Optional[bool] = None
+    call_recording_enabled: Optional[bool] = None
+    call_forwarding_enabled: Optional[bool] = None
+    sms_enabled: Optional[bool] = None
+    push_notifications_enabled: Optional[bool] = None
+    email_notifications_enabled: Optional[bool] = None
+    sms_notifications_enabled: Optional[bool] = None
+    notify_on_missed_call: Optional[bool] = None
+    notify_on_voicemail: Optional[bool] = None
+    notify_on_urgent: Optional[bool] = None
+    daily_summary_enabled: Optional[bool] = None
+    weekly_summary_enabled: Optional[bool] = None
+    share_call_logs_with_team: Optional[bool] = None
+    theme: Optional[str] = None
+    language: Optional[str] = None
+    webhook_enabled: Optional[bool] = None
+    webhook_url: Optional[str] = None
+
+@app.get("/profile/extended")
+async def get_extended_profile(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get user's extended profile with tier limits."""
+    try:
+        # Get profile
+        profile_result = db.client.table("va_user_profiles_extended").select("*").eq(
+            "user_id", user_id
+        ).execute()
+
+        profile = profile_result.data[0] if profile_result.data else {}
+
+        # Get user's plan for field limits
+        sub_result = db.client.table("va_user_subscriptions").select(
+            "plan_id"
+        ).eq("user_id", user_id).execute()
+
+        plan_name = "free"
+        if sub_result.data:
+            plan_id = sub_result.data[0]["plan_id"]
+            plan_result = db.client.table("va_subscription_plans").select(
+                "plan_name"
+            ).eq("id", plan_id).execute()
+            if plan_result.data:
+                plan_name = plan_result.data[0]["plan_name"]
+
+        # Get field limits
+        limits_result = db.client.table("va_profile_field_limits").select("*").eq(
+            "plan_name", plan_name
+        ).execute()
+
+        limits = limits_result.data[0] if limits_result.data else {
+            "max_fields": 1,
+            "max_chars_per_field": 60
+        }
+
+        return {
+            "profile": profile,
+            "field_limits": limits,
+            "plan": plan_name
+        }
+    except Exception as e:
+        logger.error(f"Error getting extended profile: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/profile/extended")
+async def update_extended_profile(
+    request: UpdateProfileRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Update user's extended profile."""
+    try:
+        update_data = {k: v for k, v in request.dict().items() if v is not None}
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+
+        # Check if profile exists
+        existing = db.client.table("va_user_profiles_extended").select("id").eq(
+            "user_id", user_id
+        ).execute()
+
+        if existing.data:
+            result = db.client.table("va_user_profiles_extended").update(
+                update_data
+            ).eq("user_id", user_id).execute()
+        else:
+            update_data["user_id"] = user_id
+            result = db.client.table("va_user_profiles_extended").insert(
+                update_data
+            ).execute()
+
+        return {"success": True, "profile": result.data[0] if result.data else None}
+    except Exception as e:
+        logger.error(f"Error updating profile: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/settings")
+async def get_settings(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get user settings."""
+    try:
+        result = db.client.table("va_user_settings").select("*").eq(
+            "user_id", user_id
+        ).execute()
+
+        if result.data:
+            return {"settings": result.data[0]}
+
+        # Create default settings
+        default = {"user_id": user_id}
+        db.client.table("va_user_settings").insert(default).execute()
+        return {"settings": default}
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/settings")
+async def update_settings(
+    request: UpdateSettingsRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Update user settings."""
+    try:
+        update_data = {k: v for k, v in request.dict().items() if v is not None}
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+
+        # Check if settings exist
+        existing = db.client.table("va_user_settings").select("id").eq(
+            "user_id", user_id
+        ).execute()
+
+        if existing.data:
+            result = db.client.table("va_user_settings").update(
+                update_data
+            ).eq("user_id", user_id).execute()
+        else:
+            update_data["user_id"] = user_id
+            result = db.client.table("va_user_settings").insert(
+                update_data
+            ).execute()
+
+        return {"success": True, "settings": result.data[0] if result.data else None}
+    except Exception as e:
+        logger.error(f"Error updating settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# CONTACTS
+# ============================================================================
+
+class CreateContactRequest(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    contact_type: str = "customer"
+    permission_level: str = "normal"
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class UpdateContactRequest(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    contact_type: Optional[str] = None
+    permission_level: Optional[str] = None
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+@app.get("/contacts")
+async def list_contacts(
+    user_id: str = Header(..., alias="X-User-ID"),
+    search: Optional[str] = None,
+    contact_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: SupabaseManager = Depends(get_db),
+):
+    """List user's contacts."""
+    try:
+        query = db.client.table("va_contacts").select("*").eq("user_id", user_id)
+
+        if contact_type:
+            query = query.eq("contact_type", contact_type)
+
+        result = query.order("name").range(offset, offset + limit - 1).execute()
+        return {"contacts": result.data or [], "total": len(result.data or [])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/contacts")
+async def create_contact(
+    request: CreateContactRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Create a new contact."""
+    try:
+        data = request.dict()
+        data["user_id"] = user_id
+        if data.get("tags"):
+            data["tags"] = json.dumps(data["tags"])
+
+        result = db.client.table("va_contacts").insert(data).execute()
+        return {"success": True, "contact": result.data[0] if result.data else None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/contacts/{contact_id}")
+async def get_contact(
+    contact_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get a contact."""
+    try:
+        result = db.client.table("va_contacts").select("*").eq(
+            "id", contact_id
+        ).eq("user_id", user_id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Contact not found")
+
+        return {"contact": result.data[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/contacts/{contact_id}")
+async def update_contact(
+    contact_id: str,
+    request: UpdateContactRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Update a contact."""
+    try:
+        update_data = {k: v for k, v in request.dict().items() if v is not None}
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+
+        if update_data.get("tags"):
+            update_data["tags"] = json.dumps(update_data["tags"])
+
+        result = db.client.table("va_contacts").update(update_data).eq(
+            "id", contact_id
+        ).eq("user_id", user_id).execute()
+
+        return {"success": True, "contact": result.data[0] if result.data else None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/contacts/{contact_id}")
+async def delete_contact(
+    contact_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Delete a contact."""
+    try:
+        db.client.table("va_contacts").delete().eq(
+            "id", contact_id
+        ).eq("user_id", user_id).execute()
+        return {"success": True, "message": "Contact deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# ENHANCED CALL LOGS
+# ============================================================================
+
+class ShareCallRequest(BaseModel):
+    share_type: str  # 'email', 'sms', 'webhook', 'link'
+    recipient: Optional[str] = None
+    include_transcript: bool = True
+    include_summary: bool = True
+    include_recording: bool = False
+    include_key_info: bool = True
+
+@app.post("/calls/{call_id}/share")
+async def share_call(
+    call_id: str,
+    request: ShareCallRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Share a call log via email, SMS, webhook, or generate link."""
+    import secrets
+    try:
+        # Verify call belongs to user
+        call_result = db.client.table("va_call_logs").select("*").eq(
+            "id", call_id
+        ).eq("user_id", user_id).execute()
+
+        if not call_result.data:
+            raise HTTPException(status_code=404, detail="Call not found")
+
+        # Generate access token
+        access_token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(days=7)
+
+        # Create share record
+        share_data = {
+            "call_id": call_id,
+            "shared_by": user_id,
+            "share_type": request.share_type,
+            "recipient": request.recipient,
+            "access_token": access_token,
+            "expires_at": expires_at.isoformat(),
+            "include_transcript": request.include_transcript,
+            "include_summary": request.include_summary,
+            "include_recording": request.include_recording,
+            "include_key_info": request.include_key_info,
+            "status": "sent",
+            "sent_at": datetime.utcnow().isoformat()
+        }
+
+        result = db.client.table("va_call_shares").insert(share_data).execute()
+
+        share_url = f"https://hive215.vercel.app/shared/call/{access_token}"
+
+        # TODO: Actually send email/SMS based on share_type
+
+        return {
+            "success": True,
+            "share": result.data[0] if result.data else None,
+            "share_url": share_url
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/shared/call/{token}")
+async def get_shared_call(
+    token: str,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get a shared call by access token (public endpoint)."""
+    try:
+        share_result = db.client.table("va_call_shares").select("*").eq(
+            "access_token", token
+        ).execute()
+
+        if not share_result.data:
+            raise HTTPException(status_code=404, detail="Share not found or expired")
+
+        share = share_result.data[0]
+
+        # Check expiration
+        if datetime.fromisoformat(share["expires_at"].replace("Z", "")) < datetime.utcnow():
+            raise HTTPException(status_code=410, detail="Share link expired")
+
+        # Get call data
+        call_result = db.client.table("va_call_logs").select("*").eq(
+            "id", share["call_id"]
+        ).execute()
+
+        if not call_result.data:
+            raise HTTPException(status_code=404, detail="Call not found")
+
+        call = call_result.data[0]
+
+        # Filter based on share permissions
+        response_call = {
+            "id": call["id"],
+            "started_at": call["started_at"],
+            "duration_seconds": call["duration_seconds"],
+            "caller_name": call.get("caller_name"),
+            "phone_number": call.get("phone_number")
+        }
+
+        if share["include_summary"]:
+            response_call["summary"] = call.get("summary")
+        if share["include_transcript"]:
+            response_call["transcript"] = call.get("transcript")
+        if share["include_key_info"]:
+            response_call["key_info"] = call.get("key_info")
+            response_call["action_items"] = call.get("action_items")
+        if share["include_recording"]:
+            response_call["recording_url"] = call.get("twilio_recording_url")
+
+        # Update view count
+        db.client.table("va_call_shares").update({
+            "view_count": share.get("view_count", 0) + 1,
+            "first_viewed_at": share.get("first_viewed_at") or datetime.utcnow().isoformat()
+        }).eq("id", share["id"]).execute()
+
+        return {"call": response_call}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# REFERRAL SYSTEM
+# ============================================================================
+
+class RedeemReferralRequest(BaseModel):
+    code: str
+
+@app.get("/referral")
+async def get_referral_info(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get user's referral code and stats."""
+    try:
+        # Get or create referral code
+        result = db.client.table("va_referral_codes").select("*").eq(
+            "user_id", user_id
+        ).execute()
+
+        if result.data:
+            referral = result.data[0]
+        else:
+            # Create new referral code
+            import hashlib
+            code = "HIVE-" + hashlib.md5(
+                (user_id + str(datetime.utcnow())).encode()
+            ).hexdigest()[:6].upper()
+
+            result = db.client.table("va_referral_codes").insert({
+                "user_id": user_id,
+                "code": code
+            }).execute()
+            referral = result.data[0] if result.data else {"code": code}
+
+        # Get referrals made
+        referrals = db.client.table("va_referrals").select("*").eq(
+            "referrer_id", user_id
+        ).execute()
+
+        return {
+            "referral_code": referral,
+            "referrals": referrals.data or [],
+            "share_url": f"https://hive215.vercel.app/signup?ref={referral['code']}"
+        }
+    except Exception as e:
+        logger.error(f"Error getting referral: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/referral/redeem")
+async def redeem_referral(
+    request: RedeemReferralRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Redeem a referral code."""
+    try:
+        # Find referral code
+        code_result = db.client.table("va_referral_codes").select("*").eq(
+            "code", request.code.upper()
+        ).eq("is_active", True).execute()
+
+        if not code_result.data:
+            raise HTTPException(status_code=400, detail="Invalid referral code")
+
+        referral_code = code_result.data[0]
+
+        # Can't use own code
+        if referral_code["user_id"] == user_id:
+            raise HTTPException(status_code=400, detail="Cannot use your own referral code")
+
+        # Check if already used
+        existing = db.client.table("va_referrals").select("id").eq(
+            "referee_id", user_id
+        ).execute()
+
+        if existing.data:
+            raise HTTPException(status_code=400, detail="Already used a referral code")
+
+        # Create referral record
+        db.client.table("va_referrals").insert({
+            "referral_code_id": referral_code["id"],
+            "referrer_id": referral_code["user_id"],
+            "referee_id": user_id,
+            "status": "signed_up",
+            "signed_up_at": datetime.utcnow().isoformat(),
+            "referee_reward_claimed": True,
+            "referee_reward_claimed_at": datetime.utcnow().isoformat()
+        }).execute()
+
+        # Add bonus minutes to referee
+        referee_reward = referral_code.get("referee_reward_value", 50)
+        db.client.table("va_usage_tracking").update({
+            "bonus_minutes": db.client.table("va_usage_tracking").select(
+                "bonus_minutes"
+            ).eq("user_id", user_id).execute().data[0].get("bonus_minutes", 0) + referee_reward
+        }).eq("user_id", user_id).execute()
+
+        # Add bonus minutes to referrer
+        referrer_reward = referral_code.get("referrer_reward_value", 50)
+        referrer_usage = db.client.table("va_usage_tracking").select(
+            "bonus_minutes"
+        ).eq("user_id", referral_code["user_id"]).execute()
+
+        if referrer_usage.data:
+            db.client.table("va_usage_tracking").update({
+                "bonus_minutes": referrer_usage.data[0].get("bonus_minutes", 0) + referrer_reward
+            }).eq("user_id", referral_code["user_id"]).execute()
+
+        # Update referral code stats
+        db.client.table("va_referral_codes").update({
+            "total_referrals": referral_code.get("total_referrals", 0) + 1,
+            "successful_referrals": referral_code.get("successful_referrals", 0) + 1,
+            "total_rewards_earned": referral_code.get("total_rewards_earned", 0) + referrer_reward
+        }).eq("id", referral_code["id"]).execute()
+
+        return {
+            "success": True,
+            "message": f"Referral code applied! You earned {referee_reward} bonus minutes.",
+            "minutes_earned": referee_reward
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error redeeming referral: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# TEAM MANAGEMENT (Enhanced)
+# ============================================================================
+
+class CreateTeamInviteRequest(BaseModel):
+    email: str
+    role: str = "member"
+
+@app.post("/teams/{team_id}/invite")
+async def invite_team_member(
+    team_id: str,
+    request: CreateTeamInviteRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Invite someone to join a team."""
+    import secrets
+    try:
+        # Verify user owns or is admin of team
+        team = db.client.table("va_teams").select("*").eq("id", team_id).execute()
+        if not team.data:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if team.data[0]["owner_id"] != user_id:
+            member = db.client.table("va_team_members").select("role").eq(
+                "team_id", team_id
+            ).eq("user_id", user_id).execute()
+            if not member.data or member.data[0]["role"] not in ["owner", "admin"]:
+                raise HTTPException(status_code=403, detail="Not authorized")
+
+        # Create invite token
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(days=7)
+
+        db.client.table("va_team_invites").insert({
+            "team_id": team_id,
+            "invited_by": user_id,
+            "email": request.email,
+            "role": request.role,
+            "token": token,
+            "expires_at": expires_at.isoformat()
+        }).execute()
+
+        invite_url = f"https://hive215.vercel.app/team/join/{token}"
+
+        # TODO: Send email invitation
+
+        return {
+            "success": True,
+            "message": f"Invitation sent to {request.email}",
+            "invite_url": invite_url
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/teams/join/{token}")
+async def join_team(
+    token: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Accept a team invitation."""
+    try:
+        # Find invite
+        invite = db.client.table("va_team_invites").select("*").eq(
+            "token", token
+        ).is_("accepted_at", "null").execute()
+
+        if not invite.data:
+            raise HTTPException(status_code=404, detail="Invalid or expired invitation")
+
+        inv = invite.data[0]
+
+        # Check expiration
+        if datetime.fromisoformat(inv["expires_at"].replace("Z", "")) < datetime.utcnow():
+            raise HTTPException(status_code=410, detail="Invitation expired")
+
+        # Add to team
+        db.client.table("va_team_members").insert({
+            "team_id": inv["team_id"],
+            "user_id": user_id,
+            "role": inv["role"]
+        }).execute()
+
+        # Mark invite as accepted
+        db.client.table("va_team_invites").update({
+            "accepted_at": datetime.utcnow().isoformat()
+        }).eq("id", inv["id"]).execute()
+
+        return {"success": True, "message": "Successfully joined team"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/teams/{team_id}/calls")
+async def get_team_calls(
+    team_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    limit: int = 50,
+    offset: int = 0,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get shared call logs for a team."""
+    try:
+        # Verify membership
+        member = db.client.table("va_team_members").select("*").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        if not member.data:
+            raise HTTPException(status_code=403, detail="Not a team member")
+
+        # Get shared calls
+        shares = db.client.table("va_team_call_shares").select(
+            "call_id"
+        ).eq("team_id", team_id).execute()
+
+        if not shares.data:
+            return {"calls": [], "total": 0}
+
+        call_ids = [s["call_id"] for s in shares.data]
+
+        calls = db.client.table("va_call_logs").select("*").in_(
+            "id", call_ids
+        ).order("started_at", desc=True).range(offset, offset + limit - 1).execute()
+
+        return {"calls": calls.data or [], "total": len(call_ids)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/calls/{call_id}/share-team/{team_id}")
+async def share_call_with_team(
+    call_id: str,
+    team_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Share a call log with a team."""
+    try:
+        # Verify call ownership
+        call = db.client.table("va_call_logs").select("id").eq(
+            "id", call_id
+        ).eq("user_id", user_id).execute()
+
+        if not call.data:
+            raise HTTPException(status_code=404, detail="Call not found")
+
+        # Verify team membership
+        member = db.client.table("va_team_members").select("*").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        if not member.data:
+            raise HTTPException(status_code=403, detail="Not a team member")
+
+        # Share
+        db.client.table("va_team_call_shares").upsert({
+            "call_id": call_id,
+            "team_id": team_id,
+            "shared_by": user_id
+        }).execute()
+
+        return {"success": True, "message": "Call shared with team"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
 
