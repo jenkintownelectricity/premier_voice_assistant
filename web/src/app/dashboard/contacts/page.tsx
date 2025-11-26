@@ -169,7 +169,8 @@ export default function ContactsPage() {
       ) : (
         <div className="grid gap-3">
           {contacts.map((contact) => (
-            <Card key={contact.id} className="hover:border-gray-700 transition-colors cursor-pointer" onClick={() => openEditModal(contact)}>
+            <div key={contact.id} onClick={() => openEditModal(contact)} className="cursor-pointer">
+            <Card className="hover:border-gray-700 transition-colors">
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
@@ -205,6 +206,7 @@ export default function ContactsPage() {
                 </div>
               </CardContent>
             </Card>
+            </div>
           ))}
         </div>
       )}
