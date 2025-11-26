@@ -3642,7 +3642,7 @@ async def websocket_voice_endpoint(
 
         # Initialize voice assistant for processing
         voice_assistant = VoiceAssistant()
-        voice_assistant.initialize_modal()
+        voice_assistant.initialize_modal()`n        voice_assistant.initialize_claude()
 
         # Send first message if configured
         if assistant.get('first_message'):
