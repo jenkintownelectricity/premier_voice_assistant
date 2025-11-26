@@ -6,7 +6,7 @@ import { HoneycombButton } from '@/components/HoneycombButton';
 import { Input, Select } from '@/components/Input';
 import { Modal } from '@/components/Modal';
 import { adminApi } from '@/lib/api';
-import { useAdmin } from '../layout';
+import { useAdmin } from '@/lib/admin-context';
 
 interface DiscountCode {
   id: string;

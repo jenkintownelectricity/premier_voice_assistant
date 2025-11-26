@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { ProgressBar } from '@/components/ProgressBar';
-import { useAdmin } from '../layout';
+import { useAdmin } from '@/lib/admin-context';
 import { adminApi } from '@/lib/api';
 
 interface DiscountCode {
