@@ -383,8 +383,8 @@ Your role:
         
         try:
             # Call Modal HTTP endpoint
-            data = {"text": text, "voice_name": voice, "language": "en"}
-            response = self.http_client.post(self.modal_tts_url, data=data)
+            data = {"text": text, "voice": voice, "language": "en"}
+            response = self.http_client.post(self.modal_tts_url, json=data)
             response.raise_for_status()
             audio = response.content
         except Exception as e:
@@ -674,7 +674,7 @@ async def clone_voice(
             import httpx
             clone_url = "https://jenkintownelectricity--premier-coqui-tts-clone-voice-web.modal.run"
             files = {"reference_audio": ("audio.wav", audio_bytes, "audio/wav")}
-            data = {"voice_name": voice_name}
+            data = {"voice": voice_name}
             response = httpx.post(clone_url, files=files, data=data, timeout=120.0)
             response.raise_for_status()
             clone_result = response.json()
