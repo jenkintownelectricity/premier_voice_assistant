@@ -130,12 +130,14 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
         </div>
         <div className="flex justify-center gap-4">
           {!isConnected ? (
-            <HoneycombButton onClick={connect} variant="primary">Start Call</HoneycombButton>
+            <HoneycombButton onClick={connect} variant="solid">Start Call</HoneycombButton>
           ) : (
             <>
-              <HoneycombButton onClick={toggleRecording} variant={isRecording ? 'danger' : 'primary'}>{isRecording ? 'Stop' : 'Record'}</HoneycombButton>
-              <HoneycombButton onClick={disconnect} variant="secondary">End Call</HoneycombButton>
+              <HoneycombButton onClick={toggleRecording} variant={isRecording ? 'outline' : 'solid'}>{isRecording ? 'Stop' : 'Record'}</HoneycombButton>
+              <HoneycombButton onClick={disconnect} variant="outline">End Call</HoneycombButton>
             </>
+          )}
+        </div>
           )}
         </div>
       </div>
