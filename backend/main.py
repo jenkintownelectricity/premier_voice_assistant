@@ -212,7 +212,7 @@ class VoiceAssistant:
             
             # Use HTTP endpoints instead of Modal SDK
             self.modal_stt_url = "https://jenkintownelectricity--premier-whisper-stt-transcribe-web.modal.run"
-            self.modal_tts_url = "https://jenkintownelectricity--premier-coqui-tts-synthesize-web.modal.run"
+            self.modal_tts_url = "https://jenkintownelectricity--hive215-kokoro-tts-synthesize-web.modal.run"
             self.http_client = httpx.Client(timeout=60.0)
             self.modal_initialized = True
 

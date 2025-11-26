@@ -1,0 +1,19 @@
+origin|2025-11-19|Merge pull request #6 from jenkintownelectricity/claude/clean-web-ui-01NobBNSoHwFfoqbnm3SQk19
+origin/claude/add-modal-web-endpoints-01RBF6A5NtAHZ6oiXrnmtftt|2025-11-16|Fix Coqui TTS Terms of Service prompt for non-interactive Modal build
+origin/claude/branch-organization-01DLHKLM5hMhhbadxwsLoAVT|2025-11-22|Add branch cleanup summary and next steps guide
+origin/claude/clean-web-ui-01NobBNSoHwFfoqbnm3SQk19|2025-11-19|Update README with next session instructions
+origin/claude/deploy-modal-endpoints-01GwNLyTqiavvZvquqrGz5ex|2025-11-18|Add complete Hive215 Admin Dashboard with 7 fully functional pages
+origin/claude/deploy-voice-assistant-01THwxecYstERmee53ZNjr37|2025-11-19|Update README with session accomplishments and next steps
+origin/claude/fix-modal-deployment-019GxVFx5UNGhJpxhKGKfoRw|2025-11-16|Add va_ prefix to all tables and buckets to avoid conflicts
+origin/claude/implement-database-feature-gates-011DnUS2PuaM7UZ7QyWsV5dF|2025-11-19|Sync local changes
+origin/claude/premier-voice-assistant-01SkTb9nFMC3ZXJs67hdy1QV|2025-11-16|Add Skills Platform: Industry-Specific Conversation Intelligence
+origin/claude/premier-voice-assistant-phase1-01DWmgYf7QpBQRPCH7jQehPZ|2025-11-16|Merge pull request #3 from jenkintownelectricity/claude/add-modal-web-endpoints-01RBF6A5NtAHZ6oiXrnmtftt
+origin/claude/review-all-branches-015Lqsv5sYDL6WyHYGpzF9JN|2025-11-19|Merge pull request #6 from jenkintownelectricity/claude/clean-web-ui-01NobBNSoHwFfoqbnm3SQk19
+origin/claude/review-markdown-files-01FJBPQQKVowLeeyGR3rNze6|2025-11-16|Add essential requirements file for Modal deployment
+origin/claude/setup-env-api-keys-012HZSsvrtMYkgDeRvRWaJGK|2025-11-16|Add Modal deployment guide and automation script
+origin/claude/setup-modal-deployment-01618vWjGa3QL9VoQQFfnLD3|2025-11-16|Add comprehensive Modal deployment guide
+origin/claude/setup-modal-deployment-01X4t5xyE2XoNnP21P4CEfSM|2025-11-16|Add web endpoints to Modal services for HTTP access
+origin/claude/teleport-session-setup-016eUFyiHmqa7YtihKkDL7a4|2025-11-19|Add Claude Code session info to README
+origin/claude/teleport-session-setup-01BYLePx4EVZ7eiGZHAgq4Tz|2025-11-19|Milestone: Backend complete - Ready for UI development
+origin/claude/teleport-session-setup-01NobBNSoHwFfoqbnm3SQk19|2025-11-19|Complete production UI with HIVE215 branding and favicon
+origin/main|2025-11-22|Add branch cleanup summary and next steps guide
