@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { Input } from '@/components/Input';
-import { VoiceCall } from '@/components/VoiceCall';
+import VoiceCall from '@/components/VoiceCall';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api';
 
