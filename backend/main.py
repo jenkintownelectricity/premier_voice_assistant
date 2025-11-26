@@ -203,19 +203,17 @@ class VoiceAssistant:
         self.supabase = get_supabase()
 
     def initialize_modal(self):
-        """Initialize Modal clients (lazy loading)"""
+        """Initialize Modal HTTP endpoints (lazy loading)"""
         if self.modal_initialized:
             return
 
         try:
-            import modal
-
-            # Import Modal apps
-            from modal_deployment.whisper_stt import WhisperSTT
-            from modal_deployment.coqui_tts import CoquiTTS
-
-            self.stt = WhisperSTT()
-            self.tts = CoquiTTS()
+            import httpx
+            
+            # Use HTTP endpoints instead of Modal SDK
+            self.modal_stt_url = "https://jenkintownelectricity--premier-whisper-stt-transcribe-web.modal.run"
+            self.modal_tts_url = "https://jenkintownelectricity--premier-coqui-tts-synthesize-web.modal.run"
+            self.http_client = httpx.Client(timeout=60.0)
             self.modal_initialized = True
 
             logger.info("Modal services initialized")
@@ -245,12 +243,23 @@ class VoiceAssistant:
 
     def transcribe_audio(self, audio_bytes: bytes, user_id: str = None) -> dict:
         """
-        Transcribe audio to text using Whisper.
+        Transcribe audio to text using Whisper via HTTP.
         """
         self.initialize_modal()
 
         start = time.time()
-        result = self.stt.transcribe.remote(audio_bytes)
+        
+        try:
+            # Call Modal HTTP endpoint
+            files = {"audio_bytes": ("audio.wav", audio_bytes, "audio/wav")}
+            data = {"language": "en"}
+            response = self.http_client.post(self.modal_stt_url, files=files, data=data)
+            response.raise_for_status()
+            result = response.json()
+        except Exception as e:
+            logger.error(f"STT HTTP error: {e}")
+            result = {"text": "", "error": str(e)}
+        
         latency_ms = int((time.time() - start) * 1000)
 
         # Log metrics
@@ -366,12 +375,22 @@ Your role:
         self, text: str, voice: str = "fabio", user_id: str = None
     ) -> bytes:
         """
-        Synthesize text to speech using Coqui TTS.
+        Synthesize text to speech using Coqui TTS via HTTP.
         """
         self.initialize_modal()
 
         start = time.time()
-        audio = self.tts.synthesize.remote(text, voice)
+        
+        try:
+            # Call Modal HTTP endpoint
+            data = {"text": text, "voice_name": voice, "language": "en"}
+            response = self.http_client.post(self.modal_tts_url, data=data)
+            response.raise_for_status()
+            audio = response.content
+        except Exception as e:
+            logger.error(f"TTS HTTP error: {e}")
+            audio = b""
+        
         latency_ms = int((time.time() - start) * 1000)
 
         # Log metrics
@@ -649,9 +668,19 @@ async def clone_voice(
         file_path = f"{user_id}/{voice_name}.wav"
         audio_url = db.upload_audio("voice-clones", file_path, audio_bytes)
 
-        # Clone voice on Modal
+        # Clone voice on Modal via HTTP
         assistant.initialize_modal()
-        clone_result = assistant.tts.clone_voice.remote(voice_name, audio_bytes)
+        try:
+            import httpx
+            clone_url = "https://jenkintownelectricity--premier-coqui-tts-clone-voice-web.modal.run"
+            files = {"reference_audio": ("audio.wav", audio_bytes, "audio/wav")}
+            data = {"voice_name": voice_name}
+            response = httpx.post(clone_url, files=files, data=data, timeout=120.0)
+            response.raise_for_status()
+            clone_result = response.json()
+        except Exception as e:
+            logger.error(f"Voice clone HTTP error: {e}")
+            clone_result = {"duration": 0, "error": str(e)}
 
         # Save to database
         voice_clone = db.create_voice_clone(
@@ -3583,10 +3612,17 @@ async def websocket_voice_endpoint(
         feature_gate = get_feature_gate()
         try:
             allowed, details = feature_gate.check_feature(user_id, "max_minutes")
-        except FeatureGateError as e:
-            await websocket.send_json({"type": "error", "message": e.message})
-            await websocket.close()
-            return
+            if not allowed:
+                await websocket.send_json({
+                    "type": "error", 
+                    "message": f"You've used all your minutes. Upgrade your plan to continue."
+                })
+                await websocket.close()
+                return
+        except Exception as e:
+            logger.error(f"Feature gate error: {e}")
+            # Continue anyway - don't block on feature gate errors
+            pass
 
         # Create session and start call
         session = VoiceCallSession(websocket, user_id, assistant_id)
@@ -3619,15 +3655,17 @@ async def websocket_voice_endpoint(
 
             # Synthesize and send first message audio
             try:
-                audio_bytes = voice_assistant.tts.synthesize.remote(
+                audio_bytes = voice_assistant.synthesize_speech(
                     assistant['first_message'],
-                    assistant.get('voice_id', 'default')
+                    assistant.get('voice_id', 'default'),
+                    user_id
                 )
-                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-                await websocket.send_json({
-                    "type": "audio",
-                    "data": audio_b64
-                })
+                if audio_bytes:
+                    audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                    await websocket.send_json({
+                        "type": "audio",
+                        "data": audio_b64
+                    })
             except Exception as e:
                 logger.error(f"Error synthesizing first message: {e}")
 
@@ -3663,7 +3701,7 @@ async def websocket_voice_endpoint(
                     # 1. STT - Transcribe audio
                     stt_start = time.time()
                     try:
-                        stt_result = voice_assistant.stt.transcribe.remote(audio_bytes)
+                        stt_result = voice_assistant.transcribe_audio(audio_bytes, user_id)
                         user_text = stt_result.get('text', '').strip()
                         stt_latency = int((time.time() - stt_start) * 1000)
                     except Exception as e:
@@ -3725,14 +3763,15 @@ async def websocket_voice_endpoint(
                             session.is_speaking = True
                             await websocket.send_json({"type": "speaking", "is_speaking": True})
 
-                            audio_bytes = voice_assistant.tts.synthesize.remote(
+                            audio_bytes = voice_assistant.synthesize_speech(
                                 assistant_text,
-                                assistant.get('voice_id', 'default')
+                                assistant.get('voice_id', 'default'),
+                                user_id
                             )
                             tts_latency = int((time.time() - tts_start) * 1000)
 
                             # Send audio if not interrupted
-                            if not session.should_stop_tts:
+                            if not session.should_stop_tts and audio_bytes:
                                 audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
                                 await websocket.send_json({
                                     "type": "audio",

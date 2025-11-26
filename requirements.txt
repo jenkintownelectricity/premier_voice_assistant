@@ -41,3 +41,4 @@ redis>=5.0.0  # For caching layer
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
 black>=24.0.0
+httpx>=0.28.0
