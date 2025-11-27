@@ -24,6 +24,7 @@ from datetime import datetime
 from backend.supabase_client import get_supabase, SupabaseManager
 from backend.feature_gates import get_feature_gate, FeatureGateError
 from backend.stripe_payments import get_stripe_payments, handle_webhook_event
+from backend.twilio_integration import get_twilio_service, validate_twilio_config
 
 # Configure logging
 logging.basicConfig(
@@ -3998,6 +3999,206 @@ async def list_sms(
         return {"messages": result.data or [], "total": len(result.data or [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# TWILIO VOICE WEBHOOKS
+# ============================================================================
+
+@app.post("/twilio/voice/inbound")
+async def twilio_inbound_call(
+    request: Request,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Handle incoming Twilio voice call webhook."""
+    from twilio.twiml.voice_response import VoiceResponse, Gather
+
+    try:
+        form_data = await request.form()
+        call_sid = form_data.get("CallSid")
+        from_number = form_data.get("From")
+        to_number = form_data.get("To")
+
+        logger.info(f"Inbound call: {call_sid} from {from_number} to {to_number}")
+
+        # Find user by phone number
+        user_result = db.client.table("va_phone_numbers").select("user_id").eq(
+            "phone_number", to_number
+        ).execute()
+
+        user_id = user_result.data[0]["user_id"] if user_result.data else None
+
+        # Get assistant greeting
+        greeting = "Hello, thank you for calling. How can I help you today?"
+        if user_id:
+            profile = db.client.table("va_user_profiles").select("*").eq(
+                "user_id", user_id
+            ).execute()
+            if profile.data:
+                assistant_name = profile.data[0].get("assistant_name", "AI Assistant")
+                business_name = profile.data[0].get("business_name", "")
+                if business_name:
+                    greeting = f"Hello, thank you for calling {business_name}. This is {assistant_name}. How can I help you today?"
+                else:
+                    greeting = f"Hello, this is {assistant_name}. How can I help you today?"
+
+            # Log the call
+            db.client.table("va_call_logs").insert({
+                "user_id": user_id,
+                "direction": "inbound",
+                "caller_number": from_number,
+                "callee_number": to_number,
+                "twilio_call_sid": call_sid,
+                "status": "in_progress"
+            }).execute()
+
+        # Generate TwiML response
+        api_url = os.getenv("API_URL", "http://localhost:8000")
+        response = VoiceResponse()
+        gather = Gather(
+            input="speech",
+            action=f"{api_url}/twilio/voice/respond?call_sid={call_sid}&user_id={user_id or ''}",
+            method="POST",
+            speech_timeout="auto",
+            language="en-US"
+        )
+        gather.say(greeting, voice="Polly.Joanna")
+        response.append(gather)
+        response.say("I didn't catch that. Please try again or call back later.", voice="Polly.Joanna")
+        response.hangup()
+
+        return Response(content=str(response), media_type="application/xml")
+
+    except Exception as e:
+        logger.error(f"Error handling inbound call: {e}")
+        response = VoiceResponse()
+        response.say("Sorry, we're experiencing technical difficulties. Please try again later.", voice="Polly.Joanna")
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
+
+
+@app.post("/twilio/voice/respond")
+async def twilio_voice_respond(
+    request: Request,
+    call_sid: str = "",
+    user_id: str = "",
+    db: SupabaseManager = Depends(get_db),
+):
+    """Process speech input and generate AI response."""
+    from twilio.twiml.voice_response import VoiceResponse, Gather
+
+    try:
+        form_data = await request.form()
+        speech_result = form_data.get("SpeechResult", "")
+
+        logger.info(f"Speech input for {call_sid}: {speech_result}")
+
+        # Simple AI response for now
+        ai_response = "I understand. Is there anything else I can help you with?"
+
+        api_url = os.getenv("API_URL", "http://localhost:8000")
+        response = VoiceResponse()
+        gather = Gather(
+            input="speech",
+            action=f"{api_url}/twilio/voice/respond?call_sid={call_sid}&user_id={user_id}",
+            method="POST",
+            speech_timeout="auto",
+            language="en-US"
+        )
+        gather.say(ai_response, voice="Polly.Joanna")
+        response.append(gather)
+        response.say("Thank you for calling. Goodbye!", voice="Polly.Joanna")
+        response.hangup()
+
+        return Response(content=str(response), media_type="application/xml")
+
+    except Exception as e:
+        logger.error(f"Error in voice respond: {e}")
+        response = VoiceResponse()
+        response.say("Sorry, something went wrong. Goodbye.", voice="Polly.Joanna")
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
+
+
+@app.post("/twilio/voice/status")
+async def twilio_call_status(
+    request: Request,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Handle call status callback from Twilio."""
+    try:
+        form_data = await request.form()
+        call_sid = form_data.get("CallSid")
+        call_status = form_data.get("CallStatus")
+        duration = form_data.get("CallDuration", 0)
+
+        logger.info(f"Call status: {call_sid} -> {call_status}")
+
+        db.client.table("va_call_logs").update({
+            "status": call_status,
+            "duration_seconds": int(duration) if duration else 0,
+            "ended_at": datetime.utcnow().isoformat() if call_status in ["completed", "failed", "busy", "no-answer"] else None
+        }).eq("twilio_call_sid", call_sid).execute()
+
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error updating call status: {e}")
+        return {"success": False}
+
+
+@app.post("/twilio/sms/inbound")
+async def twilio_inbound_sms(
+    request: Request,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Handle incoming SMS webhook from Twilio."""
+    from twilio.twiml.messaging_response import MessagingResponse
+
+    try:
+        form_data = await request.form()
+        from_number = form_data.get("From")
+        to_number = form_data.get("To")
+        body = form_data.get("Body", "")
+        message_sid = form_data.get("MessageSid")
+
+        logger.info(f"Inbound SMS from {from_number}")
+
+        user_result = db.client.table("va_phone_numbers").select("user_id").eq(
+            "phone_number", to_number
+        ).execute()
+
+        if user_result.data:
+            db.client.table("va_sms_messages").insert({
+                "user_id": user_result.data[0]["user_id"],
+                "direction": "inbound",
+                "from_number": from_number,
+                "to_number": to_number,
+                "body": body,
+                "status": "received",
+                "twilio_sid": message_sid
+            }).execute()
+
+        response = MessagingResponse()
+        response.message("Thanks for your message! We'll get back to you soon.")
+        return Response(content=str(response), media_type="application/xml")
+
+    except Exception as e:
+        logger.error(f"Error handling inbound SMS: {e}")
+        return Response(content="", media_type="application/xml")
+
+
+@app.get("/twilio/status")
+async def get_twilio_status(
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """Get Twilio configuration status."""
+    issues = validate_twilio_config()
+    twilio = get_twilio_service()
+    return {
+        "configured": twilio.is_configured,
+        "issues": issues,
+        "default_number": os.getenv("TWILIO_PHONE_NUMBER") if twilio.is_configured else None
+    }
 
 
 # ============================================================================
