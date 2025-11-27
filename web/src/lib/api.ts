@@ -36,7 +36,7 @@ async function fetchAPI<T>(
 // Anthropic Claude API call
 export const claudeApi = {
   chat: async (message: string, systemPrompt?: string): Promise<{ response: string }> => {
-    const response = await fetch(`${API_URL}/chat`, {
+    const response = await fetch(`${API_URL}/chat/text`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
