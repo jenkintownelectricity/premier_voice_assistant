@@ -9,15 +9,17 @@ import { api } from '@/lib/api';
 interface CallRecord {
   id: string;
   started_at: string;
-  ended_at?: string;
-  duration_seconds?: number;
-  caller_number?: string;
-  direction: string;
+  ended_at?: string | null;
+  duration_seconds: number;
+  phone_number?: string | null;
+  call_type: string;
   status: string;
-  summary?: string;
-  sentiment?: string;
-  key_info?: string[];
-  action_items?: string[];
+  summary?: string | null;
+  sentiment?: string | null;
+  assistant_id?: string | null;
+  assistant_name?: string;
+  cost_cents?: number;
+  ended_reason?: string | null;
 }
 
 export default function IntelligencePage() {
@@ -104,9 +106,9 @@ export default function IntelligencePage() {
         <Card>
           <CardContent>
             <div className="text-3xl font-bold text-yellow-500">
-              {calls.filter(c => c.action_items && c.action_items.length > 0).length}
+              {calls.filter(c => c.summary).length}
             </div>
-            <div className="text-gray-400 text-sm">With Action Items</div>
+            <div className="text-gray-400 text-sm">With Summary</div>
           </CardContent>
         </Card>
         <Card>
@@ -139,12 +141,12 @@ export default function IntelligencePage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className={`px-2 py-0.5 rounded text-xs ${
-                          call.direction === 'inbound' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'
+                          call.call_type === 'inbound' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'
                         }`}>
-                          {call.direction}
+                          {call.call_type}
                         </span>
                         <span className="text-white font-medium">
-                          {call.caller_number || 'Unknown'}
+                          {call.phone_number || call.assistant_name || 'Unknown'}
                         </span>
                       </div>
                       {call.summary && (
@@ -183,16 +185,16 @@ export default function IntelligencePage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <div className="text-gray-400 text-sm">Direction</div>
-                  <div className="text-white">{selectedCall.direction}</div>
+                  <div className="text-gray-400 text-sm">Type</div>
+                  <div className="text-white">{selectedCall.call_type}</div>
                 </div>
                 <div>
                   <div className="text-gray-400 text-sm">Duration</div>
                   <div className="text-white">{selectedCall.duration_seconds ? `${Math.round(selectedCall.duration_seconds / 60)} minutes` : 'N/A'}</div>
                 </div>
                 <div>
-                  <div className="text-gray-400 text-sm">Caller</div>
-                  <div className="text-white">{selectedCall.caller_number || 'Unknown'}</div>
+                  <div className="text-gray-400 text-sm">Assistant</div>
+                  <div className="text-white">{selectedCall.assistant_name || 'Unknown'}</div>
                 </div>
                 <div>
                   <div className="text-gray-400 text-sm">Date</div>
@@ -207,25 +209,15 @@ export default function IntelligencePage() {
                 </div>
               )}
 
-              {selectedCall.key_info && selectedCall.key_info.length > 0 && (
+              {selectedCall.sentiment && (
                 <div>
-                  <div className="text-gray-400 text-sm mb-1">Key Information</div>
-                  <ul className="list-disc list-inside text-white bg-oled-gray p-3 rounded-lg">
-                    {selectedCall.key_info.map((info, i) => (
-                      <li key={i}>{info}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {selectedCall.action_items && selectedCall.action_items.length > 0 && (
-                <div>
-                  <div className="text-gray-400 text-sm mb-1">Action Items</div>
-                  <ul className="list-disc list-inside text-white bg-oled-gray p-3 rounded-lg">
-                    {selectedCall.action_items.map((item, i) => (
-                      <li key={i}>{item}</li>
-                    ))}
-                  </ul>
+                  <div className="text-gray-400 text-sm mb-1">Sentiment</div>
+                  <div className={`text-white bg-oled-gray p-3 rounded-lg ${
+                    selectedCall.sentiment === 'positive' ? 'text-green-400' :
+                    selectedCall.sentiment === 'negative' ? 'text-red-400' : 'text-gray-400'
+                  }`}>
+                    {selectedCall.sentiment}
+                  </div>
                 </div>
               )}
 
