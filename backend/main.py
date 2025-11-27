@@ -23,7 +23,7 @@ from datetime import datetime
 
 from backend.supabase_client import get_supabase, SupabaseManager
 from backend.feature_gates import get_feature_gate, FeatureGateError
-from backend.stripe_payments import get_stripe_payments, handle_webhook_event
+from backend.stripe_payments import get_stripe_payments, handle_webhook_event, validate_stripe_config
 from backend.twilio_integration import get_twilio_service, validate_twilio_config
 
 # Configure logging
@@ -2164,6 +2164,133 @@ async def get_call_stats(
 # ADMIN ROUTES
 # ============================================================================
 
+@app.get("/admin/status")
+async def get_admin_status(
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get system status and health checks."""
+    status = {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "services": {}
+    }
+
+    # Check Supabase
+    try:
+        import time
+        start = time.time()
+        db.client.table("va_subscription_plans").select("id").limit(1).execute()
+        latency = int((time.time() - start) * 1000)
+        status["services"]["supabase"] = {
+            "status": "healthy",
+            "latency_ms": latency,
+            "message": "Connected"
+        }
+    except Exception as e:
+        status["services"]["supabase"] = {
+            "status": "error",
+            "latency_ms": None,
+            "message": str(e)
+        }
+
+    # Check Anthropic
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if anthropic_key:
+        status["services"]["anthropic"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"API key set (ends in ...{anthropic_key[-4:]})"
+        }
+    else:
+        status["services"]["anthropic"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "ANTHROPIC_API_KEY not set"
+        }
+
+    # Check Modal
+    modal_id = os.getenv("MODAL_TOKEN_ID", "")
+    if modal_id:
+        status["services"]["modal"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": "Token configured"
+        }
+    else:
+        status["services"]["modal"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "MODAL_TOKEN_ID not set"
+        }
+
+    # Check Stripe
+    stripe_issues = validate_stripe_config()
+    stripe_key = os.getenv("STRIPE_SECRET_KEY", "")
+    if stripe_key and not stripe_issues:
+        status["services"]["stripe"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": "Fully configured"
+        }
+    elif stripe_key:
+        status["services"]["stripe"] = {
+            "status": "partial",
+            "latency_ms": 0,
+            "message": f"Missing: {', '.join(stripe_issues)}"
+        }
+    else:
+        status["services"]["stripe"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": f"Missing: {', '.join(stripe_issues)}"
+        }
+
+    # Check Twilio
+    twilio_issues = validate_twilio_config()
+    twilio_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+    if twilio_sid and not twilio_issues:
+        status["services"]["twilio"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"Account configured (SID ends in ...{twilio_sid[-4:]})"
+        }
+    elif twilio_sid:
+        status["services"]["twilio"] = {
+            "status": "partial",
+            "latency_ms": 0,
+            "message": f"Missing: {', '.join(twilio_issues)}"
+        }
+    else:
+        status["services"]["twilio"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER"
+        }
+
+    # Environment info
+    status["environment"] = {
+        "python_version": os.popen("python --version 2>&1").read().strip(),
+        "env": os.getenv("ENVIRONMENT", "development"),
+        "railway_environment": os.getenv("RAILWAY_ENVIRONMENT_NAME", "not deployed"),
+        "api_url": os.getenv("API_URL", "localhost"),
+    }
+
+    # Get stats
+    try:
+        users_result = db.client.table("va_user_subscriptions").select("id", count="exact").execute()
+        calls_result = db.client.table("va_call_logs").select("id", count="exact").execute()
+        assistants_result = db.client.table("va_assistants").select("id", count="exact").execute()
+        status["stats"] = {
+            "total_users": users_result.count or 0,
+            "total_calls": calls_result.count or 0,
+            "total_assistants": assistants_result.count or 0,
+        }
+    except Exception as e:
+        status["stats"] = {"error": str(e)}
+
+    return status
+
+
 @app.post("/admin/upgrade-user")
 async def admin_upgrade_user(
     request: AdminUpgradeRequest,
@@ -3022,10 +3149,14 @@ async def list_user_teams(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class CreateTeamRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
 @app.post("/teams")
 async def create_team(
-    name: str,
-    description: str = None,
+    request: CreateTeamRequest,
     user_id: str = Header(..., alias="X-User-ID"),
     db: SupabaseManager = Depends(get_db),
 ):
@@ -3042,8 +3173,8 @@ async def create_team(
     try:
         # Create team
         team_data = {
-            "name": name,
-            "description": description,
+            "name": request.name,
+            "description": request.description,
             "owner_id": user_id
         }
 

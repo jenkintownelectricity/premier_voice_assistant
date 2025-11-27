@@ -9,12 +9,26 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# Stripe price IDs (set these in .env or Stripe dashboard)
+# Stripe price IDs (set these in .env - get from Stripe Dashboard > Products > Pricing)
 STRIPE_PRICE_IDS = {
-    "starter": os.getenv("STRIPE_PRICE_STARTER", "price_starter_monthly"),
-    "pro": os.getenv("STRIPE_PRICE_PRO", "price_pro_monthly"),
-    "enterprise": os.getenv("STRIPE_PRICE_ENTERPRISE", "price_enterprise_monthly"),
+    "starter": os.getenv("STRIPE_PRICE_STARTER"),
+    "pro": os.getenv("STRIPE_PRICE_PRO"),
+    "enterprise": os.getenv("STRIPE_PRICE_ENTERPRISE"),
 }
+
+
+def validate_stripe_config():
+    """Check if Stripe is properly configured."""
+    issues = []
+    if not os.getenv("STRIPE_SECRET_KEY"):
+        issues.append("STRIPE_SECRET_KEY not set")
+    if not os.getenv("STRIPE_WEBHOOK_SECRET"):
+        issues.append("STRIPE_WEBHOOK_SECRET not set")
+    if not STRIPE_PRICE_IDS.get("starter"):
+        issues.append("STRIPE_PRICE_STARTER not set")
+    if not STRIPE_PRICE_IDS.get("pro"):
+        issues.append("STRIPE_PRICE_PRO not set")
+    return issues
 
 
 class StripePayments:
