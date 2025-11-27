@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { useAuth } from '@/lib/auth-context';
+import { useDevMode } from '@/lib/dev-mode-context';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
 
@@ -69,6 +70,7 @@ const SERVICE_LINKS: Record<string, { url: string; docs: string }> = {
 
 export default function DeveloperDashboard() {
   const { user } = useAuth();
+  const devMode = useDevMode();
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -144,6 +146,98 @@ export default function DeveloperDashboard() {
           Backend connection issue: {error}. Some status data may be unavailable.
         </div>
       )}
+
+      {/* Developer Test Mode */}
+      <Card className={devMode.isEnabled ? 'border-purple-500/50 bg-purple-900/10' : ''}>
+        <CardTitle>Developer Test Mode</CardTitle>
+        <CardContent>
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-white font-semibold">Test Mode</h3>
+                <p className="text-gray-400 text-sm mt-1">
+                  Enable developer tools to test features, simulate plans, and debug the application.
+                </p>
+              </div>
+              <button
+                onClick={devMode.toggleDevMode}
+                className={`relative w-14 h-7 rounded-full transition-colors ${
+                  devMode.isEnabled ? 'bg-purple-500' : 'bg-gray-600'
+                }`}
+              >
+                <span
+                  className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform ${
+                    devMode.isEnabled ? 'translate-x-7' : ''
+                  }`}
+                />
+              </button>
+            </div>
+
+            {devMode.isEnabled && (
+              <div className="p-4 bg-purple-900/20 border border-purple-500/30 rounded-lg">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="animate-pulse text-purple-400">●</span>
+                  <span className="text-purple-300 font-medium">Test Mode Active</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="flex items-center justify-between p-2 bg-zinc-800/50 rounded">
+                    <span className="text-gray-400">Simulated Plan</span>
+                    <span className="text-white font-medium">{devMode.simulatedPlan || 'None'}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 bg-zinc-800/50 rounded">
+                    <span className="text-gray-400">Feature Overrides</span>
+                    <span className="text-white font-medium">{Object.keys(devMode.featureOverrides).length}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 bg-zinc-800/50 rounded">
+                    <span className="text-gray-400">Mock Latency</span>
+                    <span className="text-white font-medium">{devMode.mockLatency}ms</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 bg-zinc-800/50 rounded">
+                    <span className="text-gray-400">API Logs</span>
+                    <span className="text-white font-medium">{devMode.apiLogs.length}</span>
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={devMode.togglePanel}
+                    className="flex-1 p-2 bg-purple-600 hover:bg-purple-500 rounded text-white text-sm font-medium transition-colors"
+                  >
+                    {devMode.isPanelOpen ? 'Hide DevTools Panel' : 'Open DevTools Panel'}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-3 text-center">
+                  Keyboard shortcuts: Ctrl+Shift+D (toggle mode) | Ctrl+Shift+P (toggle panel)
+                </p>
+              </div>
+            )}
+
+            {!devMode.isEnabled && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                <div className="p-3 bg-oled-gray rounded-lg text-center">
+                  <div className="text-2xl mb-1">🎛️</div>
+                  <div className="text-white text-sm font-medium">Feature Flags</div>
+                  <div className="text-gray-500 text-xs">Toggle features</div>
+                </div>
+                <div className="p-3 bg-oled-gray rounded-lg text-center">
+                  <div className="text-2xl mb-1">💳</div>
+                  <div className="text-white text-sm font-medium">Plan Simulator</div>
+                  <div className="text-gray-500 text-xs">Test subscription tiers</div>
+                </div>
+                <div className="p-3 bg-oled-gray rounded-lg text-center">
+                  <div className="text-2xl mb-1">⚡</div>
+                  <div className="text-white text-sm font-medium">Test Actions</div>
+                  <div className="text-gray-500 text-xs">Quick test operations</div>
+                </div>
+                <div className="p-3 bg-oled-gray rounded-lg text-center">
+                  <div className="text-2xl mb-1">📊</div>
+                  <div className="text-white text-sm font-medium">Debug Console</div>
+                  <div className="text-gray-500 text-xs">API call logging</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Service Connections */}
       <Card>

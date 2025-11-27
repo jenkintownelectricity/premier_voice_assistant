@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { AuthProvider } from '@/lib/auth-context'
+import { DevModeProvider } from '@/lib/dev-mode-context'
+import { DevToolsSidebar } from '@/components/DevToolsSidebar'
 
 export const metadata: Metadata = {
   title: 'HIVE215 - Premier Voice Assistant',
@@ -20,7 +22,10 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-oled-black min-h-screen">
         <AuthProvider>
-          {children}
+          <DevModeProvider>
+            {children}
+            <DevToolsSidebar />
+          </DevModeProvider>
         </AuthProvider>
       </body>
     </html>
