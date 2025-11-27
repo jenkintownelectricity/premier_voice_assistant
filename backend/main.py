@@ -105,6 +105,11 @@ class SpeakRequest(BaseModel):
     voice: Optional[str] = "fabio"
 
 
+class TextChatRequest(BaseModel):
+    message: str
+    system_prompt: Optional[str] = None
+
+
 class UserPreferencesUpdate(BaseModel):
     preferred_voice: Optional[str] = None
     conversation_style: Optional[str] = None
@@ -624,6 +629,44 @@ async def chat(
         raise
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/text")
+async def chat_text(request: TextChatRequest):
+    """
+    Text-based chat with Claude AI.
+
+    Body:
+        message: User message
+        system_prompt: Optional system prompt
+
+    Returns:
+        response: AI response text
+    """
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+        system = request.system_prompt or "You are a helpful AI assistant for HIVE215, a premier voice assistant platform. Be concise, friendly, and helpful."
+
+        message = client.messages.create(
+            model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022"),
+            max_tokens=1024,
+            system=system,
+            messages=[
+                {"role": "user", "content": request.message}
+            ]
+        )
+
+        # Extract text from response
+        response_text = message.content[0].text if message.content else "I couldn't generate a response."
+
+        return {"response": response_text}
+
+    except Exception as e:
+        logger.error(f"Text chat error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2609,7 +2652,7 @@ async def create_checkout_session(
                 # Save customer ID to profile
                 db.client.table("va_user_profiles").update({
                     "stripe_customer_id": customer_id
-                }).eq("user_id", user_id).execute()
+                }).eq("id", user_id).execute()
 
         if not customer_id:
             raise HTTPException(status_code=500, detail="Failed to create Stripe customer")
@@ -4163,7 +4206,7 @@ async def twilio_inbound_call(
         greeting = "Hello, thank you for calling. How can I help you today?"
         if user_id:
             profile = db.client.table("va_user_profiles").select("*").eq(
-                "user_id", user_id
+                "id", user_id
             ).execute()
             if profile.data:
                 assistant_name = profile.data[0].get("assistant_name", "AI Assistant")
