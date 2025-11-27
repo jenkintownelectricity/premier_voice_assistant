@@ -1,8 +1,65 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
-// Feature flags that can be toggled
+// ============================================================================
+// HIPAA COMPLIANCE CONFIGURATION
+// ============================================================================
+
+export interface HIPAACompliance {
+  // Data Protection
+  phiMaskingEnabled: boolean;        // Mask PHI in logs and displays
+  dataRedactionLevel: 'none' | 'partial' | 'full';
+  auditLoggingEnabled: boolean;      // Log all dev mode actions
+
+  // Session Security
+  sessionTimeoutMinutes: number;     // Auto-disable dev mode after timeout
+  requireReauth: boolean;            // Require re-authentication for sensitive actions
+
+  // Access Controls
+  allowedEnvironments: string[];     // Environments where dev mode is allowed
+  ipWhitelist: string[];             // IPs allowed to use dev mode (empty = all)
+
+  // Compliance Status
+  lastAuditDate: string | null;
+  complianceOfficer: string | null;
+  baaSignedDate: string | null;
+}
+
+export const DEFAULT_HIPAA_CONFIG: HIPAACompliance = {
+  phiMaskingEnabled: true,
+  dataRedactionLevel: 'partial',
+  auditLoggingEnabled: true,
+  sessionTimeoutMinutes: 30,
+  requireReauth: false,
+  allowedEnvironments: ['development', 'staging', 'production'],
+  ipWhitelist: [],
+  lastAuditDate: null,
+  complianceOfficer: null,
+  baaSignedDate: null,
+};
+
+// ============================================================================
+// AUDIT LOG TYPES
+// ============================================================================
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: Date;
+  action: string;
+  category: 'feature_toggle' | 'plan_change' | 'data_access' | 'config_change' | 'session' | 'api_call';
+  userId: string | null;
+  details: Record<string, any>;
+  ipAddress?: string;
+  userAgent?: string;
+  riskLevel: 'low' | 'medium' | 'high';
+  phiAccessed: boolean;
+}
+
+// ============================================================================
+// FEATURE FLAGS
+// ============================================================================
+
 export interface FeatureFlags {
   voiceCalls: boolean;
   smsMessaging: boolean;
@@ -87,10 +144,13 @@ export const PLAN_LIMITS: Record<string, { minutes: number; assistants: number; 
   free: { minutes: 100, assistants: 1, voiceClones: 0 },
   starter: { minutes: 2000, assistants: 5, voiceClones: 2 },
   pro: { minutes: 10000, assistants: 25, voiceClones: 10 },
-  enterprise: { minutes: -1, assistants: -1, voiceClones: -1 }, // unlimited
+  enterprise: { minutes: -1, assistants: -1, voiceClones: -1 },
 };
 
-// API call log entry
+// ============================================================================
+// API LOGGING
+// ============================================================================
+
 export interface ApiLogEntry {
   id: string;
   timestamp: Date;
@@ -101,14 +161,18 @@ export interface ApiLogEntry {
   requestBody?: any;
   responseBody?: any;
   error?: string;
+  containsPHI?: boolean;
 }
 
-// Dev mode state
+// ============================================================================
+// DEV MODE STATE
+// ============================================================================
+
 interface DevModeState {
   // Core state
   isEnabled: boolean;
   isPanelOpen: boolean;
-  activeTab: 'features' | 'plans' | 'actions' | 'console' | 'state';
+  activeTab: 'features' | 'plans' | 'actions' | 'console' | 'state' | 'hipaa';
 
   // Feature overrides
   featureOverrides: Partial<FeatureFlags>;
@@ -125,11 +189,16 @@ interface DevModeState {
   isLoggingEnabled: boolean;
 
   // Test mode
-  mockLatency: number; // ms to add to API calls
+  mockLatency: number;
   forceErrors: boolean;
 
   // State snapshots
   stateSnapshots: { name: string; timestamp: Date; state: any }[];
+
+  // HIPAA Compliance
+  hipaaConfig: HIPAACompliance;
+  auditLogs: AuditLogEntry[];
+  sessionStartTime: Date | null;
 }
 
 interface DevModeContextType extends DevModeState {
@@ -165,6 +234,15 @@ interface DevModeContextType extends DevModeState {
   // Computed
   getEffectiveFeatures: () => FeatureFlags;
   getEffectivePlan: () => string;
+
+  // HIPAA Compliance
+  updateHIPAAConfig: (config: Partial<HIPAACompliance>) => void;
+  addAuditLog: (entry: Omit<AuditLogEntry, 'id' | 'timestamp'>) => void;
+  exportAuditLogs: () => string;
+  clearAuditLogs: () => void;
+  maskPHI: (data: string) => string;
+  getComplianceStatus: () => { compliant: boolean; issues: string[] };
+  getSessionTimeRemaining: () => number;
 }
 
 const DevModeContext = createContext<DevModeContextType | null>(null);
@@ -185,6 +263,49 @@ const DEFAULT_FEATURES: FeatureFlags = {
   prioritySupport: true,
 };
 
+// ============================================================================
+// PHI MASKING UTILITIES
+// ============================================================================
+
+const PHI_PATTERNS = {
+  ssn: /\b\d{3}-\d{2}-\d{4}\b/g,
+  phone: /\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g,
+  email: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+  mrn: /\bMRN[:\s]?\d{6,10}\b/gi,
+  dob: /\b(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}\b/g,
+  creditCard: /\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b/g,
+};
+
+function maskPHIData(data: string, level: 'none' | 'partial' | 'full'): string {
+  if (level === 'none') return data;
+
+  let masked = data;
+
+  if (level === 'partial') {
+    // Partial masking - show first/last characters
+    masked = masked.replace(PHI_PATTERNS.ssn, '***-**-$&'.slice(-4));
+    masked = masked.replace(PHI_PATTERNS.phone, (match) => `***-***-${match.slice(-4)}`);
+    masked = masked.replace(PHI_PATTERNS.email, (match) => {
+      const [local, domain] = match.split('@');
+      return `${local[0]}***@${domain}`;
+    });
+  } else {
+    // Full masking - replace entirely
+    masked = masked.replace(PHI_PATTERNS.ssn, '[SSN REDACTED]');
+    masked = masked.replace(PHI_PATTERNS.phone, '[PHONE REDACTED]');
+    masked = masked.replace(PHI_PATTERNS.email, '[EMAIL REDACTED]');
+    masked = masked.replace(PHI_PATTERNS.mrn, '[MRN REDACTED]');
+    masked = masked.replace(PHI_PATTERNS.dob, '[DOB REDACTED]');
+    masked = masked.replace(PHI_PATTERNS.creditCard, '[CC REDACTED]');
+  }
+
+  return masked;
+}
+
+// ============================================================================
+// PROVIDER COMPONENT
+// ============================================================================
+
 export function DevModeProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<DevModeState>({
     isEnabled: false,
@@ -198,6 +319,9 @@ export function DevModeProvider({ children }: { children: React.ReactNode }) {
     mockLatency: 0,
     forceErrors: false,
     stateSnapshots: [],
+    hipaaConfig: DEFAULT_HIPAA_CONFIG,
+    auditLogs: [],
+    sessionStartTime: null,
   });
 
   // Load state from localStorage on mount
@@ -213,6 +337,7 @@ export function DevModeProvider({ children }: { children: React.ReactNode }) {
           simulatedPlan: parsed.simulatedPlan || null,
           isLoggingEnabled: parsed.isLoggingEnabled ?? true,
           mockLatency: parsed.mockLatency || 0,
+          hipaaConfig: { ...DEFAULT_HIPAA_CONFIG, ...parsed.hipaaConfig },
         }));
       } catch (e) {
         console.error('Failed to load dev mode state:', e);
@@ -228,17 +353,53 @@ export function DevModeProvider({ children }: { children: React.ReactNode }) {
       simulatedPlan: state.simulatedPlan,
       isLoggingEnabled: state.isLoggingEnabled,
       mockLatency: state.mockLatency,
+      hipaaConfig: state.hipaaConfig,
     }));
-  }, [state.isEnabled, state.featureOverrides, state.simulatedPlan, state.isLoggingEnabled, state.mockLatency]);
+  }, [state.isEnabled, state.featureOverrides, state.simulatedPlan, state.isLoggingEnabled, state.mockLatency, state.hipaaConfig]);
 
-  // Keyboard shortcut: Ctrl+Shift+D to toggle dev mode
+  // Session timeout handler
+  useEffect(() => {
+    if (!state.isEnabled || !state.sessionStartTime) return;
+
+    const timeoutMs = state.hipaaConfig.sessionTimeoutMinutes * 60 * 1000;
+    const elapsed = Date.now() - state.sessionStartTime.getTime();
+    const remaining = timeoutMs - elapsed;
+
+    if (remaining <= 0) {
+      // Session expired - disable dev mode
+      setState(prev => ({
+        ...prev,
+        isEnabled: false,
+        isPanelOpen: false,
+        sessionStartTime: null,
+      }));
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setState(prev => ({
+        ...prev,
+        isEnabled: false,
+        isPanelOpen: false,
+        sessionStartTime: null,
+      }));
+    }, remaining);
+
+    return () => clearTimeout(timeout);
+  }, [state.isEnabled, state.sessionStartTime, state.hipaaConfig.sessionTimeoutMinutes]);
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && e.key === 'D') {
         e.preventDefault();
-        setState(prev => ({ ...prev, isEnabled: !prev.isEnabled, isPanelOpen: !prev.isEnabled }));
+        setState(prev => ({
+          ...prev,
+          isEnabled: !prev.isEnabled,
+          isPanelOpen: !prev.isEnabled,
+          sessionStartTime: !prev.isEnabled ? new Date() : null,
+        }));
       }
-      // Ctrl+Shift+P to toggle panel when dev mode is on
       if (e.ctrlKey && e.shiftKey && e.key === 'P' && state.isEnabled) {
         e.preventDefault();
         setState(prev => ({ ...prev, isPanelOpen: !prev.isPanelOpen }));
@@ -248,13 +409,46 @@ export function DevModeProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [state.isEnabled]);
 
-  const toggleDevMode = useCallback(() => {
+  // ============================================================================
+  // ACTION HANDLERS
+  // ============================================================================
+
+  const addAuditLog = useCallback((entry: Omit<AuditLogEntry, 'id' | 'timestamp'>) => {
+    if (!state.hipaaConfig.auditLoggingEnabled) return;
+
     setState(prev => ({
       ...prev,
-      isEnabled: !prev.isEnabled,
-      isPanelOpen: !prev.isEnabled // Open panel when enabling
+      auditLogs: [
+        {
+          ...entry,
+          id: crypto.randomUUID(),
+          timestamp: new Date(),
+        },
+        ...prev.auditLogs.slice(0, 999), // Keep last 1000 entries
+      ],
     }));
-  }, []);
+  }, [state.hipaaConfig.auditLoggingEnabled]);
+
+  const toggleDevMode = useCallback(() => {
+    setState(prev => {
+      const newEnabled = !prev.isEnabled;
+      return {
+        ...prev,
+        isEnabled: newEnabled,
+        isPanelOpen: newEnabled,
+        sessionStartTime: newEnabled ? new Date() : null,
+      };
+    });
+
+    addAuditLog({
+      action: state.isEnabled ? 'dev_mode_disabled' : 'dev_mode_enabled',
+      category: 'session',
+      userId: null,
+      details: {},
+      riskLevel: 'medium',
+      phiAccessed: false,
+    });
+  }, [state.isEnabled, addAuditLog]);
 
   const togglePanel = useCallback(() => {
     setState(prev => ({ ...prev, isPanelOpen: !prev.isPanelOpen }));
@@ -274,28 +468,50 @@ export function DevModeProvider({ children }: { children: React.ReactNode }) {
           : !prev.featureOverrides[feature],
       },
     }));
-  }, []);
+
+    addAuditLog({
+      action: `feature_toggle_${feature}`,
+      category: 'feature_toggle',
+      userId: null,
+      details: { feature },
+      riskLevel: 'low',
+      phiAccessed: false,
+    });
+  }, [addAuditLog]);
 
   const resetFeatures = useCallback(() => {
     setState(prev => ({ ...prev, featureOverrides: {} }));
-  }, []);
+    addAuditLog({
+      action: 'features_reset',
+      category: 'feature_toggle',
+      userId: null,
+      details: {},
+      riskLevel: 'low',
+      phiAccessed: false,
+    });
+  }, [addAuditLog]);
 
   const isFeatureEnabled = useCallback((feature: keyof FeatureFlags): boolean => {
-    // Check override first
     if (state.featureOverrides[feature] !== undefined) {
       return state.featureOverrides[feature]!;
     }
-    // Then check simulated plan
     if (state.simulatedPlan && PLAN_FEATURES[state.simulatedPlan]) {
       return PLAN_FEATURES[state.simulatedPlan][feature] ?? DEFAULT_FEATURES[feature];
     }
-    // Default to all enabled in dev mode
     return DEFAULT_FEATURES[feature];
   }, [state.featureOverrides, state.simulatedPlan]);
 
   const simulatePlan = useCallback((plan: string | null) => {
     setState(prev => ({ ...prev, simulatedPlan: plan }));
-  }, []);
+    addAuditLog({
+      action: 'plan_simulation_changed',
+      category: 'plan_change',
+      userId: null,
+      details: { plan },
+      riskLevel: 'low',
+      phiAccessed: false,
+    });
+  }, [addAuditLog]);
 
   const setSimulatedUsage = useCallback((usage: DevModeState['simulatedUsage']) => {
     setState(prev => ({ ...prev, simulatedUsage: usage }));
@@ -312,7 +528,7 @@ export function DevModeProvider({ children }: { children: React.ReactNode }) {
       ...prev,
       apiLogs: [
         { ...entry, id: crypto.randomUUID(), timestamp: new Date() },
-        ...prev.apiLogs.slice(0, 99), // Keep last 100 entries
+        ...prev.apiLogs.slice(0, 99),
       ],
     }));
   }, [state.isLoggingEnabled]);
@@ -338,7 +554,7 @@ export function DevModeProvider({ children }: { children: React.ReactNode }) {
       ...prev,
       stateSnapshots: [
         { name, timestamp: new Date(), state: currentState },
-        ...prev.stateSnapshots.slice(0, 9), // Keep last 10
+        ...prev.stateSnapshots.slice(0, 9),
       ],
     }));
   }, []);
@@ -362,6 +578,75 @@ export function DevModeProvider({ children }: { children: React.ReactNode }) {
     return state.simulatedPlan || 'pro';
   }, [state.simulatedPlan]);
 
+  // HIPAA-specific functions
+  const updateHIPAAConfig = useCallback((config: Partial<HIPAACompliance>) => {
+    setState(prev => ({
+      ...prev,
+      hipaaConfig: { ...prev.hipaaConfig, ...config },
+    }));
+    addAuditLog({
+      action: 'hipaa_config_updated',
+      category: 'config_change',
+      userId: null,
+      details: { changes: Object.keys(config) },
+      riskLevel: 'high',
+      phiAccessed: false,
+    });
+  }, [addAuditLog]);
+
+  const exportAuditLogs = useCallback(() => {
+    const logs = state.auditLogs.map(log => ({
+      ...log,
+      timestamp: log.timestamp.toISOString(),
+    }));
+    return JSON.stringify(logs, null, 2);
+  }, [state.auditLogs]);
+
+  const clearAuditLogs = useCallback(() => {
+    addAuditLog({
+      action: 'audit_logs_cleared',
+      category: 'config_change',
+      userId: null,
+      details: { clearedCount: state.auditLogs.length },
+      riskLevel: 'high',
+      phiAccessed: false,
+    });
+    setState(prev => ({ ...prev, auditLogs: [] }));
+  }, [state.auditLogs.length, addAuditLog]);
+
+  const maskPHI = useCallback((data: string) => {
+    return maskPHIData(data, state.hipaaConfig.dataRedactionLevel);
+  }, [state.hipaaConfig.dataRedactionLevel]);
+
+  const getComplianceStatus = useCallback(() => {
+    const issues: string[] = [];
+
+    if (!state.hipaaConfig.auditLoggingEnabled) {
+      issues.push('Audit logging is disabled');
+    }
+    if (!state.hipaaConfig.phiMaskingEnabled) {
+      issues.push('PHI masking is disabled');
+    }
+    if (state.hipaaConfig.sessionTimeoutMinutes > 60) {
+      issues.push('Session timeout exceeds recommended 60 minutes');
+    }
+    if (state.hipaaConfig.dataRedactionLevel === 'none') {
+      issues.push('Data redaction is disabled');
+    }
+
+    return {
+      compliant: issues.length === 0,
+      issues,
+    };
+  }, [state.hipaaConfig]);
+
+  const getSessionTimeRemaining = useCallback(() => {
+    if (!state.sessionStartTime) return 0;
+    const timeoutMs = state.hipaaConfig.sessionTimeoutMinutes * 60 * 1000;
+    const elapsed = Date.now() - state.sessionStartTime.getTime();
+    return Math.max(0, Math.floor((timeoutMs - elapsed) / 1000));
+  }, [state.sessionStartTime, state.hipaaConfig.sessionTimeoutMinutes]);
+
   const value: DevModeContextType = {
     ...state,
     toggleDevMode,
@@ -383,6 +668,13 @@ export function DevModeProvider({ children }: { children: React.ReactNode }) {
     clearSnapshots,
     getEffectiveFeatures,
     getEffectivePlan,
+    updateHIPAAConfig,
+    addAuditLog,
+    exportAuditLogs,
+    clearAuditLogs,
+    maskPHI,
+    getComplianceStatus,
+    getSessionTimeRemaining,
   };
 
   return (
@@ -400,7 +692,6 @@ export function useDevMode() {
   return context;
 }
 
-// Hook for checking if dev mode is active (safe to use outside provider)
 export function useIsDevMode() {
   const context = useContext(DevModeContext);
   return context?.isEnabled ?? false;
