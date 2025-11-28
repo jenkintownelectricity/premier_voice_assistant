@@ -192,7 +192,7 @@ export default function AssistantsPage() {
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [voiceId, setVoiceId] = useState('default');
-  const [model, setModel] = useState('claude-3-5-sonnet-latest');
+  const [model, setModel] = useState('claude-sonnet-4-5-20250929');
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(150);
   const [firstMessage, setFirstMessage] = useState('');
@@ -265,7 +265,7 @@ export default function AssistantsPage() {
       setDescription('');
       setSystemPrompt('');
       setVoiceId('default');
-      setModel('claude-3-5-sonnet-latest');
+      setModel('claude-sonnet-4-5-20250929');
       setTemperature(0.7);
       setMaxTokens(150);
       setFirstMessage('');
@@ -432,8 +432,8 @@ export default function AssistantsPage() {
                     className="w-full px-4 py-3 bg-oled-dark border border-gold/30 rounded-lg
                       text-white focus:outline-none focus:border-gold transition-colors"
                   >
-                    <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet</option>
-                    <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+                    <option value="claude-sonnet-4-5-20250929">Claude 3.5 Sonnet</option>
+                    <option value="claude-haiku-4-5-20241022">Claude 3 Haiku</option>
                   </select>
                 </div>
               </div>

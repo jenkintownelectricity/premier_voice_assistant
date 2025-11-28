@@ -36,11 +36,11 @@ logger = logging.getLogger(__name__)
 # Claude API Pricing (per million tokens) - as of 2025
 # Source: https://www.anthropic.com/pricing
 CLAUDE_PRICING = {
-    "claude-3-5-sonnet-latest": {
+    "claude-sonnet-4-5-20250929": {
         "input": 3.00,    # $3.00 per 1M input tokens
         "output": 15.00,  # $15.00 per 1M output tokens
     },
-    "claude-3-5-sonnet-20241022": {
+    "claude-sonnet-4-5-20250929": {
         "input": 3.00,
         "output": 15.00,
     },
@@ -52,7 +52,7 @@ CLAUDE_PRICING = {
         "input": 15.00,
         "output": 75.00,
     },
-    "claude-3-haiku-20240307": {
+    "claude-haiku-4-5-20241022": {
         "input": 0.25,
         "output": 1.25,
     },
@@ -71,7 +71,7 @@ def calculate_claude_cost(model: str, input_tokens: int, output_tokens: int) -> 
         Cost in cents (e.g., 0.05 = $0.0005)
     """
     # Get pricing for the model (default to Sonnet if not found)
-    pricing = CLAUDE_PRICING.get(model, CLAUDE_PRICING["claude-3-5-sonnet-latest"])
+    pricing = CLAUDE_PRICING.get(model, CLAUDE_PRICING["claude-sonnet-4-5-20250929"])
 
     # Calculate cost: (tokens / 1,000,000) * price_per_million
     input_cost = (input_tokens / 1_000_000) * pricing["input"]
@@ -168,7 +168,7 @@ class CreateAssistantRequest(BaseModel):
     system_prompt: str
     description: Optional[str] = None
     voice_id: Optional[str] = "default"
-    model: Optional[str] = "claude-3-5-sonnet-latest"
+    model: Optional[str] = "claude-sonnet-4-5-20250929"
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 150
     first_message: Optional[str] = None
@@ -331,7 +331,7 @@ Your role:
             start = time.time()
 
             # Call Claude API
-            model = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
+            model = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
             response = self.anthropic_client.messages.create(
                 model=model,
                 max_tokens=int(os.getenv("MAX_TOKENS", "150")),
@@ -656,7 +656,7 @@ async def chat_text(request: TextChatRequest):
         system = request.system_prompt or "You are a helpful AI assistant for HIVE215, a premier voice assistant platform. Be concise, friendly, and helpful."
 
         message = client.messages.create(
-            model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest"),
+            model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250929"),
             max_tokens=1024,
             system=system,
             messages=[
@@ -1332,7 +1332,7 @@ Format as JSON:
         try:
             client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
             response = client.messages.create(
-                model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest"),
+                model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250929"),
                 max_tokens=1000,
                 temperature=0.7,
                 messages=[{
@@ -4102,6 +4102,7 @@ async def websocket_voice_endpoint(
 
                     # 2. LLM - Generate response
                     llm_start = time.time()
+                    llm_latency = 0  # Initialize in case of error
                     try:
                         # Build conversation history
                         messages = []
@@ -4112,7 +4113,7 @@ async def websocket_voice_endpoint(
                             })
 
                         response = voice_assistant.anthropic_client.messages.create(
-                            model=assistant.get('model', 'claude-3-5-sonnet-latest'),
+                            model=assistant.get('model', 'claude-sonnet-4-5-20250929'),
                             max_tokens=assistant.get('max_tokens', 150),
                             temperature=float(assistant.get('temperature', 0.7)),
                             system=assistant['system_prompt'],

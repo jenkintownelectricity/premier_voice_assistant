@@ -41,7 +41,7 @@ VOICE_SAMPLES = {
 }
 
 # LLM Settings
-CLAUDE_MODEL = "claude-3-5-sonnet-latest"  # Latest Sonnet
+CLAUDE_MODEL = "claude-sonnet-4-5-20250929"  # Stable Sonnet version
 MAX_TOKENS = 150  # Keep responses concise for voice
 TEMPERATURE = 0.7
 
