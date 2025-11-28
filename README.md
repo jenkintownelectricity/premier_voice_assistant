@@ -732,6 +732,119 @@ premier_voice_assistant/
 
 ---
 
+## Development History & Session Log
+
+### Session: November 28, 2025 - Model Not Found Fix
+
+**Issue**: 404 error when calling Anthropic API
+```
+Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: claude-3-5-sonnet-20241022'}}
+```
+
+**Root Cause**: The model `claude-3-5-sonnet-20241022` was deprecated and no longer available via the Anthropic API.
+
+**Fix**: Updated all model references from `claude-3-5-sonnet-20241022` to `claude-3-5-sonnet-latest` in:
+- `main.py` - Backend API defaults and pricing (6 locations)
+- `config/settings.py` - Configuration constant
+- `web/src/app/dashboard/assistants/page.tsx` - Web frontend
+- `mobile/src/screens/AssistantsScreen.tsx` - Mobile app
+- `web/src/app/dashboard/admin/tests/page.tsx` - Admin tests
+
+**Branch**: `claude/fix-model-not-found-01LSFGUqsoTPz1LbmUYz936U`
+
+---
+
+### Session: November 2025 - Major Bug Fixes (Previous Context)
+
+This session addressed multiple issues to get the platform "working 100 percent".
+
+#### 1. Build Errors Fixed
+- **Card component** - Added missing `onClick` prop to `web/src/components/Card.tsx`
+- **ESLint errors** - Fixed unescaped apostrophes in multiple files
+- **Added** `.eslintrc.json` for Next.js configuration
+
+#### 2. Voice Call Echo/Repetition Issue
+**Problem**: Agent kept repeating itself during voice calls due to acoustic echo (assistant hearing itself through microphone).
+
+**Fixes in `web/src/components/VoiceCall.tsx`**:
+```typescript
+// Added audio constraints
+echoCancellation: true,
+noiseSuppression: true,
+autoGainControl: true
+
+// Added speaking state tracking
+isSpeakingRef to track when assistant is speaking
+Skip sending audio while assistant is speaking
+Duplicate transcript detection
+```
+
+**Fixes in `backend/main.py`**:
+```python
+# VoiceCallSession deduplication
+self.last_user_text = ""
+self.last_response_time = 0
+self.min_response_interval = 2.0
+
+# Echo detection (80% word similarity check)
+# Rate limiting between responses
+```
+
+#### 3. AI Assistant [object Object] Error
+**Problem**: Chat showing `[object Object]` in StartupModal.
+
+**Root Cause**: Backend `/chat` endpoint expected audio file, not JSON text.
+
+**Fix**:
+- Added new `/chat/text` endpoint for text-based Claude chat
+- Updated frontend API to use `/chat/text`
+
+#### 4. Stripe Module Missing
+**Problem**: `No module named 'stripe'` error.
+
+**Fix**: Added `stripe>=8.0.0` to `requirements.txt`
+
+#### 5. Dashboard Fixes
+- **Teams page** - Fixed error handling to properly extract error message
+- **Phone page** - Added error state and display
+- **Calls page** - Added error handling, ensured transcript is always an array
+
+---
+
+### Service Connections Status
+
+| Service | Status | Purpose |
+|---------|--------|---------|
+| Supabase | ✅ Connected | Database & Auth |
+| Anthropic | ✅ Connected | Claude AI (claude-3-5-sonnet-latest) |
+| Modal | ✅ Connected | ML/Voice (Whisper STT, Kokoro TTS) |
+| Stripe | ✅ Connected | Payments |
+| Twilio | ✅ Connected | Phone/SMS |
+| Vercel | ✅ Hosting | Frontend deployment |
+| Railway | ✅ Hosting | Backend API |
+
+---
+
+### Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `main.py` | Root FastAPI backend with voice processing |
+| `backend/main.py` | Additional backend routes |
+| `config/settings.py` | Configuration constants |
+| `web/src/components/VoiceCall.tsx` | WebSocket voice streaming component |
+| `web/src/app/dashboard/assistants/page.tsx` | Assistant management UI |
+| `mobile/src/screens/AssistantsScreen.tsx` | Mobile assistant management |
+
+---
+
+## Contact
+
+- **Website**: [hive215.com](https://hive215.vercel.app)
+- **Support**: support@hive215.com
+
+---
+
 *Built with Claude AI, designed for humans.*
 
-**Last Updated**: 2025-11-26
+**Last Updated**: 2025-11-28
