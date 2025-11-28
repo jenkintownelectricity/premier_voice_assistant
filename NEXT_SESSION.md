@@ -1,547 +1,557 @@
-# 🚀 Next Session: Advanced Features Implementation
+# Next Session: Medium & Long-Term Feature Implementation
 
-**Session Status:** Ready to implement revolutionary features
-**Current Build:** Production-ready baseline (Token tracking, Error tracking, Budget alerts)
-**Next Goals:** AI Usage Coach, Advanced Observability, Team Collaboration
-
----
-
-## 📍 **WHERE WE ARE**
-
-### **✅ COMPLETED FEATURES (Production Ready)**
-
-1. **Token Usage & Cost Tracking**
-   - Backend tracks input/output tokens for all Claude API calls
-   - Real-time cost calculation using official Claude pricing
-   - Dashboard shows tokens, costs, averages per request
-   - 30-day analytics with trends
-   - **Files:** `backend/main.py`, `web/src/app/dashboard/page.tsx`
-
-2. **Error Rate Tracking**
-   - Success rate and error rate percentages
-   - Top error types categorization
-   - Color-coded metrics (green/yellow/red)
-   - Daily error tracking
-   - **Files:** `backend/main.py`, `web/src/app/dashboard/page.tsx`
-
-3. **Budget Tracking & Alerts**
-   - Monthly budget setting (/budget endpoint)
-   - Real-time usage vs. budget progress bar
-   - Warning alerts at 80%, 90%, 100% thresholds
-   - Color-coded status indicators
-   - **Files:** `backend/main.py`, `supabase/migrations/20250122_add_budget_tracking.sql`
-
-### **📊 Current Dashboard Capabilities:**
-- ✅ Token usage breakdown (input/output)
-- ✅ Running costs per request
-- ✅ Error rate monitoring
-- ✅ Success rate tracking
-- ✅ Monthly budget tracking
-- ✅ 30-day analytics
-- ✅ Real-time metrics
+**Last Updated:** November 28, 2025
+**Previous Session:** Completed all "Easy Wins" (sentiment display, latency monitoring, templates, quality scoring, IVR killer marketing)
+**Next Goals:** Human handoff, voice upgrade, appointment scheduling, and more
 
 ---
 
-## 🎯 **WHAT TO BUILD NEXT**
+## Current State
 
-### **Priority 1: AI Usage Coach** ⭐ **UNIQUE FEATURE**
+### Completed Features (Production Ready)
 
-**Objective:** Build an AI-powered weekly coach that analyzes usage and provides personalized recommendations.
+- Real-time sentiment display during calls
+- Real-time latency monitoring (STT/LLM/TTS breakdown)
+- Call quality scoring system (0-100 with A-F grades)
+- 9 industry quick-start templates
+- IVR Killer marketing positioning
+- Token usage & cost tracking
+- Error rate monitoring
+- Budget tracking with alerts
+- Twilio phone integration (live)
+
+### Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Frontend | Next.js 14, React Native (Expo) |
+| Backend | FastAPI (Python) on Railway |
+| Database | Supabase (PostgreSQL) |
+| AI | Claude 3.5 Sonnet Latest |
+| STT | Whisper (Modal) |
+| TTS | Kokoro (Modal) |
+| Payments | Stripe |
+| Telephony | Twilio |
+
+---
+
+## Medium Effort Features (1-2 weeks each)
+
+### Priority 1: Human Handoff System
+
+**Impact:** Critical for complex issues
+**Effort:** 1 week
+
+**What It Does:**
+When AI detects it can't resolve an issue or caller requests a human, seamlessly transfer to a live person with full context.
 
 **Implementation Steps:**
 
-#### **Backend (4-5 hours)**
+1. **Backend - Handoff Detection**
+```python
+# backend/main.py - Add to VoiceCallSession class
 
-1. **Create Weekly Insights Endpoint**
-   ```python
-   # backend/main.py
+HANDOFF_TRIGGERS = [
+    'speak to a human', 'talk to someone', 'real person',
+    'transfer me', 'manager', 'supervisor', 'representative',
+    'this isn\'t working', 'you\'re not understanding'
+]
 
-   @app.get("/insights/weekly")
-   async def get_weekly_insights(
-       user_id: str = Header(..., alias="X-User-ID"),
-       db: SupabaseManager = Depends(get_db),
-   ):
-       """Generate AI-powered weekly usage insights."""
+def detect_handoff_request(self, text: str) -> bool:
+    """Detect if caller wants human handoff."""
+    text_lower = text.lower()
+    return any(trigger in text_lower for trigger in self.HANDOFF_TRIGGERS)
 
-       # Get last 7 days of usage
-       from datetime import datetime, timedelta
-       week_ago = datetime.now() - timedelta(days=7)
-       two_weeks_ago = datetime.now() - timedelta(days=14)
+async def initiate_handoff(self, reason: str = 'user_requested'):
+    """Initiate transfer to human agent."""
+    # Create handoff record with full context
+    handoff_data = {
+        'call_id': self.call_id,
+        'transcript': self.transcript,
+        'sentiment': self.current_sentiment,
+        'urgency': self.urgency_level,
+        'reason': reason,
+        'caller_summary': self._generate_caller_summary()
+    }
 
-       # Query current week
-       current_week = db.client.table("va_usage_metrics").select(
-           "input_tokens, output_tokens, cost_cents, error, created_at"
-       ).eq("user_id", user_id).gte(
-           "created_at", week_ago.isoformat()
-       ).execute()
+    # Notify human agents (via webhook, SMS, or real-time dashboard)
+    await self.notify_available_agents(handoff_data)
 
-       # Query previous week for comparison
-       previous_week = db.client.table("va_usage_metrics").select(
-           "input_tokens, output_tokens, cost_cents"
-       ).eq("user_id", user_id).gte(
-           "created_at", two_weeks_ago.isoformat()
-       ).lt("created_at", week_ago.isoformat()).execute()
+    # Send handoff message to caller
+    await self.websocket.send_json({
+        "type": "handoff_initiated",
+        "message": "I'm connecting you with a team member now. One moment please.",
+        "estimated_wait": "under 2 minutes"
+    })
+```
 
-       # Aggregate stats
-       current_stats = {
-           "total_requests": len(current_week.data),
-           "total_tokens": sum(m.get("input_tokens", 0) + m.get("output_tokens", 0) for m in current_week.data),
-           "total_cost": sum(m.get("cost_cents", 0) for m in current_week.data) / 100,
-           "avg_tokens": sum(m.get("input_tokens", 0) + m.get("output_tokens", 0) for m in current_week.data) / len(current_week.data) if current_week.data else 0,
-           "errors": sum(1 for m in current_week.data if m.get("error"))
-       }
+2. **Frontend - Handoff UI**
+```typescript
+// Add to VoiceCall.tsx
+case 'handoff_initiated':
+  setHandoffStatus({
+    active: true,
+    message: data.message,
+    estimatedWait: data.estimated_wait
+  });
+  break;
+```
 
-       previous_stats = {
-           "total_cost": sum(m.get("cost_cents", 0) for m in previous_week.data) / 100,
-           "avg_tokens": sum(m.get("input_tokens", 0) + m.get("output_tokens", 0) for m in previous_week.data) / len(previous_week.data) if previous_week.data else 0,
-       }
+3. **Database Schema**
+```sql
+CREATE TABLE va_handoffs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  call_id UUID REFERENCES va_calls(id),
+  user_id UUID REFERENCES auth.users(id),
+  reason TEXT NOT NULL,
+  transcript JSONB,
+  sentiment TEXT,
+  urgency TEXT,
+  status TEXT DEFAULT 'pending', -- pending, accepted, completed, missed
+  accepted_by UUID REFERENCES auth.users(id),
+  accepted_at TIMESTAMP WITH TIME ZONE,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
 
-       # Calculate changes
-       cost_change = ((current_stats["total_cost"] - previous_stats["total_cost"]) / previous_stats["total_cost"] * 100) if previous_stats["total_cost"] > 0 else 0
-       tokens_change = ((current_stats["avg_tokens"] - previous_stats["avg_tokens"]) / previous_stats["avg_tokens"] * 100) if previous_stats["avg_tokens"] > 0 else 0
+4. **Agent Dashboard**
+- Real-time queue of pending handoffs
+- One-click accept
+- Full transcript and context visible
+- Call transfer via Twilio
 
-       # Generate AI insights
-       prompt = f"""You are an AI Usage Coach for a voice assistant platform. Analyze this week's API usage and provide personalized insights.
-
-CURRENT WEEK:
-- Total Requests: {current_stats['total_requests']}
-- Total Cost: ${current_stats['total_cost']:.2f}
-- Average Tokens/Request: {current_stats['avg_tokens']:.0f}
-- Errors: {current_stats['errors']}
-
-CHANGES vs PREVIOUS WEEK:
-- Cost: {cost_change:+.1f}%
-- Avg Tokens: {tokens_change:+.1f}%
-
-Generate a friendly, actionable weekly report with:
-1. 📊 Usage Snapshot (2-3 bullets)
-2. 💡 Optimization Opportunities (2-3 specific suggestions with estimated savings)
-3. 🏆 Benchmark (compare to typical users)
-4. 🎯 Next Week's Goal (one clear objective)
-
-Be specific, quantify savings, and make it motivating!"""
-
-       insights_response = await claude_api.messages.create(
-           model="claude-3-5-sonnet-20241022",
-           max_tokens=800,
-           messages=[{"role": "user", "content": prompt}]
-       )
-
-       return {
-           "week": {
-               "start": week_ago.isoformat(),
-               "end": datetime.now().isoformat()
-           },
-           "stats": current_stats,
-           "changes": {
-               "cost_change_percent": round(cost_change, 1),
-               "tokens_change_percent": round(tokens_change, 1)
-           },
-           "ai_insights": insights_response.content[0].text,
-           "recommendations": []  # Will be populated by AI analysis
-       }
-   ```
-
-2. **Add Cost Optimization Endpoint**
-   ```python
-   @app.get("/insights/cost-optimizer")
-   async def get_cost_optimizations(
-       user_id: str = Header(..., alias="X-User-ID"),
-       db: SupabaseManager = Depends(get_db),
-   ):
-       """AI-powered cost optimization suggestions."""
-
-       # Get usage by assistant, model, etc.
-       usage = await get_usage_analytics(user_id, days=30)
-
-       # Ask Claude to analyze and suggest optimizations
-       prompt = f"""Analyze API usage and suggest cost optimizations:
-
-Total Cost (30 days): ${usage['totals']['cost_dollars']:.2f}
-Total Requests: {usage['totals']['total_requests']}
-Avg Tokens/Request: {usage['averages']['tokens_per_request']:.0f}
-Input Tokens: {usage['totals']['input_tokens']} ({usage['totals']['input_tokens'] / usage['totals']['total_tokens'] * 100:.1f}%)
-Output Tokens: {usage['totals']['output_tokens']} ({usage['totals']['output_tokens'] / usage['totals']['total_tokens'] * 100:.1f}%)
-
-Suggest 3-5 specific optimizations:
-1. Model switches (when to use Haiku vs Sonnet)
-2. Prompt optimizations (reduce input tokens)
-3. Caching opportunities
-4. Usage pattern improvements
-
-For EACH suggestion, provide:
-- What to change
-- Why it helps
-- Estimated monthly savings in dollars
-- Confidence level (high/medium/low)"""
-
-       return await claude_analyze(prompt)
-   ```
-
-#### **Frontend (3-4 hours)**
-
-3. **Create AI Coach Dashboard Section**
-   ```typescript
-   // web/src/app/dashboard/insights/page.tsx
-
-   'use client';
-
-   import { useState, useEffect } from 'react';
-   import { Card, CardTitle, CardContent } from '@/components/Card';
-   import { useAuth } from '@/lib/auth-context';
-   import { api } from '@/lib/api';
-
-   export default function InsightsPage() {
-     const { user } = useAuth();
-     const [insights, setInsights] = useState(null);
-     const [loading, setLoading] = useState(true);
-
-     useEffect(() => {
-       if (user?.id) {
-         api.getWeeklyInsights(user.id).then(setInsights).finally(() => setLoading(false));
-       }
-     }, [user?.id]);
-
-     if (loading) return <div>Loading AI insights...</div>;
-
-     return (
-       <div className="space-y-6">
-         <h1 className="text-3xl font-bold text-gold">AI Usage Coach</h1>
-
-         {/* Weekly Report Card */}
-         <Card glow>
-           <CardTitle>Your Weekly Report</CardTitle>
-           <CardContent>
-             <div className="prose prose-invert max-w-none">
-               {insights?.ai_insights}
-             </div>
-           </CardContent>
-         </Card>
-
-         {/* Cost Optimizer Card */}
-         <Card>
-           <CardTitle>Cost Optimization Suggestions</CardTitle>
-           <CardContent>
-             {/* Render AI suggestions */}
-           </CardContent>
-         </Card>
-       </div>
-     );
-   }
-   ```
-
-**Cost:** ~$0.09/month per user (1 AI call per week)
-**Value:** UNIQUE feature, high user engagement
+**Files to Modify:**
+- `backend/main.py` - Handoff detection and initiation
+- `web/src/components/VoiceCall.tsx` - Handoff UI
+- `web/src/app/dashboard/handoffs/page.tsx` - NEW: Agent queue
+- Supabase migration for handoffs table
 
 ---
 
-### **Priority 2: Advanced Observability**
+### Priority 2: Voice Upgrade (Cartesia/ElevenLabs)
 
-**Objective:** Add latency percentiles, request tracing, error correlation.
+**Impact:** Premium voice quality = premium perception
+**Effort:** 1 week
 
-#### **Backend (5-6 hours)**
+**What It Does:**
+Replace Kokoro TTS with Cartesia Sonic or ElevenLabs for more natural, expressive voices.
 
-1. **Enhance Metrics Logging with Latency**
-   ```python
-   # backend/main.py - Update Claude API call tracking
+**Implementation Steps:**
 
-   # Store latency in milliseconds
-   start_time = time.time()
-   response = self.anthropic_client.messages.create(...)
-   latency_ms = int((time.time() - start_time) * 1000)
+1. **Add Cartesia Integration**
+```python
+# modal_deployment/cartesia_tts.py
 
-   # Log with latency
-   self.supabase.log_usage_metric(
-       user_id=user_id,
-       llm_latency_ms=latency_ms,
-       input_tokens=input_tokens,
-       output_tokens=output_tokens,
-       cost_cents=cost_cents
-   )
-   ```
+import modal
+import httpx
 
-2. **Add Latency Percentiles Endpoint**
-   ```python
-   @app.get("/observability/latency")
-   async def get_latency_stats(
-       user_id: str = Header(..., alias="X-User-ID"),
-       days: int = 7,
-       db: SupabaseManager = Depends(get_db),
-   ):
-       """Get latency percentiles (P50, P95, P99)."""
+app = modal.App("cartesia-tts")
 
-       import numpy as np
-       from datetime import datetime, timedelta
+@app.function(secrets=[modal.Secret.from_name("cartesia-api-key")])
+async def synthesize_cartesia(
+    text: str,
+    voice_id: str = "a0e99841-438c-4a64-b679-ae501e7d6091",  # Sonic default
+    model: str = "sonic-english",
+    output_format: str = "mp3"
+) -> bytes:
+    """Synthesize speech using Cartesia Sonic."""
 
-       start_date = datetime.now() - timedelta(days=days)
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://api.cartesia.ai/tts/bytes",
+            headers={
+                "X-API-Key": os.environ["CARTESIA_API_KEY"],
+                "Cartesia-Version": "2024-06-10"
+            },
+            json={
+                "model_id": model,
+                "transcript": text,
+                "voice": {"mode": "id", "id": voice_id},
+                "output_format": {
+                    "container": output_format,
+                    "sample_rate": 44100
+                }
+            }
+        )
+        return response.content
+```
 
-       result = db.client.table("va_usage_metrics").select(
-           "llm_latency_ms"
-       ).eq("user_id", user_id).gte(
-           "created_at", start_date.isoformat()
-       ).not_.is_("llm_latency_ms", "null").execute()
+2. **Add ElevenLabs Integration**
+```python
+# modal_deployment/elevenlabs_tts.py
 
-       latencies = [m["llm_latency_ms"] for m in result.data]
+@app.function(secrets=[modal.Secret.from_name("elevenlabs-api-key")])
+async def synthesize_elevenlabs(
+    text: str,
+    voice_id: str = "21m00Tcm4TlvDq8ikWAM",  # Rachel
+    model: str = "eleven_turbo_v2"
+) -> bytes:
+    """Synthesize speech using ElevenLabs."""
 
-       if not latencies:
-           return {"error": "No latency data"}
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            headers={"xi-api-key": os.environ["ELEVENLABS_API_KEY"]},
+            json={
+                "text": text,
+                "model_id": model,
+                "voice_settings": {
+                    "stability": 0.5,
+                    "similarity_boost": 0.75
+                }
+            }
+        )
+        return response.content
+```
 
-       return {
-           "period_days": days,
-           "total_requests": len(latencies),
-           "percentiles": {
-               "p50": int(np.percentile(latencies, 50)),  # Median
-               "p75": int(np.percentile(latencies, 75)),
-               "p90": int(np.percentile(latencies, 90)),
-               "p95": int(np.percentile(latencies, 95)),
-               "p99": int(np.percentile(latencies, 99))
-           },
-           "avg": int(np.mean(latencies)),
-           "min": int(np.min(latencies)),
-           "max": int(np.max(latencies))
-       }
-   ```
+3. **Backend TTS Router**
+```python
+# backend/main.py
 
-3. **Error Correlation Analysis**
-   ```python
-   @app.get("/observability/error-correlation")
-   async def get_error_correlation(
-       user_id: str = Header(..., alias="X-User-ID"),
-       days: int = 7,
-       db: SupabaseManager = Depends(get_db),
-   ):
-       """Find patterns in errors (time of day, latency spikes, etc)."""
+async def synthesize_speech(self, text: str, voice_config: dict) -> bytes:
+    """Route TTS to appropriate provider."""
+    provider = voice_config.get('provider', 'kokoro')
 
-       # Get errors with context
-       errors = db.client.table("va_usage_metrics").select(
-           "error, llm_latency_ms, created_at, event_type"
-       ).eq("user_id", user_id).not_.is_("error", "null").execute()
+    if provider == 'cartesia':
+        return await cartesia_tts.synthesize(text, voice_config['voice_id'])
+    elif provider == 'elevenlabs':
+        return await elevenlabs_tts.synthesize(text, voice_config['voice_id'])
+    else:
+        return await kokoro_tts.synthesize(text, voice_config['voice_id'])
+```
 
-       # Analyze patterns
-       patterns = {
-           "by_hour": {},
-           "by_latency": {"high_latency_errors": 0, "normal_latency_errors": 0},
-           "by_event_type": {}
-       }
+4. **Voice Selection UI**
+- Add provider selector in assistant settings
+- Preview voices before selecting
+- Show cost per minute for each provider
 
-       for error in errors.data:
-           # Time of day pattern
-           hour = error["created_at"][11:13]  # Extract hour
-           patterns["by_hour"][hour] = patterns["by_hour"].get(hour, 0) + 1
+**Pricing Comparison:**
+| Provider | Cost/1000 chars | Quality | Latency |
+|----------|-----------------|---------|---------|
+| Kokoro (current) | ~$0.0002 | Good | ~200ms |
+| Cartesia Sonic | $0.015 | Excellent | ~100ms |
+| ElevenLabs Turbo | $0.18 | Premium | ~150ms |
 
-           # Latency correlation
-           if error.get("llm_latency_ms", 0) > 2000:  # > 2 seconds
-               patterns["by_latency"]["high_latency_errors"] += 1
-           else:
-               patterns["by_latency"]["normal_latency_errors"] += 1
-
-       return patterns
-   ```
-
-**Value:** Enterprise-grade observability for free
-
----
-
-### **Priority 3: Team Collaboration**
-
-**Objective:** Multi-user workspaces, shared dashboards, role-based access.
-
-#### **Backend (6-8 hours)**
-
-1. **Create Teams/Workspaces Table**
-   ```sql
-   -- supabase/migrations/20250123_add_teams.sql
-
-   CREATE TABLE IF NOT EXISTS va_teams (
-     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-     name TEXT NOT NULL,
-     owner_id UUID NOT NULL REFERENCES auth.users(id),
-     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-   );
-
-   CREATE TABLE IF NOT EXISTS va_team_members (
-     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-     team_id UUID NOT NULL REFERENCES va_teams(id) ON DELETE CASCADE,
-     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-     role TEXT NOT NULL DEFAULT 'member', -- 'owner', 'admin', 'member', 'viewer'
-     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-     UNIQUE(team_id, user_id)
-   );
-
-   CREATE INDEX idx_team_members_team ON va_team_members(team_id);
-   CREATE INDEX idx_team_members_user ON va_team_members(user_id);
-   ```
-
-2. **Add Team Analytics Endpoint**
-   ```python
-   @app.get("/teams/{team_id}/analytics")
-   async def get_team_analytics(
-       team_id: str,
-       user_id: str = Header(..., alias="X-User-ID"),
-       days: int = 30,
-       db: SupabaseManager = Depends(get_db),
-   ):
-       """Get aggregated analytics for entire team."""
-
-       # Verify user is team member
-       member = db.client.table("va_team_members").select("role").eq(
-           "team_id", team_id
-       ).eq("user_id", user_id).execute()
-
-       if not member.data:
-           raise HTTPException(403, "Not a team member")
-
-       # Get all team member IDs
-       members = db.client.table("va_team_members").select(
-           "user_id"
-       ).eq("team_id", team_id).execute()
-
-       user_ids = [m["user_id"] for m in members.data]
-
-       # Aggregate usage across all team members
-       # ... (similar to individual analytics but aggregated)
-
-       return team_stats
-   ```
-
-**Value:** Essential for B2B customers, unlocks enterprise sales
+**Files to Modify:**
+- `modal_deployment/cartesia_tts.py` - NEW
+- `modal_deployment/elevenlabs_tts.py` - NEW
+- `backend/main.py` - TTS router
+- `web/src/app/dashboard/assistants/page.tsx` - Voice selector
+- `.env.example` - Add API keys
 
 ---
 
-## 📋 **IMPLEMENTATION CHECKLIST**
+### Priority 3: Appointment Scheduling
 
-### **AI Usage Coach:**
-- [ ] Create `/insights/weekly` endpoint
-- [ ] Create `/insights/cost-optimizer` endpoint
-- [ ] Add `api.getWeeklyInsights()` to frontend
-- [ ] Create new page: `dashboard/insights/page.tsx`
-- [ ] Add navigation link to insights page
-- [ ] Test with real user data
-- [ ] Deploy and monitor
+**Impact:** AI books appointments directly - huge value prop
+**Effort:** 1 week
 
-### **Advanced Observability:**
-- [ ] Add latency tracking to all API calls
-- [ ] Create `/observability/latency` endpoint
-- [ ] Create `/observability/error-correlation` endpoint
-- [ ] Add latency percentiles card to dashboard
-- [ ] Add error correlation visualization
-- [ ] Test percentile calculations
-- [ ] Deploy and validate
+**What It Does:**
+AI can check availability and book appointments during the call, then send confirmation.
 
-### **Team Collaboration:**
-- [ ] Run team tables migration
-- [ ] Create team CRUD endpoints
-- [ ] Create team analytics endpoint
-- [ ] Add team switcher to UI
-- [ ] Create team settings page
-- [ ] Implement role-based permissions
-- [ ] Test multi-user scenarios
-- [ ] Deploy with feature flag
+**Implementation Steps:**
+
+1. **Availability Slots Table**
+```sql
+CREATE TABLE va_availability_slots (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES auth.users(id),
+  day_of_week INT NOT NULL, -- 0-6 (Sunday-Saturday)
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  slot_duration_minutes INT DEFAULT 30,
+  is_active BOOLEAN DEFAULT true
+);
+
+CREATE TABLE va_appointments (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES auth.users(id),
+  call_id UUID REFERENCES va_calls(id),
+  customer_name TEXT NOT NULL,
+  customer_phone TEXT,
+  customer_email TEXT,
+  scheduled_date DATE NOT NULL,
+  scheduled_time TIME NOT NULL,
+  duration_minutes INT DEFAULT 30,
+  service_type TEXT,
+  notes TEXT,
+  status TEXT DEFAULT 'confirmed', -- confirmed, cancelled, completed, no_show
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+2. **Backend Scheduling Functions**
+```python
+# backend/main.py
+
+@app.get("/scheduling/availability/{date}")
+async def get_availability(
+    date: str,  # YYYY-MM-DD
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db)
+):
+    """Get available time slots for a specific date."""
+    # Get user's availability rules
+    # Check existing appointments
+    # Return open slots
+    pass
+
+@app.post("/scheduling/book")
+async def book_appointment(
+    appointment: AppointmentRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db)
+):
+    """Book an appointment slot."""
+    # Validate slot is available
+    # Create appointment record
+    # Send confirmation (SMS/email)
+    pass
+```
+
+3. **AI Scheduling Prompt Addition**
+```python
+SCHEDULING_PROMPT = """
+When the caller wants to schedule an appointment:
+1. Ask what service they need
+2. Ask for their preferred date (offer next 7 days)
+3. Check availability using the check_availability function
+4. Confirm the booking
+5. Get their name and phone for confirmation
+
+Available functions:
+- check_availability(date) - returns open time slots
+- book_appointment(date, time, name, phone, service) - books the slot
+"""
+```
+
+4. **Confirmation System**
+- Send SMS confirmation via Twilio
+- Send email confirmation via Resend/SendGrid
+- Add to user's calendar (Google Calendar API)
+
+**Files to Modify:**
+- Supabase migration for scheduling tables
+- `backend/main.py` - Scheduling endpoints
+- `web/src/app/dashboard/scheduling/page.tsx` - NEW: Calendar view
+- `backend/twilio_integration.py` - SMS confirmations
 
 ---
 
-## 💾 **FILES TO MODIFY**
+### Priority 4: Multi-Language Support
 
-### **Backend:**
-- `backend/main.py` - Add new endpoints
-- `backend/supabase_client.py` - Add team queries (if needed)
-- `supabase/migrations/20250123_add_teams.sql` - Team tables
+**Impact:** Expand to non-English markets
+**Effort:** 1 week
 
-### **Frontend:**
-- `web/src/lib/api.ts` - Add new API methods
-- `web/src/app/dashboard/insights/page.tsx` - NEW: AI Coach page
-- `web/src/app/dashboard/observability/page.tsx` - NEW: Observability page
-- `web/src/app/dashboard/teams/page.tsx` - NEW: Team management
+**What It Does:**
+Whisper already supports 22 languages - expose this capability with proper TTS matching.
 
-### **Dependencies:**
+**Implementation Steps:**
+
+1. **Language Detection**
+```python
+# Whisper already returns detected language
+stt_result = voice_assistant.transcribe_audio(audio_bytes, user_id)
+detected_language = stt_result.get('language', 'en')
+```
+
+2. **Language-Matched TTS**
+```python
+LANGUAGE_VOICE_MAP = {
+    'en': {'kokoro': 'af_bella', 'elevenlabs': '21m00Tcm4TlvDq8ikWAM'},
+    'es': {'kokoro': 'es_male', 'elevenlabs': 'pNInz6obpgDQGcFmaJgB'},
+    'fr': {'kokoro': 'fr_female', 'elevenlabs': 'ThT5KcBeYPX3keUQqHPh'},
+    'de': {'kokoro': 'de_female', 'elevenlabs': '...'},
+    # ... more languages
+}
+```
+
+3. **Assistant Language Settings**
+- Default language
+- Auto-detect option
+- Language-specific system prompts
+
+**Files to Modify:**
+- `backend/main.py` - Language routing
+- `config/settings.py` - Language voice mapping
+- `web/src/app/dashboard/assistants/page.tsx` - Language selector
+
+---
+
+### Priority 5: Continuous Learning Feedback
+
+**Impact:** Calls improve over time based on feedback
+**Effort:** 2 weeks
+
+**What It Does:**
+Users can thumbs up/down calls, AI learns from feedback patterns.
+
+**Implementation Steps:**
+
+1. **Feedback Table**
+```sql
+CREATE TABLE va_call_feedback (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  call_id UUID REFERENCES va_calls(id),
+  user_id UUID REFERENCES auth.users(id),
+  rating INT CHECK (rating >= 1 AND rating <= 5),
+  thumbs_up BOOLEAN,
+  feedback_text TEXT,
+  improvement_areas TEXT[], -- ['accuracy', 'tone', 'speed', 'relevance']
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+2. **Feedback API**
+```python
+@app.post("/calls/{call_id}/feedback")
+async def submit_feedback(
+    call_id: str,
+    feedback: FeedbackRequest,
+    user_id: str = Header(..., alias="X-User-ID")
+):
+    """Submit feedback for a call."""
+    pass
+
+@app.get("/feedback/insights")
+async def get_feedback_insights(
+    user_id: str = Header(..., alias="X-User-ID"),
+    days: int = 30
+):
+    """Get aggregated feedback insights."""
+    # What's working well
+    # Areas for improvement
+    # Trends over time
+    pass
+```
+
+3. **Feedback UI**
+- Post-call rating modal
+- Quick thumbs up/down
+- Optional detailed feedback
+- Insights dashboard
+
+**Files to Modify:**
+- Supabase migration for feedback table
+- `backend/main.py` - Feedback endpoints
+- `web/src/components/VoiceCall.tsx` - Post-call feedback
+- `web/src/app/dashboard/feedback/page.tsx` - NEW: Insights
+
+---
+
+## Long-Term Features (1+ month)
+
+### Pipecat Integration (2 weeks)
+
+**What:** Replace custom voice pipeline with Pipecat framework
+**Why:** Simplify backend, easier to swap components, better maintained
+**Reference:** https://github.com/pipecat-ai/pipecat
+
+### Speech-to-Speech Integration (6-8 weeks)
+
+**What:** Direct audio-to-audio without intermediate text
+**Why:** Lower latency, more natural responses
+**Wait For:** Costs to drop (currently ~$20/hour via OpenAI)
+
+### Full CRM Integration Suite (1 month)
+
+**What:** Deep integrations with Salesforce, HubSpot, Pipedrive
+**Why:** Enterprise customers expect CRM sync
+**Includes:** Auto-create leads, update records, log activities
+
+### White-Label Platform (2 months)
+
+**What:** Let other businesses resell HIVE215
+**Why:** Massive revenue potential, network effects
+**Includes:** Custom branding, API access, revenue sharing
+
+### Outbound Calling Campaigns (1 month)
+
+**What:** AI makes outbound calls for reminders, follow-ups, surveys
+**Why:** Proactive engagement, higher conversion rates
+**Includes:** Campaign builder, scheduling, compliance tools
+
+---
+
+## Implementation Order
+
+### Week 1-2: Human Handoff + Appointment Scheduling
+These are the highest-value features for small businesses.
+
+### Week 3-4: Voice Upgrade + Multi-Language
+Improved quality and expanded market reach.
+
+### Week 5-6: Continuous Learning Feedback
+Start building the data flywheel for improvement.
+
+### Month 2+: Long-term features based on customer demand
+
+---
+
+## Quick Start for Next Session
+
 ```bash
-# Backend - Add numpy for percentile calculations
-pip install numpy
+# 1. Check current state
+git status
+git log --oneline -5
 
-# Frontend - No new dependencies needed
+# 2. Create feature branch
+git checkout -b feature/human-handoff
+
+# 3. Start with database migration
+# Create supabase/migrations/YYYYMMDD_add_handoffs.sql
+
+# 4. Implement backend changes
+# Edit backend/main.py
+
+# 5. Implement frontend changes
+# Edit web/src/components/VoiceCall.tsx
+# Create web/src/app/dashboard/handoffs/page.tsx
+
+# 6. Test locally
+npm run dev  # Frontend
+python -m backend.main  # Backend
+
+# 7. Deploy
+git add -A && git commit -m "Add human handoff system"
+git push -u origin feature/human-handoff
 ```
 
 ---
 
-## 🎯 **SUCCESS METRICS**
+## Environment Variables Needed
 
-After implementing these features, you'll have:
+```bash
+# For Voice Upgrade
+CARTESIA_API_KEY=your-cartesia-key
+ELEVENLABS_API_KEY=your-elevenlabs-key
 
-1. **AI Usage Coach:**
-   - ✅ Weekly AI-generated insights
-   - ✅ Personalized cost optimization suggestions
-   - ✅ Gamification (efficiency scores)
-   - ✅ UNIQUE feature no competitor has
+# For Appointment Scheduling
+GOOGLE_CALENDAR_API_KEY=your-google-key  # Optional
+RESEND_API_KEY=your-resend-key  # For email confirmations
 
-2. **Advanced Observability:**
-   - ✅ Latency percentiles (P50, P95, P99)
-   - ✅ Error correlation analysis
-   - ✅ Request-level insights
-   - ✅ Enterprise-grade monitoring
-
-3. **Team Collaboration:**
-   - ✅ Multi-user workspaces
-   - ✅ Team-wide analytics
-   - ✅ Role-based access control
-   - ✅ B2B-ready platform
-
-**Competitive Score: 90%+** (up from 75%)
+# Already configured
+ANTHROPIC_API_KEY=...
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+```
 
 ---
 
-## 🚀 **DEPLOYMENT STRATEGY**
+## Success Metrics
 
-1. **Implement in Order:**
-   - Start with AI Usage Coach (highest impact, unique)
-   - Then Advanced Observability (developer-focused)
-   - Finally Team Collaboration (enables B2B)
-
-2. **Test Incrementally:**
-   - Deploy each feature to production separately
-   - Monitor for errors and performance
-   - Gather user feedback
-
-3. **Feature Flags:**
-   - Use environment variables to toggle features
-   - Roll out to beta users first
-   - Gradual rollout to all users
+After implementing medium features:
+- Human handoff: <30 second transfer time
+- Voice quality: User satisfaction >90%
+- Appointment booking: 50%+ conversion on scheduling requests
+- Multi-language: Support top 5 languages
+- Feedback: >20% of calls receive feedback
 
 ---
 
-## 📚 **REFERENCES**
+**Status:** Ready to implement
+**Priority:** Human Handoff > Appointment Scheduling > Voice Upgrade
+**Estimated Total:** 6-8 weeks for all medium features
 
-- **Current Implementation:** See `IMPLEMENTATION_SUMMARY.md`
-- **Competitive Analysis:** See `DASHBOARD_COMPETITIVE_ANALYSIS.md`
-- **Architecture Guide:** See `LEGACY_TOOLS_AI_REVAMP.md`
-
----
-
-## ⚡ **QUICK START**
-
-When you begin the next session:
-
-1. **Review Current State:**
-   ```bash
-   git status
-   git log --oneline -10
-   ```
-
-2. **Read This File:**
-   - Understand what's been built
-   - Review implementation steps
-
-3. **Start with AI Usage Coach:**
-   - Highest impact
-   - Unique differentiator
-   - Quick to implement (4-5 hours)
-
-4. **Deploy Incrementally:**
-   - Build → Test → Deploy → Iterate
-
----
-
-**Status:** 🟢 Ready to implement
-**Estimated Time:** 15-20 hours total
-**Expected Outcome:** 90%+ competitive with industry leaders
-
-**Good luck building revolutionary features! 🚀**
+Good luck! You've got an excellent foundation - now make it exceptional.
