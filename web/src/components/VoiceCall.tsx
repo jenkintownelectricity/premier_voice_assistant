@@ -57,6 +57,7 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [streamingMode, setStreamingMode] = useState(false);
 
   // Real-time sentiment state
   const [sentiment, setSentiment] = useState<SentimentData | null>(null);
@@ -71,6 +72,9 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<string[]>([]);
   const isPlayingRef = useRef(false);
+  const streamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
 
   const playNextAudio = useCallback(async () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
@@ -110,6 +114,12 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
         case 'speaking': setIsSpeaking(data.is_speaking); break;
         case 'sentiment': setSentiment(data.data); break;
         case 'latency': setLatency(data.data); break;
+        case 'info':
+          // Check if streaming mode is active
+          if (data.message?.includes('Streaming pipeline active')) {
+            setStreamingMode(true);
+          }
+          break;
         case 'error': setError(data.message); break;
         case 'call_ended':
           if (data.quality_score) {
@@ -125,37 +135,177 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
     ws.onclose = () => setIsConnected(false);
   }, [assistantId, userId, playNextAudio]);
 
-  const disconnect = useCallback(() => {
-    if (wsRef.current) { wsRef.current.send(JSON.stringify({ type: 'end_call' })); wsRef.current.close(); }
-    if (mediaRecorderRef.current?.state !== 'inactive') mediaRecorderRef.current?.stop();
-    setIsConnected(false);
+  const stopRecording = useCallback(() => {
+    // Stop ScriptProcessor streaming
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+    // Stop MediaRecorder (batch mode)
+    if (mediaRecorderRef.current?.state !== 'inactive') {
+      mediaRecorderRef.current?.stop();
+    }
+    // Stop media stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
     setIsRecording(false);
+  }, []);
+
+  const disconnect = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.send(JSON.stringify({ type: 'end_call' }));
+      wsRef.current.close();
+    }
+    stopRecording();
+    setIsConnected(false);
+  }, [stopRecording]);
+
+  // Convert Float32 audio samples to 16-bit PCM
+  const floatTo16BitPCM = (float32Array: Float32Array): ArrayBuffer => {
+    const buffer = new ArrayBuffer(float32Array.length * 2);
+    const view = new DataView(buffer);
+    for (let i = 0; i < float32Array.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32Array[i]));
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    return buffer;
+  };
+
+  // Downsample from source sample rate to 16kHz
+  const downsampleBuffer = (buffer: Float32Array, sampleRate: number, targetRate: number): Float32Array => {
+    if (sampleRate === targetRate) return buffer;
+    const sampleRateRatio = sampleRate / targetRate;
+    const newLength = Math.round(buffer.length / sampleRateRatio);
+    const result = new Float32Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+    while (offsetResult < result.length) {
+      const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+      let accum = 0, count = 0;
+      for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+        accum += buffer[i];
+        count++;
+      }
+      result[offsetResult] = accum / count;
+      offsetResult++;
+      offsetBuffer = nextOffsetBuffer;
+    }
+    return result;
+  };
+
+  const startStreamingRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }
+      });
+      streamRef.current = stream;
+
+      // Create AudioContext for raw PCM capture
+      const audioContext = new AudioContext({ sampleRate: 16000 });
+      audioContextRef.current = audioContext;
+
+      const source = audioContext.createMediaStreamSource(stream);
+      sourceRef.current = source;
+
+      // Use ScriptProcessorNode for raw PCM (deprecated but widely supported)
+      // Buffer size: 4096 samples at 16kHz = 256ms chunks
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+
+      processor.onaudioprocess = (e) => {
+        if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+
+        const inputData = e.inputBuffer.getChannelData(0);
+        // Downsample if needed (AudioContext might not honor sampleRate request)
+        const downsampled = downsampleBuffer(inputData, audioContext.sampleRate, 16000);
+        const pcmBuffer = floatTo16BitPCM(downsampled);
+
+        // Convert to base64 and send
+        const bytes = new Uint8Array(pcmBuffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64 = btoa(binary);
+
+        wsRef.current?.send(JSON.stringify({
+          type: 'audio',
+          data: base64,
+          format: 'pcm_16000'  // Tell backend this is raw PCM
+        }));
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+      setIsRecording(true);
+      console.log('Started streaming PCM audio capture');
+    } catch (err) {
+      console.error('Failed to start streaming recording:', err);
+      setError('Microphone access denied');
+    }
+  }, []);
+
+  const startBatchRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }
+      });
+      streamRef.current = stream;
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = async (event) => {
+        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64 = (reader.result as string).split(',')[1];
+            wsRef.current?.send(JSON.stringify({ type: 'audio', data: base64 }));
+          };
+          reader.readAsDataURL(event.data);
+        }
+      };
+
+      mediaRecorder.start(3000);  // 3 second chunks for batch processing
+      setIsRecording(true);
+      console.log('Started batch audio recording (webm/opus)');
+    } catch (err) {
+      console.error('Failed to start batch recording:', err);
+      setError('Microphone access denied');
+    }
   }, []);
 
   const toggleRecording = useCallback(async () => {
     if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      setIsRecording(false);
+      stopRecording();
     } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-        mediaRecorderRef.current = mediaRecorder;
-        mediaRecorder.ondataavailable = async (event) => {
-          if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64 = (reader.result as string).split(',')[1];
-              wsRef.current?.send(JSON.stringify({ type: 'audio', data: base64 }));
-            };
-            reader.readAsDataURL(event.data);
-          }
-        };
-        mediaRecorder.start(3000);
-        setIsRecording(true);
-      } catch { setError('Microphone access denied'); }
+      // Use streaming PCM for Deepgram, batch webm for Modal fallback
+      // For now, always use batch until backend signals streaming is ready
+      // The backend will check the 'format' field to know which mode
+      if (streamingMode) {
+        await startStreamingRecording();
+      } else {
+        await startBatchRecording();
+      }
     }
-  }, [isRecording]);
+  }, [isRecording, streamingMode, stopRecording, startStreamingRecording, startBatchRecording]);
 
   useEffect(() => { return () => { disconnect(); }; }, [disconnect]);
 

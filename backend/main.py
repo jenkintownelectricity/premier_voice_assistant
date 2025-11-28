@@ -4233,14 +4233,18 @@ async def websocket_voice_endpoint(
                     except Exception:
                         continue
 
-                    # NOTE: Streaming pipeline disabled until frontend sends raw PCM audio
-                    # The current frontend sends webm/opus which Deepgram can't process
-                    # TODO: Update frontend VoiceCall.tsx to use AudioWorklet for raw PCM
-                    # if streaming_pipeline:
-                    #     await streaming_pipeline.send_audio(audio_bytes)
-                    #     continue
+                    # Check audio format from frontend
+                    # 'pcm_16000' = raw PCM for streaming, empty = webm/opus for batch
+                    audio_format = message.get('format', '')
 
-                    # Batch processing mode (Modal STT/TTS)
+                    # Route to streaming pipeline if enabled AND frontend sends raw PCM
+                    if streaming_pipeline and audio_format == 'pcm_16000':
+                        # Streaming mode: Send raw PCM audio to Deepgram
+                        # Pipeline handles STT -> LLM -> TTS automatically via callbacks
+                        await streaming_pipeline.send_audio(audio_bytes)
+                        continue
+
+                    # Batch processing mode (Modal STT/TTS) - handles webm/opus audio
                     session.should_stop_tts = False
 
                     # 1. STT - Transcribe audio
