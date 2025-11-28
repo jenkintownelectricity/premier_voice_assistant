@@ -4123,7 +4123,9 @@ async def websocket_voice_endpoint(
                         llm_latency = int((time.time() - llm_start) * 1000)
                     except Exception as e:
                         logger.error(f"LLM error: {e}")
-                        assistant_text = "I'm sorry, I encountered an error. Please try again."
+                        import traceback
+                        logger.error(f"LLM traceback: {traceback.format_exc()}")
+                        assistant_text = f"I'm sorry, I encountered an error. Please try again."
 
                     # Check for barge-in before sending response
                     if session.should_stop_tts:
