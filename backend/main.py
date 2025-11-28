@@ -25,6 +25,10 @@ from backend.supabase_client import get_supabase, SupabaseManager
 from backend.feature_gates import get_feature_gate, FeatureGateError
 from backend.stripe_payments import get_stripe_payments, handle_webhook_event, validate_stripe_config
 from backend.twilio_integration import get_twilio_service, validate_twilio_config
+from backend.model_manager import (
+    get_model_manager, get_model, get_model_with_fallback,
+    validate_models_on_startup, ResilientAnthropicClient
+)
 
 # Configure logging
 logging.basicConfig(
@@ -514,6 +518,53 @@ async def health_check():
         "service": "Premier Voice Assistant",
         "version": "0.2.0",
     }
+
+
+@app.get("/models/status")
+async def model_status():
+    """
+    Get status of available models with automatic fallback info.
+
+    Returns:
+        Model validation report showing available/deprecated models
+    """
+    try:
+        report = validate_models_on_startup()
+        return {
+            "status": "ok",
+            "report": report,
+        }
+    except Exception as e:
+        logger.error(f"Model status check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+        }
+
+
+@app.get("/models/current")
+async def current_models():
+    """
+    Get currently selected models for each family.
+
+    Returns:
+        Currently active model for each family (sonnet, haiku, opus)
+    """
+    try:
+        manager = get_model_manager()
+        return {
+            "status": "ok",
+            "models": {
+                family: manager.get_model(family)
+                for family in manager.get_all_families()
+            },
+        }
+    except Exception as e:
+        logger.error(f"Current models check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+        }
 
 
 @app.post("/transcribe")
@@ -4100,7 +4151,7 @@ async def websocket_voice_endpoint(
                         "data": sentiment_data
                     })
 
-                    # 2. LLM - Generate response
+                    # 2. LLM - Generate response (with automatic model fallback)
                     llm_start = time.time()
                     llm_latency = 0  # Initialize in case of error
                     try:
@@ -4112,16 +4163,59 @@ async def websocket_voice_endpoint(
                                 "content": t['content']
                             })
 
-                        response = voice_assistant.anthropic_client.messages.create(
-                            model=assistant.get('model', 'claude-sonnet-4-5-20250929'),
-                            max_tokens=assistant.get('max_tokens', 150),
-                            temperature=float(assistant.get('temperature', 0.7)),
-                            system=assistant['system_prompt'],
-                            messages=messages
-                        )
+                        # Use model manager to get best available model
+                        # If assistant has specific model, use it; otherwise use auto-selection
+                        configured_model = assistant.get('model', '')
+                        model_manager = get_model_manager()
 
-                        assistant_text = response.content[0].text
-                        llm_latency = int((time.time() - llm_start) * 1000)
+                        # Determine model family from configured model
+                        if 'haiku' in configured_model.lower():
+                            model_family = 'haiku'
+                        elif 'opus' in configured_model.lower():
+                            model_family = 'opus'
+                        else:
+                            model_family = 'sonnet'
+
+                        # Get best available model (handles deprecation automatically)
+                        selected_model = model_manager.get_model(model_family)
+                        logger.debug(f"Using model: {selected_model} (family: {model_family})")
+
+                        # Try with automatic fallback on 404 errors
+                        max_retries = 3
+                        last_error = None
+                        excluded_models = []
+
+                        for attempt in range(max_retries):
+                            try:
+                                response = voice_assistant.anthropic_client.messages.create(
+                                    model=selected_model,
+                                    max_tokens=assistant.get('max_tokens', 150),
+                                    temperature=float(assistant.get('temperature', 0.7)),
+                                    system=assistant['system_prompt'],
+                                    messages=messages
+                                )
+                                assistant_text = response.content[0].text
+                                llm_latency = int((time.time() - llm_start) * 1000)
+                                break  # Success!
+
+                            except Exception as api_error:
+                                error_str = str(api_error).lower()
+                                if '404' in error_str or 'not_found' in error_str or 'deprecated' in error_str:
+                                    # Model deprecated - try fallback
+                                    logger.warning(f"Model {selected_model} unavailable, trying fallback...")
+                                    excluded_models.append(selected_model)
+                                    model_manager.mark_model_failed(selected_model)
+                                    selected_model = model_manager.get_model(model_family, exclude=excluded_models)
+                                    logger.info(f"Falling back to: {selected_model}")
+                                    last_error = api_error
+                                else:
+                                    # Other error - don't retry with different model
+                                    raise
+                        else:
+                            # All retries exhausted
+                            if last_error:
+                                raise last_error
+
                     except Exception as e:
                         logger.error(f"LLM error: {e}")
                         import traceback
