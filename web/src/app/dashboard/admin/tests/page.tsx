@@ -169,7 +169,7 @@ export default function AdminTestsPage() {
         system_prompt: 'You are a test assistant for API testing.',
         description: 'Created by admin test dashboard',
         voice_id: 'default',
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-3-5-sonnet-latest',
         temperature: 0.7,
         max_tokens: 150,
       });

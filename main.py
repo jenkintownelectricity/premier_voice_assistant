@@ -35,9 +35,13 @@ logger = logging.getLogger(__name__)
 # Claude API Pricing (per million tokens) - as of 2025
 # Source: https://www.anthropic.com/pricing
 CLAUDE_PRICING = {
-    "claude-3-5-sonnet-20241022": {
+    "claude-3-5-sonnet-latest": {
         "input": 3.00,    # $3.00 per 1M input tokens
         "output": 15.00,  # $15.00 per 1M output tokens
+    },
+    "claude-3-5-sonnet-20241022": {
+        "input": 3.00,
+        "output": 15.00,
     },
     "claude-3-5-sonnet-20240620": {
         "input": 3.00,
@@ -66,7 +70,7 @@ def calculate_claude_cost(model: str, input_tokens: int, output_tokens: int) -> 
         Cost in cents (e.g., 0.05 = $0.0005)
     """
     # Get pricing for the model (default to Sonnet if not found)
-    pricing = CLAUDE_PRICING.get(model, CLAUDE_PRICING["claude-3-5-sonnet-20241022"])
+    pricing = CLAUDE_PRICING.get(model, CLAUDE_PRICING["claude-3-5-sonnet-latest"])
 
     # Calculate cost: (tokens / 1,000,000) * price_per_million
     input_cost = (input_tokens / 1_000_000) * pricing["input"]
@@ -158,7 +162,7 @@ class CreateAssistantRequest(BaseModel):
     system_prompt: str
     description: Optional[str] = None
     voice_id: Optional[str] = "default"
-    model: Optional[str] = "claude-3-5-sonnet-20241022"
+    model: Optional[str] = "claude-3-5-sonnet-latest"
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 150
     first_message: Optional[str] = None
@@ -312,7 +316,7 @@ Your role:
             start = time.time()
 
             # Call Claude API
-            model = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
+            model = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
             response = self.anthropic_client.messages.create(
                 model=model,
                 max_tokens=int(os.getenv("MAX_TOKENS", "150")),
@@ -1255,7 +1259,7 @@ Format as JSON:
         try:
             client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
             response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-3-5-sonnet-latest",
                 max_tokens=1000,
                 temperature=0.7,
                 messages=[{
@@ -3700,7 +3704,7 @@ async def websocket_voice_endpoint(
                             })
 
                         response = voice_assistant.anthropic_client.messages.create(
-                            model=assistant.get('model', 'claude-3-5-sonnet-20241022'),
+                            model=assistant.get('model', 'claude-3-5-sonnet-latest'),
                             max_tokens=assistant.get('max_tokens', 150),
                             temperature=float(assistant.get('temperature', 0.7)),
                             system=assistant['system_prompt'],
