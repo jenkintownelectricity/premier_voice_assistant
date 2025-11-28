@@ -36,9 +36,13 @@ logger = logging.getLogger(__name__)
 # Claude API Pricing (per million tokens) - as of 2025
 # Source: https://www.anthropic.com/pricing
 CLAUDE_PRICING = {
-    "claude-3-5-sonnet-20241022": {
+    "claude-3-5-sonnet-latest": {
         "input": 3.00,    # $3.00 per 1M input tokens
         "output": 15.00,  # $15.00 per 1M output tokens
+    },
+    "claude-3-5-sonnet-20241022": {
+        "input": 3.00,
+        "output": 15.00,
     },
     "claude-3-5-sonnet-20240620": {
         "input": 3.00,
@@ -67,7 +71,7 @@ def calculate_claude_cost(model: str, input_tokens: int, output_tokens: int) -> 
         Cost in cents (e.g., 0.05 = $0.0005)
     """
     # Get pricing for the model (default to Sonnet if not found)
-    pricing = CLAUDE_PRICING.get(model, CLAUDE_PRICING["claude-3-5-sonnet-20241022"])
+    pricing = CLAUDE_PRICING.get(model, CLAUDE_PRICING["claude-3-5-sonnet-latest"])
 
     # Calculate cost: (tokens / 1,000,000) * price_per_million
     input_cost = (input_tokens / 1_000_000) * pricing["input"]
