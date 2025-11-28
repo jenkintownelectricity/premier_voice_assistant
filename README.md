@@ -200,7 +200,21 @@ The Claude skill is trained to:
 - Schedule callbacks or appointments
 - Transfer to team members when needed
 
-### 2. Real-Time Intelligence (NEW!)
+### 2. Streaming Voice Pipeline (NEW!)
+
+**Sub-500ms Latency Architecture**
+- Full WebSocket streaming pipeline for real-time voice
+- Deepgram Nova-3: Streaming STT with <300ms latency
+- Anthropic Claude: Token streaming for fast first response
+- Cartesia Sonic-3: 40ms time-to-first-byte TTS
+- Automatic fallback to batch processing (Modal) when not configured
+
+**Voice Activity Detection**
+- Smart utterance end detection (no more cutting off "I...")
+- Barge-in support (stop TTS when user interrupts)
+- Configurable silence detection (UTTERANCE_END_MS=1200)
+
+### 3. Real-Time Intelligence
 
 **Live Sentiment Display**
 - See caller mood in real-time (positive/neutral/negative)
@@ -212,7 +226,7 @@ The Claude skill is trained to:
 - Live response time display during calls
 - Component breakdown (STT/LLM/TTS)
 - Visual progress bar with status indicators
-- Target: <800ms total latency
+- Target: <500ms with streaming, <2000ms with batch
 
 **Call Quality Scoring**
 Every call gets an automatic quality score (0-100 with A-F grade):
@@ -624,9 +638,11 @@ Based on market research, these features drive viral adoption:
 - **Backend**: FastAPI (Python)
 - **Database**: Supabase (PostgreSQL)
 - **Auth**: Supabase Auth
-- **AI**: Anthropic Claude (with prompt caching)
-- **Voice**: Modal (Kokoro TTS, Whisper STT)
-- **Phone**: Twilio (planned)
+- **AI**: Anthropic Claude (with prompt caching + token streaming)
+- **Streaming STT**: Deepgram Nova-3 (<300ms latency)
+- **Streaming TTS**: Cartesia Sonic-3 (40ms TTFB)
+- **Batch Voice**: Modal (Kokoro TTS, Whisper STT) - fallback
+- **Phone**: Twilio
 - **Payments**: Stripe
 - **Hosting**: Vercel (web), Modal (AI), Railway (backend)
 
@@ -864,8 +880,10 @@ self.min_response_interval = 2.0
 | Service | Status | Purpose |
 |---------|--------|---------|
 | Supabase | ✅ Connected | Database & Auth |
-| Anthropic | ✅ Connected | Claude AI (claude-3-5-sonnet-latest) |
-| Modal | ✅ Connected | ML/Voice (Whisper STT, Kokoro TTS) |
+| Anthropic | ✅ Connected | Claude AI (claude-sonnet-4-5-20250929) |
+| Deepgram | ✅ Connected | Streaming STT (<300ms latency) |
+| Cartesia | ✅ Connected | Streaming TTS (40ms TTFB) |
+| Modal | ✅ Connected | Batch Voice Fallback (Whisper STT, Kokoro TTS) |
 | Stripe | ✅ Connected | Payments |
 | Twilio | ✅ Connected | Phone/SMS |
 | Vercel | ✅ Hosting | Frontend deployment |
@@ -956,6 +974,67 @@ self.min_response_interval = 2.0
 - Problem Statement section with key metrics
 - Old vs New comparison cards
 - Updated features grid with new capabilities
+
+**Branch**: `claude/voice-assistant-research-012oUMT9hkQfzrsHQ9PyxwWZ`
+
+---
+
+### Session: November 28, 2025 - Streaming Voice Pipeline Integration
+
+**Objective**: Implement sub-500ms voice latency using streaming STT/TTS providers.
+
+#### Problem
+- Original batch processing: ~6800ms latency (Record → STT → LLM → TTS → Play)
+- Aggressive endpointing causing false triggers on "I..."
+- Serial processing mathematically incapable of sub-second latency
+
+#### Solution: Full Streaming Pipeline
+
+**Architecture**:
+```
+Audio In → Deepgram (streaming) → Claude (streaming) → Cartesia (streaming) → Audio Out
+             ~200ms                 ~200ms               ~100ms
+                                                    Total: ~500ms
+```
+
+#### Features Implemented
+
+**1. Backend Streaming Infrastructure (`backend/streaming_manager.py`)**
+- `DeepgramStreamer`: WebSocket STT with VAD, utterance end detection
+- `CartesiaStreamer`: WebSocket TTS with 40ms TTFB
+- `AnthropicStreamer`: Token streaming for fast first response
+- `StreamingPipeline`: Full orchestrator with barge-in support
+
+**2. WebSocket Handler Integration (`backend/main.py`)**
+- Auto-detects streaming availability (Deepgram + Cartesia keys)
+- Routes audio to streaming pipeline when configured
+- Falls back to batch processing (Modal) when not configured
+- Streaming callbacks for transcript, audio, state, latency
+
+**3. Developer Dashboard (`web/src/app/dashboard/developer/page.tsx`)**
+- New "Streaming Voice Pipeline" section
+- Real-time connection status for Deepgram and Cartesia
+- Target latency display (500ms streaming vs 2000ms batch)
+- Setup instructions when not configured
+
+**4. Backend Status Endpoint (`/admin/status`)**
+- Deepgram connection status
+- Cartesia connection status
+- Streaming pipeline status with provider info
+
+#### Environment Variables Added
+```bash
+DEEPGRAM_API_KEY=your_deepgram_api_key
+CARTESIA_API_KEY=your_cartesia_api_key
+CARTESIA_VOICE_ID=a0e99841-438c-4a64-b679-ae501e7d6091
+UTTERANCE_END_MS=1200
+ENABLE_BARGE_IN=true
+```
+
+#### Technical Improvements
+- Automatic model versioning with fallback chains (model_manager.py)
+- Feature gate fix for unlimited plans (-1 handling)
+- Better LLM error logging for debugging
 
 **Branch**: `claude/voice-assistant-research-012oUMT9hkQfzrsHQ9PyxwWZ`
 
