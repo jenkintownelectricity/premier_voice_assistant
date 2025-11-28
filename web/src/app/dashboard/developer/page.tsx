@@ -14,6 +14,14 @@ interface ServiceStatus {
   message: string;
 }
 
+interface StreamingStatus {
+  enabled: boolean;
+  stt_provider: string;
+  tts_provider: string;
+  target_latency_ms: number;
+  message: string;
+}
+
 interface SystemStatus {
   status: string;
   timestamp: string;
@@ -23,7 +31,10 @@ interface SystemStatus {
     modal: ServiceStatus;
     stripe: ServiceStatus;
     twilio: ServiceStatus;
+    deepgram?: ServiceStatus;
+    cartesia?: ServiceStatus;
   };
+  streaming?: StreamingStatus;
   environment: {
     python_version: string;
     env: string;
@@ -57,6 +68,14 @@ const SERVICE_LINKS: Record<string, { url: string; docs: string }> = {
   twilio: {
     url: 'https://console.twilio.com',
     docs: 'https://www.twilio.com/docs'
+  },
+  deepgram: {
+    url: 'https://console.deepgram.com',
+    docs: 'https://developers.deepgram.com/docs'
+  },
+  cartesia: {
+    url: 'https://play.cartesia.ai',
+    docs: 'https://docs.cartesia.ai'
   },
   railway: {
     url: 'https://railway.app/dashboard',
@@ -325,6 +344,130 @@ export default function DeveloperDashboard() {
                 </a>
               </div>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Streaming Voice Pipeline */}
+      <Card className={status?.streaming?.enabled ? 'border-green-500/30 bg-green-900/5' : 'border-yellow-500/30 bg-yellow-900/5'}>
+        <CardTitle>
+          <div className="flex items-center gap-3">
+            <span>Streaming Voice Pipeline</span>
+            {status?.streaming?.enabled ? (
+              <span className="px-2 py-1 bg-green-500/20 text-green-400 text-xs rounded-full font-medium">
+                Active
+              </span>
+            ) : (
+              <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded-full font-medium">
+                Fallback Mode
+              </span>
+            )}
+          </div>
+        </CardTitle>
+        <CardContent>
+          <div className="mt-4">
+            {/* Pipeline Status Banner */}
+            <div className={`p-4 rounded-lg mb-4 ${status?.streaming?.enabled ? 'bg-green-500/10 border border-green-500/30' : 'bg-yellow-500/10 border border-yellow-500/30'}`}>
+              <div className="flex items-center gap-3 mb-2">
+                <div className={`w-3 h-3 rounded-full ${status?.streaming?.enabled ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+                <span className={`font-semibold ${status?.streaming?.enabled ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {status?.streaming?.message || 'Checking status...'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-400">Target Latency:</span>
+                  <span className={`ml-2 font-mono ${status?.streaming?.enabled ? 'text-green-400' : 'text-yellow-400'}`}>
+                    {status?.streaming?.target_latency_ms || 2000}ms
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">STT Provider:</span>
+                  <span className="ml-2 text-white capitalize">
+                    {status?.streaming?.stt_provider || 'modal'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">TTS Provider:</span>
+                  <span className="ml-2 text-white capitalize">
+                    {status?.streaming?.tts_provider || 'modal'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Streaming Services */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Deepgram */}
+              <div className={`p-4 rounded-lg border ${status?.services?.deepgram?.status === 'configured' ? 'bg-oled-gray border-green-500/30' : 'bg-oled-gray border-gray-800'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🎙️</span>
+                    <span className="text-white font-semibold">Deepgram</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${status?.services?.deepgram?.status === 'configured' ? 'text-green-400' : 'text-gray-400'}`}>
+                      {status?.services?.deepgram?.status === 'configured' ? 'Connected' : 'Not Configured'}
+                    </span>
+                    <div className={`w-3 h-3 rounded-full ${status?.services?.deepgram?.status === 'configured' ? 'bg-green-500' : 'bg-gray-500'}`} />
+                  </div>
+                </div>
+                <div className="text-gray-400 text-sm mb-2">{status?.services?.deepgram?.message || 'Streaming STT'}</div>
+                <div className="text-xs text-gray-500 mb-3">Real-time speech-to-text with &lt;300ms latency</div>
+                <div className="flex gap-2">
+                  <a href={SERVICE_LINKS.deepgram.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-shine">
+                    Dashboard
+                  </a>
+                  <span className="text-gray-600">|</span>
+                  <a href={SERVICE_LINKS.deepgram.docs} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-white">
+                    Docs
+                  </a>
+                </div>
+              </div>
+
+              {/* Cartesia */}
+              <div className={`p-4 rounded-lg border ${status?.services?.cartesia?.status === 'configured' ? 'bg-oled-gray border-green-500/30' : 'bg-oled-gray border-gray-800'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🔊</span>
+                    <span className="text-white font-semibold">Cartesia</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${status?.services?.cartesia?.status === 'configured' ? 'text-green-400' : 'text-gray-400'}`}>
+                      {status?.services?.cartesia?.status === 'configured' ? 'Connected' : 'Not Configured'}
+                    </span>
+                    <div className={`w-3 h-3 rounded-full ${status?.services?.cartesia?.status === 'configured' ? 'bg-green-500' : 'bg-gray-500'}`} />
+                  </div>
+                </div>
+                <div className="text-gray-400 text-sm mb-2">{status?.services?.cartesia?.message || 'Streaming TTS'}</div>
+                <div className="text-xs text-gray-500 mb-3">Ultra-low latency TTS with 40ms time-to-first-byte</div>
+                <div className="flex gap-2">
+                  <a href={SERVICE_LINKS.cartesia.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-shine">
+                    Dashboard
+                  </a>
+                  <span className="text-gray-600">|</span>
+                  <a href={SERVICE_LINKS.cartesia.docs} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-white">
+                    Docs
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Setup Instructions */}
+            {!status?.streaming?.enabled && (
+              <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <h4 className="text-blue-400 font-semibold mb-2">Enable Streaming Pipeline</h4>
+                <p className="text-gray-400 text-sm mb-3">
+                  Configure Deepgram and Cartesia to enable sub-500ms voice latency:
+                </p>
+                <ol className="text-sm text-gray-300 space-y-1 list-decimal list-inside">
+                  <li>Sign up at <a href="https://console.deepgram.com" target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">console.deepgram.com</a> ($200 free credit)</li>
+                  <li>Sign up at <a href="https://play.cartesia.ai" target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">play.cartesia.ai</a></li>
+                  <li>Add <code className="text-xs bg-zinc-800 px-1 py-0.5 rounded">DEEPGRAM_API_KEY</code> and <code className="text-xs bg-zinc-800 px-1 py-0.5 rounded">CARTESIA_API_KEY</code> to Railway</li>
+                  <li>Optionally set <code className="text-xs bg-zinc-800 px-1 py-0.5 rounded">CARTESIA_VOICE_ID</code> for custom voice</li>
+                </ol>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

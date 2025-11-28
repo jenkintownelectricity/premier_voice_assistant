@@ -29,6 +29,10 @@ from backend.model_manager import (
     get_model_manager, get_model, get_model_with_fallback,
     validate_models_on_startup, ResilientAnthropicClient
 )
+from backend.streaming_manager import (
+    StreamingPipeline, StreamingConfig, PipelineState,
+    create_streaming_pipeline
+)
 
 # Configure logging
 logging.basicConfig(
@@ -2365,6 +2369,48 @@ async def get_admin_status(
             "message": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER"
         }
 
+    # Check Deepgram (Streaming STT)
+    deepgram_key = os.getenv("DEEPGRAM_API_KEY", "")
+    if deepgram_key:
+        status["services"]["deepgram"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"Streaming STT enabled (key ends in ...{deepgram_key[-4:]})"
+        }
+    else:
+        status["services"]["deepgram"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "DEEPGRAM_API_KEY not set - using Modal batch STT"
+        }
+
+    # Check Cartesia (Streaming TTS)
+    cartesia_key = os.getenv("CARTESIA_API_KEY", "")
+    cartesia_voice = os.getenv("CARTESIA_VOICE_ID", "")
+    if cartesia_key:
+        voice_info = f", voice: {cartesia_voice[:8]}..." if cartesia_voice else ""
+        status["services"]["cartesia"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"Streaming TTS enabled (key ends in ...{cartesia_key[-4:]}{voice_info})"
+        }
+    else:
+        status["services"]["cartesia"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "CARTESIA_API_KEY not set - using Modal batch TTS"
+        }
+
+    # Streaming pipeline status
+    streaming_enabled = bool(deepgram_key and cartesia_key)
+    status["streaming"] = {
+        "enabled": streaming_enabled,
+        "stt_provider": "deepgram" if deepgram_key else "modal",
+        "tts_provider": "cartesia" if cartesia_key else "modal",
+        "target_latency_ms": 500 if streaming_enabled else 2000,
+        "message": "Full streaming pipeline active" if streaming_enabled else "Using batch processing (higher latency)"
+    }
+
     # Environment info
     status["environment"] = {
         "python_version": os.popen("python --version 2>&1").read().strip(),
@@ -4064,7 +4110,70 @@ async def websocket_voice_endpoint(
             "assistant_name": assistant['name']
         })
 
-        # Initialize voice assistant for processing
+        # Check if streaming pipeline is enabled
+        deepgram_key = os.getenv("DEEPGRAM_API_KEY", "")
+        cartesia_key = os.getenv("CARTESIA_API_KEY", "")
+        streaming_enabled = bool(deepgram_key and cartesia_key)
+
+        # Initialize streaming pipeline if available
+        streaming_pipeline: Optional[StreamingPipeline] = None
+        if streaming_enabled:
+            logger.info(f"Streaming pipeline enabled for call {call_id}")
+            streaming_config = StreamingConfig()
+            streaming_config.cartesia_voice_id = assistant.get('voice_id', streaming_config.cartesia_voice_id)
+            streaming_pipeline = StreamingPipeline(streaming_config)
+
+            # Set up callbacks for streaming pipeline
+            async def on_streaming_transcript(role: str, text: str):
+                await websocket.send_json({
+                    "type": "transcript",
+                    "role": role,
+                    "content": text
+                })
+                session.add_to_transcript(role, text)
+
+            async def on_streaming_audio(audio_bytes: bytes):
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                await websocket.send_json({
+                    "type": "audio",
+                    "data": audio_b64
+                })
+
+            async def on_streaming_state_change(state: PipelineState):
+                is_speaking = state == PipelineState.SPEAKING
+                await websocket.send_json({"type": "speaking", "is_speaking": is_speaking})
+                session.is_speaking = is_speaking
+
+            async def on_streaming_latency(latency: dict):
+                total = latency.get('stt', 0) + latency.get('llm', 0) + latency.get('tts', 0)
+                await websocket.send_json({
+                    "type": "latency",
+                    "data": {
+                        "stt_ms": latency.get('stt', 0),
+                        "llm_ms": latency.get('llm', 0),
+                        "tts_ms": latency.get('tts', 0),
+                        "total_ms": total,
+                        "target_ms": 500,
+                        "status": "good" if total < 500 else "warning" if total < 800 else "slow"
+                    }
+                })
+
+            streaming_pipeline.on_transcript = on_streaming_transcript
+            streaming_pipeline.on_audio_out = on_streaming_audio
+            streaming_pipeline.on_state_change = on_streaming_state_change
+            streaming_pipeline.on_latency = on_streaming_latency
+
+            # Initialize the pipeline with system prompt
+            await streaming_pipeline.initialize(assistant['system_prompt'])
+
+            await websocket.send_json({
+                "type": "info",
+                "message": "Streaming pipeline active - sub-500ms latency enabled"
+            })
+        else:
+            logger.info(f"Using batch processing for call {call_id} (streaming not configured)")
+
+        # Initialize voice assistant for batch processing (fallback or primary)
         voice_assistant = VoiceAssistant()
         voice_assistant.initialize_modal()
         voice_assistant.initialize_claude()
@@ -4109,6 +4218,10 @@ async def websocket_voice_endpoint(
                     session.is_speaking = False
                     await websocket.send_json({"type": "speaking", "is_speaking": False})
 
+                    # Cancel streaming TTS if active
+                    if streaming_pipeline and streaming_pipeline.tts:
+                        await streaming_pipeline.tts.cancel()
+
                 elif msg_type == 'audio':
                     # Receive audio chunk
                     audio_b64 = message.get('data', '')
@@ -4120,7 +4233,14 @@ async def websocket_voice_endpoint(
                     except Exception:
                         continue
 
-                    # Process audio through pipeline
+                    # Route to streaming pipeline if enabled
+                    if streaming_pipeline:
+                        # Streaming mode: Send audio to Deepgram for real-time processing
+                        # The pipeline handles STT -> LLM -> TTS automatically
+                        await streaming_pipeline.send_audio(audio_bytes)
+                        continue  # Pipeline handles everything via callbacks
+
+                    # Fallback: Batch processing mode (original flow)
                     session.should_stop_tts = False
 
                     # 1. STT - Transcribe audio
@@ -4318,6 +4438,14 @@ async def websocket_voice_endpoint(
         except:
             pass
     finally:
+        # Clean up streaming pipeline
+        if streaming_pipeline:
+            try:
+                await streaming_pipeline.close()
+                logger.info(f"Streaming pipeline closed for call {call_id if 'call_id' in dir() else 'unknown'}")
+            except Exception as e:
+                logger.error(f"Error closing streaming pipeline: {e}")
+
         try:
             await websocket.close()
         except:
