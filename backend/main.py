@@ -3668,6 +3668,22 @@ async def create_team_dashboard(
 class VoiceCallSession:
     """Manages a single WebSocket voice call session."""
 
+    # Sentiment analysis word lists for real-time detection
+    POSITIVE_WORDS = [
+        'thank', 'thanks', 'great', 'good', 'excellent', 'happy', 'love', 'wonderful',
+        'amazing', 'perfect', 'helpful', 'appreciate', 'pleased', 'fantastic', 'awesome',
+        'yes', 'absolutely', 'definitely', 'sure', 'okay', 'sounds good', 'exactly'
+    ]
+    NEGATIVE_WORDS = [
+        'bad', 'terrible', 'hate', 'angry', 'frustrated', 'wrong', 'awful', 'horrible',
+        'disappointed', 'annoyed', 'upset', 'confused', 'problem', 'issue', 'fail',
+        'no', 'never', 'cancel', 'stop', 'wait', 'wrong', 'mistake', 'error'
+    ]
+    URGENCY_WORDS = [
+        'urgent', 'emergency', 'asap', 'immediately', 'now', 'hurry', 'critical',
+        'important', 'today', 'right away', 'quickly', 'fast'
+    ]
+
     def __init__(self, websocket: WebSocket, user_id: str, assistant_id: str):
         self.websocket = websocket
         self.user_id = user_id
@@ -3678,10 +3694,18 @@ class VoiceCallSession:
         self.should_stop_tts = False
         self.audio_buffer = bytearray()
         self.db = get_supabase()
+        # Call timing
+        self.call_start_time = None
+        # Real-time sentiment tracking
+        self.current_sentiment = 'neutral'
+        self.sentiment_score = 0  # -100 to +100
+        self.urgency_level = 'normal'  # normal, elevated, urgent
+        self.sentiment_history = []  # Track sentiment over time
 
     async def start_call(self):
         """Initialize call log in database."""
         try:
+            self.call_start_time = time.time()
             result = self.db.client.rpc(
                 'va_create_call_log',
                 {
@@ -3697,39 +3721,51 @@ class VoiceCallSession:
             logger.error(f"Failed to create call log: {e}")
             return None
 
-    async def end_call(self, ended_reason: str = 'user_ended'):
-        """End call and save final transcript."""
+    def get_duration_seconds(self) -> int:
+        """Get call duration in seconds."""
+        if self.call_start_time:
+            return int(time.time() - self.call_start_time)
+        return 0
+
+    async def end_call(self, ended_reason: str = 'user_ended', duration_seconds: int = 0):
+        """End call and save final transcript with quality score."""
         if not self.call_id:
             return
 
         try:
-            # Determine sentiment from transcript (simple heuristic)
-            sentiment = 'neutral'
-            if self.transcript:
-                text = ' '.join([t['content'] for t in self.transcript])
-                positive_words = ['thank', 'great', 'good', 'excellent', 'happy', 'love']
-                negative_words = ['bad', 'terrible', 'hate', 'angry', 'frustrated', 'wrong']
-                pos_count = sum(1 for w in positive_words if w in text.lower())
-                neg_count = sum(1 for w in negative_words if w in text.lower())
-                if pos_count > neg_count:
-                    sentiment = 'positive'
-                elif neg_count > pos_count:
-                    sentiment = 'negative'
+            # Use real-time sentiment tracking (already calculated)
+            sentiment = self.current_sentiment
+
+            # Calculate quality score
+            quality_data = self.calculate_quality_score(duration_seconds)
+
+            # Build summary with quality data
+            summary_data = {
+                'quality_score': quality_data['total'],
+                'quality_grade': quality_data['grade'],
+                'quality_breakdown': quality_data['breakdown'],
+                'sentiment_score': self.sentiment_score,
+                'urgency_level': self.urgency_level,
+                'exchange_count': len(self.transcript) // 2
+            }
 
             self.db.client.rpc(
                 'va_end_call',
                 {
                     'p_call_id': self.call_id,
                     'p_transcript': json.dumps(self.transcript),
-                    'p_summary': None,
+                    'p_summary': json.dumps(summary_data),
                     'p_ended_reason': ended_reason,
                     'p_recording_url': None,
                     'p_sentiment': sentiment
                 }
             ).execute()
-            logger.info(f"Ended call {self.call_id}")
+            logger.info(f"Ended call {self.call_id} with quality score {quality_data['total']} ({quality_data['grade']})")
+
+            return quality_data
         except Exception as e:
             logger.error(f"Failed to end call: {e}")
+            return None
 
     def add_to_transcript(self, role: str, content: str):
         """Add message to transcript."""
@@ -3738,6 +3774,164 @@ class VoiceCallSession:
             'content': content,
             'timestamp': datetime.utcnow().isoformat()
         })
+
+    def analyze_sentiment_realtime(self, text: str) -> dict:
+        """
+        Analyze sentiment of text in real-time.
+        Returns sentiment info for WebSocket broadcast.
+        """
+        text_lower = text.lower()
+
+        # Count sentiment words
+        pos_count = sum(1 for word in self.POSITIVE_WORDS if word in text_lower)
+        neg_count = sum(1 for word in self.NEGATIVE_WORDS if word in text_lower)
+        urgency_count = sum(1 for word in self.URGENCY_WORDS if word in text_lower)
+
+        # Calculate delta score (-10 to +10 per message)
+        delta = (pos_count - neg_count) * 5
+        delta = max(-15, min(15, delta))  # Clamp
+
+        # Update running sentiment score with decay toward neutral
+        self.sentiment_score = self.sentiment_score * 0.7 + delta
+        self.sentiment_score = max(-100, min(100, self.sentiment_score))
+
+        # Determine sentiment category
+        if self.sentiment_score > 20:
+            self.current_sentiment = 'positive'
+        elif self.sentiment_score < -20:
+            self.current_sentiment = 'negative'
+        else:
+            self.current_sentiment = 'neutral'
+
+        # Determine urgency level
+        if urgency_count >= 2:
+            self.urgency_level = 'urgent'
+        elif urgency_count >= 1 or any(w in text_lower for w in ['soon', 'quickly']):
+            self.urgency_level = 'elevated'
+        else:
+            # Decay urgency over time
+            if self.urgency_level == 'urgent':
+                self.urgency_level = 'elevated'
+            elif self.urgency_level == 'elevated':
+                self.urgency_level = 'normal'
+
+        # Track history for trend detection
+        self.sentiment_history.append({
+            'score': self.sentiment_score,
+            'sentiment': self.current_sentiment,
+            'urgency': self.urgency_level,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+
+        # Determine trend
+        trend = 'stable'
+        if len(self.sentiment_history) >= 3:
+            recent = self.sentiment_history[-3:]
+            scores = [h['score'] for h in recent]
+            if scores[-1] > scores[0] + 10:
+                trend = 'improving'
+            elif scores[-1] < scores[0] - 10:
+                trend = 'declining'
+
+        return {
+            'sentiment': self.current_sentiment,
+            'score': round(self.sentiment_score),
+            'urgency': self.urgency_level,
+            'trend': trend,
+            'positive_signals': pos_count,
+            'negative_signals': neg_count
+        }
+
+    def calculate_quality_score(self, duration_seconds: int) -> dict:
+        """
+        Calculate call quality score (0-100) based on multiple factors.
+        Returns score breakdown for transparency.
+        """
+        scores = {}
+
+        # 1. Sentiment Score (0-30 points)
+        # Positive = 30, Neutral = 20, Negative = 5
+        if self.current_sentiment == 'positive':
+            scores['sentiment'] = 30
+        elif self.current_sentiment == 'neutral':
+            scores['sentiment'] = 20
+        else:
+            scores['sentiment'] = 5
+
+        # 2. Conversation Flow Score (0-25 points)
+        # Based on back-and-forth exchanges (ideal: 4-10 exchanges)
+        exchange_count = len(self.transcript) // 2
+        if 4 <= exchange_count <= 10:
+            scores['flow'] = 25
+        elif 2 <= exchange_count <= 3:
+            scores['flow'] = 18
+        elif 11 <= exchange_count <= 15:
+            scores['flow'] = 20
+        elif exchange_count < 2:
+            scores['flow'] = 10  # Too short
+        else:
+            scores['flow'] = 15  # Too long, might indicate issues
+
+        # 3. Duration Score (0-20 points)
+        # Ideal call: 60-180 seconds
+        if 60 <= duration_seconds <= 180:
+            scores['duration'] = 20
+        elif 30 <= duration_seconds < 60:
+            scores['duration'] = 15
+        elif 180 < duration_seconds <= 300:
+            scores['duration'] = 15
+        elif duration_seconds < 30:
+            scores['duration'] = 8  # Might be abandoned
+        else:
+            scores['duration'] = 10  # Very long call
+
+        # 4. Resolution Indicators (0-15 points)
+        # Look for positive closure words in last messages
+        resolution_score = 0
+        if self.transcript:
+            last_messages = ' '.join([t['content'].lower() for t in self.transcript[-4:]])
+            closure_words = ['thank', 'thanks', 'perfect', 'great', 'that helps', 'got it',
+                           'sounds good', 'appreciate', 'excellent', 'wonderful', 'bye', 'goodbye']
+            closure_count = sum(1 for word in closure_words if word in last_messages)
+            resolution_score = min(15, closure_count * 5)
+        scores['resolution'] = resolution_score
+
+        # 5. Urgency Handling (0-10 points)
+        # Urgent calls that ended positively get bonus
+        if self.urgency_level == 'urgent' and self.current_sentiment == 'positive':
+            scores['urgency_handling'] = 10
+        elif self.urgency_level == 'urgent' and self.current_sentiment == 'neutral':
+            scores['urgency_handling'] = 7
+        elif self.urgency_level == 'urgent':
+            scores['urgency_handling'] = 3
+        else:
+            scores['urgency_handling'] = 8  # Normal call handled fine
+
+        total_score = sum(scores.values())
+
+        # Determine grade
+        if total_score >= 85:
+            grade = 'A'
+        elif total_score >= 70:
+            grade = 'B'
+        elif total_score >= 55:
+            grade = 'C'
+        elif total_score >= 40:
+            grade = 'D'
+        else:
+            grade = 'F'
+
+        return {
+            'total': total_score,
+            'grade': grade,
+            'breakdown': scores,
+            'factors': {
+                'sentiment': self.current_sentiment,
+                'exchanges': exchange_count,
+                'duration_seconds': duration_seconds,
+                'urgency': self.urgency_level
+            }
+        }
 
 
 @app.websocket("/ws/voice/{assistant_id}")
@@ -3899,6 +4093,13 @@ async def websocket_voice_endpoint(
                     })
                     session.add_to_transcript("user", user_text)
 
+                    # Analyze and send real-time sentiment
+                    sentiment_data = session.analyze_sentiment_realtime(user_text)
+                    await websocket.send_json({
+                        "type": "sentiment",
+                        "data": sentiment_data
+                    })
+
                     # 2. LLM - Generate response
                     llm_start = time.time()
                     try:
@@ -3965,6 +4166,19 @@ async def websocket_voice_endpoint(
                             total_latency = stt_latency + llm_latency + tts_latency
                             logger.info(f"Call {call_id} - STT: {stt_latency}ms, LLM: {llm_latency}ms, TTS: {tts_latency}ms, Total: {total_latency}ms")
 
+                            # Send real-time latency data to client
+                            await websocket.send_json({
+                                "type": "latency",
+                                "data": {
+                                    "stt_ms": stt_latency,
+                                    "llm_ms": llm_latency,
+                                    "tts_ms": tts_latency,
+                                    "total_ms": total_latency,
+                                    "target_ms": 800,
+                                    "status": "good" if total_latency < 800 else "warning" if total_latency < 1500 else "slow"
+                                }
+                            })
+
                         except Exception as e:
                             logger.error(f"TTS error: {e}")
                             session.is_speaking = False
@@ -3981,19 +4195,27 @@ async def websocket_voice_endpoint(
 
         # End call normally
         if session:
-            await session.end_call('user_ended')
-            await websocket.send_json({"type": "call_ended", "reason": "user_ended"})
+            duration = session.get_duration_seconds()
+            quality_data = await session.end_call('user_ended', duration)
+            await websocket.send_json({
+                "type": "call_ended",
+                "reason": "user_ended",
+                "duration_seconds": duration,
+                "quality_score": quality_data
+            })
 
     except WebSocketDisconnect:
         if session:
-            await session.end_call('disconnected')
+            duration = session.get_duration_seconds()
+            await session.end_call('disconnected', duration)
     except asyncio.TimeoutError:
         await websocket.send_json({"type": "error", "message": "Authentication timeout"})
         await websocket.close()
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         if session:
-            await session.end_call('error')
+            duration = session.get_duration_seconds()
+            await session.end_call('error', duration)
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except:

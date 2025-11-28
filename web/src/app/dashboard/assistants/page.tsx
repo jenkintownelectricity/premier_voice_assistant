@@ -20,6 +20,161 @@ interface Assistant {
   call_count: number;
 }
 
+// Industry-specific quick start templates
+const ASSISTANT_TEMPLATES = [
+  {
+    id: 'custom',
+    name: 'Custom',
+    icon: '✨',
+    description: 'Start from scratch',
+    system_prompt: '',
+    first_message: '',
+  },
+  {
+    id: 'plumber',
+    name: 'Plumber / HVAC',
+    icon: '🔧',
+    description: 'Emergency repairs, scheduling, quotes',
+    system_prompt: `You are a friendly and professional phone assistant for a plumbing/HVAC company. Your role is to:
+
+1. Greet callers warmly and get their name
+2. Identify if it's an EMERGENCY (water leak, no heat, gas smell) - if so, assure them help is on the way
+3. For non-emergencies: capture their service need, address, and preferred callback time
+4. Mention we offer free estimates for major work
+5. Always be empathetic - plumbing problems are stressful!
+
+Keep responses SHORT (1-2 sentences) since this is voice. Be warm but efficient.`,
+    first_message: "Hi there! Thanks for calling. Are you dealing with an emergency, or looking to schedule a service appointment?",
+  },
+  {
+    id: 'electrician',
+    name: 'Electrician',
+    icon: '⚡',
+    description: 'Electrical services, safety, scheduling',
+    system_prompt: `You are a professional phone assistant for an electrical contractor. Your role is to:
+
+1. Greet callers and identify if this is an EMERGENCY (sparks, burning smell, power out to whole house)
+2. For emergencies: Get their address immediately and assure 24/7 emergency service
+3. For regular calls: Understand their electrical need (panel upgrade, outlet install, troubleshooting)
+4. Capture their contact info and preferred appointment time
+5. Mention we're licensed, bonded, and insured
+
+SAFETY FIRST - if they describe anything dangerous, advise them to stay away from the area.
+Keep responses brief and professional.`,
+    first_message: "Hello! Thanks for calling. Is this an electrical emergency, or are you looking to schedule service?",
+  },
+  {
+    id: 'law_office',
+    name: 'Law Office',
+    icon: '⚖️',
+    description: 'Legal intake, consultations, scheduling',
+    system_prompt: `You are a professional receptionist for a law firm. Your role is to:
+
+1. Greet callers professionally and identify their legal matter type
+2. Gather basic information: name, contact, brief description of their situation
+3. Explain that an attorney will review their case and call back
+4. For urgent matters: Note the urgency for priority callback
+5. Be warm but maintain professional boundaries - never give legal advice
+
+IMPORTANT:
+- Never provide legal advice or opinions
+- Keep information confidential
+- Note any statute of limitations concerns they mention
+
+Keep responses professional and concise.`,
+    first_message: "Good day, thank you for calling our law office. How may I assist you today?",
+  },
+  {
+    id: 'medical_office',
+    name: 'Medical Office',
+    icon: '🏥',
+    description: 'Appointments, prescription refills, triage',
+    system_prompt: `You are a compassionate medical office assistant. Your role is to:
+
+1. Greet patients warmly
+2. Identify the reason for call: appointment scheduling, prescription refill, medical question
+3. For appointments: Check patient name, preferred date/time, reason for visit
+4. For prescriptions: Get medication name and pharmacy preference
+5. For urgent symptoms: Advise calling 911 or going to ER if life-threatening
+
+IMPORTANT:
+- Never diagnose or provide medical advice
+- For emergencies, always direct to 911
+- Maintain HIPAA awareness in your responses
+
+Keep responses warm and efficient.`,
+    first_message: "Hello! Thank you for calling. Are you calling to schedule an appointment, refill a prescription, or something else?",
+  },
+  {
+    id: 'restaurant',
+    name: 'Restaurant',
+    icon: '🍽️',
+    description: 'Reservations, hours, takeout orders',
+    system_prompt: `You are a friendly host/hostess for a restaurant. Your role is to:
+
+1. Greet callers with warmth and energy
+2. Handle reservation requests: Get party size, date, time, name, and contact
+3. Answer common questions: hours, location, parking, menu highlights
+4. For takeout: Direct them to our online ordering or take their order
+5. Mention any current specials or events
+
+Be friendly, upbeat, and make them excited to dine with us!
+Keep responses brief but welcoming.`,
+    first_message: "Hey there! Thanks for calling! Are you looking to make a reservation, place a takeout order, or do you have a question?",
+  },
+  {
+    id: 'real_estate',
+    name: 'Real Estate',
+    icon: '🏠',
+    description: 'Property inquiries, showings, listings',
+    system_prompt: `You are a professional assistant for a real estate agent/team. Your role is to:
+
+1. Greet callers and identify if they're buying, selling, or renting
+2. For buyers: Get their criteria (location, bedrooms, budget, timeline)
+3. For sellers: Understand their property and timeline
+4. Capture contact info for agent follow-up
+5. Schedule showings or consultations when requested
+
+Be enthusiastic about helping them with their real estate journey!
+Keep responses professional yet personable.`,
+    first_message: "Hi! Thanks for calling! Are you looking to buy, sell, or rent a property?",
+  },
+  {
+    id: 'auto_shop',
+    name: 'Auto Repair',
+    icon: '🚗',
+    description: 'Service appointments, diagnostics, quotes',
+    system_prompt: `You are a helpful assistant for an auto repair shop. Your role is to:
+
+1. Greet callers and identify their vehicle issue
+2. Ask about vehicle make, model, year
+3. Determine if car is drivable or needs towing
+4. Schedule service appointments
+5. Provide rough estimates when possible, noting final price depends on diagnosis
+
+Be friendly and reassuring - car trouble is stressful!
+Keep responses helpful but brief.`,
+    first_message: "Hi there! Thanks for calling. What's going on with your vehicle today?",
+  },
+  {
+    id: 'general_business',
+    name: 'General Business',
+    icon: '💼',
+    description: 'Professional call handling for any business',
+    system_prompt: `You are a professional virtual receptionist. Your role is to:
+
+1. Greet callers warmly and professionally
+2. Identify the purpose of their call
+3. Capture their name, contact information, and message
+4. Note any urgency or time-sensitive matters
+5. Assure them their message will be delivered promptly
+
+Be professional, efficient, and courteous.
+Keep responses clear and concise.`,
+    first_message: "Hello! Thank you for calling. How may I direct your call today?",
+  },
+];
+
 export default function AssistantsPage() {
   const { user } = useAuth();
   const [assistants, setAssistants] = useState<Assistant[]>([]);
@@ -28,6 +183,9 @@ export default function AssistantsPage() {
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [activeCall, setActiveCall] = useState<{ id: string; name: string } | null>(null);
+
+  // Template selection
+  const [selectedTemplate, setSelectedTemplate] = useState('custom');
 
   // Form state
   const [name, setName] = useState('');
@@ -53,6 +211,20 @@ export default function AssistantsPage() {
       loadAssistants();
     }
   }, [user?.id]);
+
+  // Handle template selection
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplate(templateId);
+    const template = ASSISTANT_TEMPLATES.find(t => t.id === templateId);
+    if (template) {
+      setSystemPrompt(template.system_prompt);
+      setFirstMessage(template.first_message);
+      if (templateId !== 'custom') {
+        setName(template.name + ' Assistant');
+        setDescription(template.description);
+      }
+    }
+  };
 
   const loadAssistants = async () => {
     if (!user?.id) return;
@@ -104,6 +276,7 @@ export default function AssistantsPage() {
       setStreamingChunks(true);
       setFirstMessageLatencyMs(800);
       setTurnDetectionMode('server_vad');
+      setSelectedTemplate('custom');
       setShowCreate(false);
 
       // Reload list
@@ -176,6 +349,38 @@ export default function AssistantsPage() {
           <CardTitle>Create New Assistant</CardTitle>
           <CardContent>
             <div className="space-y-4">
+              {/* Quick Start Templates */}
+              <div>
+                <label className="block text-sm font-medium text-gold mb-3">
+                  Quick Start Template
+                </label>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                  {ASSISTANT_TEMPLATES.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => handleTemplateSelect(template.id)}
+                      className={`p-3 rounded-lg border text-left transition-all ${
+                        selectedTemplate === template.id
+                          ? 'border-gold bg-gold/10 text-gold'
+                          : 'border-gray-700 bg-oled-dark text-gray-300 hover:border-gold/50'
+                      }`}
+                    >
+                      <div className="text-2xl mb-1">{template.icon}</div>
+                      <div className="text-sm font-medium truncate">{template.name}</div>
+                      <div className="text-xs text-gray-500 truncate">{template.description}</div>
+                    </button>
+                  ))}
+                </div>
+                {selectedTemplate !== 'custom' && (
+                  <p className="text-xs text-green-400 mt-2">
+                    Template applied! Customize the settings below as needed.
+                  </p>
+                )}
+              </div>
+
+              <div className="border-t border-gold/10 pt-4" />
+
               <Input
                 label="Name"
                 value={name}
