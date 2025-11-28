@@ -164,7 +164,7 @@ class CreateAssistantRequest(BaseModel):
     system_prompt: str
     description: Optional[str] = None
     voice_id: Optional[str] = "default"
-    model: Optional[str] = "claude-3-5-sonnet-20241022"
+    model: Optional[str] = "claude-3-5-sonnet-latest"
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 150
     first_message: Optional[str] = None
@@ -327,7 +327,7 @@ Your role:
             start = time.time()
 
             # Call Claude API
-            model = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022")
+            model = os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest")
             response = self.anthropic_client.messages.create(
                 model=model,
                 max_tokens=int(os.getenv("MAX_TOKENS", "150")),
@@ -652,7 +652,7 @@ async def chat_text(request: TextChatRequest):
         system = request.system_prompt or "You are a helpful AI assistant for HIVE215, a premier voice assistant platform. Be concise, friendly, and helpful."
 
         message = client.messages.create(
-            model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022"),
+            model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest"),
             max_tokens=1024,
             system=system,
             messages=[
@@ -1328,7 +1328,7 @@ Format as JSON:
         try:
             client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
             response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-latest"),
                 max_tokens=1000,
                 temperature=0.7,
                 messages=[{
@@ -3907,7 +3907,7 @@ async def websocket_voice_endpoint(
                             })
 
                         response = voice_assistant.anthropic_client.messages.create(
-                            model=assistant.get('model', 'claude-3-5-sonnet-20241022'),
+                            model=assistant.get('model', 'claude-3-5-sonnet-latest'),
                             max_tokens=assistant.get('max_tokens', 150),
                             temperature=float(assistant.get('temperature', 0.7)),
                             system=assistant['system_prompt'],
