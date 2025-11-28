@@ -31,7 +31,7 @@ export function AssistantsScreen() {
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [voiceId, setVoiceId] = useState('default');
-  const [model, setModel] = useState('claude-3-5-sonnet-20241022');
+  const [model, setModel] = useState('claude-3-5-sonnet-latest');
 
   const fetchData = async () => {
     if (!user?.id) return;
@@ -78,7 +78,7 @@ export function AssistantsScreen() {
       setDescription('');
       setSystemPrompt('');
       setVoiceId('default');
-      setModel('claude-3-5-sonnet-20241022');
+      setModel('claude-3-5-sonnet-latest');
       setShowCreate(false);
 
       // Reload list
@@ -299,7 +299,7 @@ export function AssistantsScreen() {
             <Text style={styles.inputLabel}>Model</Text>
             <View style={styles.pickerContainer}>
               {[
-                { id: 'claude-3-5-sonnet-20241022', name: 'Sonnet' },
+                { id: 'claude-3-5-sonnet-latest', name: 'Sonnet' },
                 { id: 'claude-3-haiku-20240307', name: 'Haiku' },
               ].map((m) => (
                 <TouchableOpacity
