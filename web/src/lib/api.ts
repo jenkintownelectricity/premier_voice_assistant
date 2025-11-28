@@ -27,7 +27,16 @@ async function fetchAPI<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-    throw new Error(error.detail || `API Error: ${response.status}`);
+    // Handle error.detail being an array (validation errors) or object
+    let errorMessage = 'Request failed';
+    if (typeof error.detail === 'string') {
+      errorMessage = error.detail;
+    } else if (Array.isArray(error.detail)) {
+      errorMessage = error.detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+    } else if (error.detail && typeof error.detail === 'object') {
+      errorMessage = error.detail.message || error.detail.msg || JSON.stringify(error.detail);
+    }
+    throw new Error(errorMessage || `API Error: ${response.status}`);
   }
 
   return response.json();
@@ -47,7 +56,16 @@ export const claudeApi = {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Chat request failed' }));
-      throw new Error(error.detail || `Chat Error: ${response.status}`);
+      // Handle error.detail being an array (validation errors) or object
+      let errorMessage = 'Chat request failed';
+      if (typeof error.detail === 'string') {
+        errorMessage = error.detail;
+      } else if (Array.isArray(error.detail)) {
+        errorMessage = error.detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+      } else if (error.detail && typeof error.detail === 'object') {
+        errorMessage = error.detail.message || error.detail.msg || JSON.stringify(error.detail);
+      }
+      throw new Error(errorMessage || `Chat Error: ${response.status}`);
     }
 
     return response.json();
