@@ -61,25 +61,38 @@ class FeatureGate:
             ).execute()
 
             if not result.data or len(result.data) == 0:
-                logger.error(f"No result from va_check_feature_gate for user {user_id}")
-                return False, {
-                    "allowed": False,
+                logger.warning(f"No result from va_check_feature_gate for user {user_id} - failing open")
+                # Fail open - allow access if no subscription data found
+                return True, {
+                    "allowed": True,
                     "current_usage": 0,
-                    "limit_value": 0,
-                    "remaining": 0,
-                    "error": "Failed to check feature gate"
+                    "limit_value": -1,
+                    "remaining": float('inf'),
+                    "error": "No subscription data - defaulting to allow",
+                    "fallback": True
                 }
 
             gate_result = result.data[0]
+
+            # Handle -1 as unlimited - always allow
+            limit_value = gate_result.get("limit_value", 0)
+            if limit_value == -1:
+                gate_result["allowed"] = True
+                gate_result["remaining"] = float('inf')
 
             return gate_result["allowed"], gate_result
 
         except Exception as e:
             logger.error(f"Error checking feature gate: {e}")
-            # Fail open for critical errors (don't block users)
-            return False, {
-                "allowed": False,
-                "error": str(e)
+            # Fail open for critical errors (don't block users during development)
+            logger.warning(f"Failing open for user {user_id} on feature {feature_key}")
+            return True, {
+                "allowed": True,
+                "current_usage": 0,
+                "limit_value": -1,
+                "remaining": float('inf'),
+                "error": str(e),
+                "fallback": True
             }
 
     def enforce_feature(
