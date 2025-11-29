@@ -43,6 +43,14 @@ interface QualityScoreData {
   };
 }
 
+interface ErrorDetails {
+  message: string;
+  code?: string;
+  timestamp: Date;
+  context?: string;
+  callId?: string;
+}
+
 interface VoiceCallProps {
   assistantId: string;
   assistantName: string;
@@ -57,8 +65,15 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
   const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<ErrorDetails | null>(null);
+  const [errorHistory, setErrorHistory] = useState<ErrorDetails[]>([]);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportSubmitted, setReportSubmitted] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [callId, setCallId] = useState<string | null>(null);
+  const [pipelineInfo, setPipelineInfo] = useState<string | null>(null);
 
   // Real-time sentiment state
   const [sentiment, setSentiment] = useState<SentimentData | null>(null);
@@ -252,12 +267,18 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
         case 'ready':
           setCallState('active');
           setError(null);
+          setErrorDetails(null);
+          if (data.call_id) setCallId(data.call_id);
           // Auto-start audio streaming when connected
           startAudioStream();
           // Start call timer
           callTimerRef.current = setInterval(() => {
             setCallDuration(d => d + 1);
           }, 1000);
+          break;
+        case 'info':
+          // Pipeline info (e.g., "Lightning pipeline active")
+          if (data.message) setPipelineInfo(data.message);
           break;
         case 'transcript':
           setTranscript(prev => [...prev, { role: data.role, content: data.content }]);
@@ -276,7 +297,17 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
           setLatency(data.data);
           break;
         case 'error':
-          setError(data.message);
+          trackError(data.message, data.code, data.context);
+          break;
+        case 'warning':
+          // Track warnings but don't show as main error
+          setErrorHistory(prev => [...prev, {
+            message: data.message,
+            code: 'WARNING',
+            timestamp: new Date(),
+            context: data.context,
+            callId: callId || undefined,
+          }]);
           break;
         case 'call_ended':
           if (data.quality_score) {
@@ -287,13 +318,18 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
       }
     };
 
-    ws.onerror = () => setError('Connection error');
-    ws.onclose = () => {
+    ws.onerror = (e) => {
+      trackError('Connection error', 'WS_ERROR', 'WebSocket connection failed');
+    };
+    ws.onclose = (e) => {
       if (callState === 'active') {
+        if (e.code !== 1000) {
+          trackError(`Connection closed unexpectedly (code: ${e.code})`, 'WS_CLOSE', e.reason || 'No reason provided');
+        }
         setCallState('ended');
       }
     };
-  }, [assistantId, userId, playNextAudio, startAudioStream, callState]);
+  }, [assistantId, userId, playNextAudio, startAudioStream, callState, trackError, callId]);
 
   const endCall = useCallback(() => {
     if (wsRef.current) {
@@ -364,6 +400,64 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
       default: return 'text-red-400 bg-red-500/20 border-red-500';
     }
   };
+
+  // Track error with details
+  const trackError = useCallback((message: string, code?: string, context?: string) => {
+    const details: ErrorDetails = {
+      message,
+      code,
+      timestamp: new Date(),
+      context,
+      callId: callId || undefined,
+    };
+    setError(message);
+    setErrorDetails(details);
+    setErrorHistory(prev => [...prev, details]);
+    console.error('[VoiceCall Error]', details);
+  }, [callId]);
+
+  // Submit error report to backend
+  const submitErrorReport = useCallback(async (additionalNotes?: string) => {
+    setReportSubmitting(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+      const response = await fetch(`${apiUrl}/error-reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          assistant_id: assistantId,
+          call_id: callId,
+          error_message: errorDetails?.message || error,
+          error_code: errorDetails?.code,
+          error_context: errorDetails?.context,
+          error_history: errorHistory,
+          pipeline_info: pipelineInfo,
+          latency_data: latency,
+          transcript_summary: transcript.slice(-5).map(t => `${t.role}: ${t.content.substring(0, 50)}`),
+          call_duration: callDuration,
+          user_notes: additionalNotes,
+          user_agent: navigator.userAgent,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      if (response.ok) {
+        setReportSubmitted(true);
+        setTimeout(() => {
+          setShowReportModal(false);
+          setReportSubmitted(false);
+        }, 2000);
+      } else {
+        throw new Error('Failed to submit report');
+      }
+    } catch (err) {
+      console.error('Failed to submit error report:', err);
+      alert('Failed to submit report. Please try again.');
+    } finally {
+      setReportSubmitting(false);
+    }
+  }, [userId, assistantId, callId, errorDetails, error, errorHistory, pipelineInfo, latency, transcript, callDuration]);
 
   // Call Summary Screen
   if (callState === 'ended') {
@@ -498,10 +592,147 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
         </div>
       )}
 
-      {/* Error Display */}
+      {/* Error Display with Report Button */}
       {error && (
-        <div className="mx-4 mt-3 bg-red-500/20 border border-red-500/50 text-red-400 px-3 py-2 rounded-lg text-xs">
-          {error}
+        <div className="mx-4 mt-3 bg-red-500/20 border border-red-500/50 rounded-lg overflow-hidden">
+          <div className="px-3 py-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 text-red-400 text-xs font-medium">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <span>Error</span>
+                  {errorDetails?.code && (
+                    <span className="text-red-500/70">({errorDetails.code})</span>
+                  )}
+                </div>
+                <p className="text-red-300 text-xs mt-1">{error}</p>
+                {errorDetails?.context && (
+                  <p className="text-red-400/60 text-xs mt-0.5">{errorDetails.context}</p>
+                )}
+              </div>
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="flex items-center gap-1 px-2 py-1 bg-red-500/30 hover:bg-red-500/50 rounded text-red-300 text-xs transition-colors shrink-0"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Report
+              </button>
+            </div>
+          </div>
+          {errorHistory.length > 1 && (
+            <div className="px-3 py-1.5 bg-red-500/10 border-t border-red-500/30">
+              <span className="text-red-400/70 text-xs">
+                {errorHistory.length} issues detected during this call
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Report Issue Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-zinc-900 rounded-xl border border-zinc-700 w-full max-w-md shadow-2xl">
+            <div className="p-4 border-b border-zinc-700">
+              <div className="flex items-center justify-between">
+                <h3 className="text-white font-semibold">Report Issue</h3>
+                <button
+                  onClick={() => setShowReportModal(false)}
+                  className="text-zinc-400 hover:text-white p-1"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {reportSubmitted ? (
+              <div className="p-6 text-center">
+                <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <p className="text-white font-medium">Report Submitted</p>
+                <p className="text-zinc-400 text-sm mt-1">Thank you for helping us improve!</p>
+              </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  submitErrorReport(formData.get('notes') as string);
+                }}
+              >
+                <div className="p-4 space-y-4">
+                  {/* Error Summary */}
+                  <div className="bg-zinc-800 rounded-lg p-3">
+                    <p className="text-xs text-zinc-400 mb-1">Error Details</p>
+                    <p className="text-sm text-white">{error}</p>
+                    {errorDetails?.code && (
+                      <p className="text-xs text-zinc-500 mt-1">Code: {errorDetails.code}</p>
+                    )}
+                    {pipelineInfo && (
+                      <p className="text-xs text-zinc-500 mt-1">Pipeline: {pipelineInfo}</p>
+                    )}
+                  </div>
+
+                  {/* Technical Info */}
+                  <div className="bg-zinc-800/50 rounded-lg p-3 text-xs text-zinc-500 space-y-1">
+                    <p>Call ID: {callId || 'N/A'}</p>
+                    <p>Duration: {formatDuration(callDuration)}</p>
+                    <p>Latency: {latency ? `${latency.total_ms}ms (${latency.status})` : 'N/A'}</p>
+                    <p>Errors in session: {errorHistory.length}</p>
+                  </div>
+
+                  {/* User Notes */}
+                  <div>
+                    <label className="block text-xs text-zinc-400 mb-1">
+                      Additional details (optional)
+                    </label>
+                    <textarea
+                      name="notes"
+                      rows={3}
+                      placeholder="Describe what you were doing when this error occurred..."
+                      className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-4 border-t border-zinc-700 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowReportModal(false)}
+                    className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={reportSubmitting}
+                    className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-500/50 text-black font-medium rounded-lg text-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    {reportSubmitting ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Submitting...
+                      </>
+                    ) : (
+                      'Submit Report'
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
 

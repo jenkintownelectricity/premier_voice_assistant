@@ -545,6 +545,128 @@ async def health_check():
     }
 
 
+# ============================================================================
+# ERROR REPORTING
+# ============================================================================
+
+class ErrorReportRequest(BaseModel):
+    """Error report from frontend."""
+    user_id: str
+    assistant_id: Optional[str] = None
+    call_id: Optional[str] = None
+    error_message: str
+    error_code: Optional[str] = None
+    error_context: Optional[str] = None
+    error_history: Optional[List[dict]] = None
+    pipeline_info: Optional[str] = None
+    latency_data: Optional[dict] = None
+    transcript_summary: Optional[List[str]] = None
+    call_duration: Optional[int] = None
+    user_notes: Optional[str] = None
+    user_agent: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
+@app.post("/error-reports")
+async def submit_error_report(report: ErrorReportRequest):
+    """
+    Receive error reports from the frontend.
+
+    Stores in database and logs for developer review.
+    """
+    try:
+        # Log the error for immediate visibility
+        logger.error(
+            f"[ERROR REPORT] User: {report.user_id}, "
+            f"Call: {report.call_id or 'N/A'}, "
+            f"Error: {report.error_message}, "
+            f"Code: {report.error_code or 'N/A'}, "
+            f"Pipeline: {report.pipeline_info or 'N/A'}"
+        )
+
+        # Store in database
+        db = get_supabase()
+
+        # Create error report record
+        report_data = {
+            "user_id": report.user_id,
+            "assistant_id": report.assistant_id,
+            "call_id": report.call_id,
+            "error_message": report.error_message,
+            "error_code": report.error_code,
+            "error_context": report.error_context,
+            "error_history": report.error_history,
+            "pipeline_info": report.pipeline_info,
+            "latency_data": report.latency_data,
+            "transcript_summary": report.transcript_summary,
+            "call_duration": report.call_duration,
+            "user_notes": report.user_notes,
+            "user_agent": report.user_agent,
+            "reported_at": report.timestamp or datetime.utcnow().isoformat(),
+            "status": "new",
+        }
+
+        # Try to insert into error_reports table (if exists)
+        try:
+            result = db.client.table("va_error_reports").insert(report_data).execute()
+            report_id = result.data[0]["id"] if result.data else None
+            logger.info(f"Error report saved with ID: {report_id}")
+        except Exception as db_error:
+            # Table might not exist yet - just log it
+            logger.warning(f"Could not save error report to DB: {db_error}")
+            report_id = None
+
+        return {
+            "status": "ok",
+            "message": "Error report received",
+            "report_id": report_id,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process error report: {e}")
+        # Still return success to not frustrate users
+        return {
+            "status": "ok",
+            "message": "Error report logged",
+            "report_id": None,
+        }
+
+
+@app.get("/error-reports")
+async def get_error_reports(
+    user_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+):
+    """
+    Get error reports (for admin dashboard).
+    """
+    try:
+        db = get_supabase()
+        query = db.client.table("va_error_reports").select("*")
+
+        if user_id:
+            query = query.eq("user_id", user_id)
+        if status:
+            query = query.eq("status", status)
+
+        query = query.order("reported_at", desc=True).limit(limit)
+        result = query.execute()
+
+        return {
+            "status": "ok",
+            "reports": result.data,
+            "count": len(result.data),
+        }
+    except Exception as e:
+        logger.error(f"Failed to get error reports: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "reports": [],
+        }
+
+
 @app.get("/models/status")
 async def model_status():
     """
