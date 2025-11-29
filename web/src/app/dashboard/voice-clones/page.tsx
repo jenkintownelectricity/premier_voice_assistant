@@ -194,7 +194,21 @@ export default function VoiceClonesPage() {
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.detail || 'Failed to create voice clone');
+        // Handle FastAPI validation errors (array of {loc, msg, type})
+        let errorMessage = 'Failed to create voice clone';
+        if (data.detail) {
+          if (Array.isArray(data.detail)) {
+            // FastAPI validation errors
+            errorMessage = data.detail.map((err: { msg?: string; loc?: string[] }) =>
+              err.msg || JSON.stringify(err)
+            ).join(', ');
+          } else if (typeof data.detail === 'string') {
+            errorMessage = data.detail;
+          } else {
+            errorMessage = JSON.stringify(data.detail);
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       setSuccess('Voice clone created successfully!');
