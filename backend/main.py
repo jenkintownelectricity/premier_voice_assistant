@@ -7,7 +7,7 @@ Designed for mobile apps (iOS/Android)
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -886,11 +886,11 @@ async def chat_text(request: TextChatRequest):
 
 @app.post("/clone-voice")
 async def clone_voice(
-    voice_name: str,
-    display_name: str,
     audio: UploadFile = File(...),
+    voice_name: str = Form(...),
+    display_name: str = Form(...),
+    is_public: str = Form("false"),
     user_id: str = Header(..., alias="X-User-ID"),
-    is_public: bool = False,
     db: SupabaseManager = Depends(get_db),
 ):
     """
@@ -900,6 +900,9 @@ async def clone_voice(
         X-User-ID: Required user ID
     """
     try:
+        # Convert is_public string to boolean (form data comes as string)
+        is_public_bool = is_public.lower() in ("true", "1", "yes")
+
         # Check if user's plan allows custom voices
         feature_gate = get_feature_gate()
         from backend.feature_gates import get_plan_features
@@ -948,7 +951,7 @@ async def clone_voice(
             reference_audio_url=audio_url,
             sample_duration=clone_result.get('duration'),
             modal_voice_id=voice_name,
-            is_public=is_public,
+            is_public=is_public_bool,
         )
 
         return {
@@ -4632,6 +4635,9 @@ async def websocket_voice_endpoint(
                 lightning_config.speech_speed = assistant.get('speech_speed')
             if assistant.get('response_delay_ms'):
                 lightning_config.response_delay_ms = assistant.get('response_delay_ms')
+            # Apply turn-taking model settings
+            if assistant.get('turn_eagerness'):
+                lightning_config.turn_eagerness = assistant.get('turn_eagerness')
             lightning_pipeline = LightningPipeline(lightning_config)
 
             # Set up callbacks
