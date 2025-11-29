@@ -3956,6 +3956,14 @@ class VoiceCallSession:
         self.sentiment_score = 0  # -100 to +100
         self.urgency_level = 'normal'  # normal, elevated, urgent
         self.sentiment_history = []  # Track sentiment over time
+        # User settings (loaded in start_call)
+        self.user_settings = {
+            'ai_enabled': True,
+            'ai_transcription_enabled': True,
+            'ai_summary_enabled': True,
+            'call_screening_enabled': True,
+            'call_recording_enabled': True,
+        }
 
     async def start_call(self):
         """Initialize call log in database and register for monitoring."""
@@ -3970,6 +3978,22 @@ class VoiceCallSession:
                 }
             ).execute()
             self.call_id = result.data
+
+            # Load user settings
+            try:
+                settings_result = self.db.client.table('va_user_settings').select('*').eq('user_id', self.user_id).execute()
+                if settings_result.data and len(settings_result.data) > 0:
+                    stored_settings = settings_result.data[0]
+                    self.user_settings = {
+                        'ai_enabled': stored_settings.get('ai_enabled', True),
+                        'ai_transcription_enabled': stored_settings.get('ai_transcription_enabled', True),
+                        'ai_summary_enabled': stored_settings.get('ai_summary_enabled', True),
+                        'call_screening_enabled': stored_settings.get('call_screening_enabled', True),
+                        'call_recording_enabled': stored_settings.get('call_recording_enabled', True),
+                    }
+                    logger.info(f"Loaded user settings for call: ai_enabled={self.user_settings['ai_enabled']}")
+            except Exception as e:
+                logger.warning(f"Could not load user settings, using defaults: {e}")
 
             # Get assistant name for monitoring display
             assistant_name = "Unknown Assistant"
@@ -4017,24 +4041,40 @@ class VoiceCallSession:
             # Calculate quality score
             quality_data = self.calculate_quality_score(duration_seconds)
 
-            # Build summary with quality data
-            summary_data = {
-                'quality_score': quality_data['total'],
-                'quality_grade': quality_data['grade'],
-                'quality_breakdown': quality_data['breakdown'],
-                'sentiment_score': self.sentiment_score,
-                'urgency_level': self.urgency_level,
-                'exchange_count': len(self.transcript) // 2
-            }
+            # Build summary with quality data (only if ai_summary_enabled)
+            summary_data = None
+            if self.user_settings.get('ai_summary_enabled', True):
+                summary_data = {
+                    'quality_score': quality_data['total'],
+                    'quality_grade': quality_data['grade'],
+                    'quality_breakdown': quality_data['breakdown'],
+                    'sentiment_score': self.sentiment_score,
+                    'urgency_level': self.urgency_level,
+                    'exchange_count': len(self.transcript) // 2
+                }
+            else:
+                logger.info(f"AI summary disabled for call {self.call_id}")
+
+            # Only save transcript if ai_transcription_enabled
+            transcript_to_save = None
+            if self.user_settings.get('ai_transcription_enabled', True):
+                transcript_to_save = self.transcript
+            else:
+                logger.info(f"Transcription disabled for call {self.call_id}")
+
+            # Recording URL (only if call_recording_enabled - placeholder for future)
+            recording_url = None
+            if not self.user_settings.get('call_recording_enabled', True):
+                logger.info(f"Call recording disabled for call {self.call_id}")
 
             self.db.client.rpc(
                 'va_end_call',
                 {
                     'p_call_id': self.call_id,
-                    'p_transcript': json.dumps(self.transcript),
-                    'p_summary': json.dumps(summary_data),
+                    'p_transcript': json.dumps(transcript_to_save) if transcript_to_save else None,
+                    'p_summary': json.dumps(summary_data) if summary_data else None,
                     'p_ended_reason': ended_reason,
-                    'p_recording_url': None,
+                    'p_recording_url': recording_url,
                     'p_sentiment': sentiment
                 }
             ).execute()
@@ -4491,6 +4531,10 @@ async def websocket_voice_endpoint(
 
                     # Route to streaming pipeline if enabled AND frontend sends raw PCM
                     if streaming_pipeline and audio_format == 'pcm_16000':
+                        # Check if AI is enabled for streaming mode too
+                        if not session.user_settings.get('ai_enabled', True):
+                            logger.debug(f"AI disabled for user {user_id}, streaming audio ignored")
+                            continue
                         # Streaming mode: Send raw PCM audio to Deepgram
                         # Pipeline handles STT -> LLM -> TTS automatically via callbacks
                         await streaming_pipeline.send_audio(audio_bytes)
@@ -4529,6 +4573,15 @@ async def websocket_voice_endpoint(
                         "data": sentiment_data
                     })
 
+                    # Check if AI is enabled before generating response
+                    if not session.user_settings.get('ai_enabled', True):
+                        logger.info(f"AI disabled for user {user_id}, skipping response")
+                        await websocket.send_json({
+                            "type": "ai_disabled",
+                            "message": "AI assistant is currently disabled in your settings"
+                        })
+                        continue
+
                     # 2. LLM - Generate response (with automatic model fallback)
                     llm_start = time.time()
                     llm_latency = 0  # Initialize in case of error
@@ -4563,13 +4616,18 @@ async def websocket_voice_endpoint(
                         last_error = None
                         excluded_models = []
 
+                        # Build system prompt with user settings context
+                        system_prompt = assistant['system_prompt']
+                        if not session.user_settings.get('call_screening_enabled', True):
+                            system_prompt += "\n\n[User setting: Call screening is disabled. Skip asking for caller identification or screening questions.]"
+
                         for attempt in range(max_retries):
                             try:
                                 response = voice_assistant.anthropic_client.messages.create(
                                     model=selected_model,
                                     max_tokens=assistant.get('max_tokens', 150),
                                     temperature=float(assistant.get('temperature', 0.7)),
-                                    system=assistant['system_prompt'],
+                                    system=system_prompt,
                                     messages=messages
                                 )
                                 assistant_text = response.content[0].text
