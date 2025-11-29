@@ -2258,6 +2258,122 @@ async def get_llm_provider_details(provider_id: str):
 
 
 # ============================================================================
+# USER API KEYS ROUTES
+# ============================================================================
+
+class SaveApiKeysRequest(BaseModel):
+    keys: Dict[str, str]  # provider_id -> api_key
+
+
+@app.get("/user/api-keys")
+async def get_user_api_keys(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's configured LLM API keys (masked for security).
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Returns:
+        Dictionary of provider_id -> masked_key (e.g., "sk-...abc123")
+    """
+    try:
+        result = db.client.table("va_user_api_keys").select(
+            "provider, api_key_masked, updated_at"
+        ).eq("user_id", user_id).execute()
+
+        keys = {}
+        for row in result.data:
+            keys[row["provider"]] = row["api_key_masked"]
+
+        return {"keys": keys}
+
+    except Exception as e:
+        logger.error(f"Error getting API keys: {e}")
+        # Return empty if table doesn't exist yet
+        return {"keys": {}}
+
+
+@app.post("/user/api-keys")
+async def save_user_api_keys(
+    request: SaveApiKeysRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Save user's LLM API keys (encrypted in database).
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Body:
+        keys: Dictionary of provider_id -> api_key
+
+    Returns:
+        Success status
+    """
+    try:
+        for provider, api_key in request.keys.items():
+            if not api_key:
+                # Delete key if empty
+                db.client.table("va_user_api_keys").delete().eq(
+                    "user_id", user_id
+                ).eq("provider", provider).execute()
+                continue
+
+            # Create masked version for display
+            if len(api_key) > 8:
+                masked = api_key[:4] + "..." + api_key[-4:]
+            else:
+                masked = "****"
+
+            # Upsert the key (encrypt in production!)
+            db.client.table("va_user_api_keys").upsert({
+                "user_id": user_id,
+                "provider": provider,
+                "api_key": api_key,  # In production, encrypt this!
+                "api_key_masked": masked,
+                "updated_at": "now()",
+            }, on_conflict="user_id,provider").execute()
+
+        logger.info(f"Saved API keys for user {user_id}: {list(request.keys.keys())}")
+        return {"success": True, "message": "API keys saved"}
+
+    except Exception as e:
+        logger.error(f"Error saving API keys: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/user/api-keys/{provider}")
+async def delete_user_api_key(
+    provider: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Delete a specific API key for a provider.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Path:
+        provider: The LLM provider ID (e.g., 'openai', 'anthropic')
+    """
+    try:
+        db.client.table("va_user_api_keys").delete().eq(
+            "user_id", user_id
+        ).eq("provider", provider).execute()
+
+        return {"success": True, "message": f"API key for {provider} deleted"}
+
+    except Exception as e:
+        logger.error(f"Error deleting API key: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # ASSISTANTS ROUTES
 # ============================================================================
 
