@@ -18,6 +18,8 @@ import logging
 import os
 import json
 import asyncio
+import struct
+import wave
 import base64
 from datetime import datetime
 
@@ -206,6 +208,18 @@ class UpdateAssistantRequest(BaseModel):
     streaming_chunks: Optional[bool] = None
     first_message_latency_ms: Optional[int] = None
     turn_detection_mode: Optional[str] = None
+
+
+def pcm_to_wav(pcm_data: bytes, sample_rate: int = 16000, channels: int = 1, sample_width: int = 2) -> bytes:
+    """Convert raw PCM audio bytes to WAV format."""
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, 'wb') as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(sample_width)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm_data)
+    wav_buffer.seek(0)
+    return wav_buffer.read()
 
 
 class VoiceAssistant:
@@ -4542,13 +4556,23 @@ async def websocket_voice_endpoint(
                         await session.broadcast_audio_to_monitors(audio_bytes, is_caller=True)
                         continue
 
-                    # Batch processing mode (Modal STT/TTS) - handles webm/opus audio
+                    # Batch processing mode (Modal STT/TTS) - handles webm/opus or PCM audio
                     session.should_stop_tts = False
+
+                    # Convert PCM to WAV if needed (for Modal STT compatibility)
+                    audio_to_transcribe = audio_bytes
+                    if audio_format == 'pcm_16000':
+                        try:
+                            audio_to_transcribe = pcm_to_wav(audio_bytes, sample_rate=16000)
+                            logger.debug("Converted PCM to WAV for batch STT")
+                        except Exception as e:
+                            logger.error(f"PCM to WAV conversion error: {e}")
+                            continue
 
                     # 1. STT - Transcribe audio
                     stt_start = time.time()
                     try:
-                        stt_result = voice_assistant.transcribe_audio(audio_bytes, user_id)
+                        stt_result = voice_assistant.transcribe_audio(audio_to_transcribe, user_id)
                         user_text = stt_result.get('text', '').strip()
                         stt_latency = int((time.time() - stt_start) * 1000)
                     except Exception as e:
