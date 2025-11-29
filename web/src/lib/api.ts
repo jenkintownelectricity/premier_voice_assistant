@@ -177,11 +177,25 @@ export const api = {
         description: string | null;
         system_prompt: string;
         voice_id: string;
+        llm_provider?: string;
         model: string;
         temperature: number;
         max_tokens: number;
         first_message: string | null;
         is_active: boolean;
+        // Advanced settings
+        vad_sensitivity?: number;
+        endpointing_ms?: number;
+        enable_bargein?: boolean;
+        streaming_chunks?: boolean;
+        first_message_latency_ms?: number;
+        turn_detection_mode?: string;
+        // Voice control settings
+        speech_speed?: number;
+        response_delay_ms?: number;
+        punctuation_pause_ms?: number;
+        no_punctuation_pause_ms?: number;
+        turn_eagerness?: string;
         metadata: Record<string, unknown>;
         created_at: string;
         updated_at: string;
