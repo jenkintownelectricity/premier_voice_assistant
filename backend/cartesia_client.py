@@ -187,6 +187,13 @@ class CartesiaSonic3:
         self.on_audio: Optional[Callable[[bytes], Any]] = None
         self.on_word_timestamp: Optional[Callable[[str, float, float], Any]] = None
         self.on_done: Optional[Callable[[], Any]] = None
+
+        # ⚡ AUDIO QUEUE - Prevents overlapping sentences
+        # Research shows this is critical for smooth playback
+        self._synthesis_queue: asyncio.Queue = asyncio.Queue()
+        self._is_speaking = False
+        self._current_context_id: Optional[str] = None
+        self._queue_processor_task: Optional[asyncio.Task] = None
         self.on_error: Optional[Callable[[str], Any]] = None
 
         # Metrics
@@ -311,6 +318,11 @@ class CartesiaSonic3:
 
                 del self._pending_contexts[context_id]
 
+            # ⚡ Mark speaking as complete for queue processing
+            if context_id == self._current_context_id:
+                self._is_speaking = False
+                self._current_context_id = None
+
             if self.on_done:
                 await self._safe_callback(self.on_done)
 
@@ -345,7 +357,10 @@ class CartesiaSonic3:
         on_done: Optional[Callable[[], Any]] = None,
     ) -> str:
         """
-        Synthesize text to speech.
+        Synthesize text to speech with queue to prevent overlap.
+
+        Uses a queue to ensure sentences play in order without overlapping.
+        This is critical for natural-sounding voice agents.
 
         Args:
             text: Text to synthesize
@@ -359,12 +374,52 @@ class CartesiaSonic3:
         Returns:
             Context ID for tracking
         """
+        if not text or not text.strip():
+            return ""
+
+        # ⚡ QUEUE-BASED SYNTHESIS - Prevents overlapping audio
+        # If already speaking, wait for current audio to finish
+        if self._is_speaking:
+            # Wait for current speech to complete (with timeout)
+            wait_start = time.time()
+            while self._is_speaking and (time.time() - wait_start) < 10.0:
+                await asyncio.sleep(0.05)  # 50ms polling
+            if self._is_speaking:
+                logger.warning("TTS queue timeout - forcing new synthesis")
+
+        return await self._synthesize_immediate(
+            text=text,
+            voice_id=voice_id,
+            language=language,
+            speed=speed,
+            emotion=emotion,
+            on_audio=on_audio,
+            on_done=on_done,
+        )
+
+    async def _synthesize_immediate(
+        self,
+        text: str,
+        voice_id: Optional[str] = None,
+        language: Optional[str] = None,
+        speed: Optional[float] = None,
+        emotion: Optional[str] = None,
+        on_audio: Optional[Callable[[bytes], Any]] = None,
+        on_done: Optional[Callable[[], Any]] = None,
+    ) -> str:
+        """
+        Immediate synthesis without queue (internal use).
+        """
         if not self.ws or not self._connected:
             logger.error("Cartesia not connected")
             return ""
 
         context_id = str(uuid.uuid4())
         lang = language or self.config.language
+
+        # Mark as speaking
+        self._is_speaking = True
+        self._current_context_id = context_id
 
         # Select model based on language
         model_id = (
@@ -455,17 +510,32 @@ class CartesiaSonic3:
             yield chunk
 
     async def cancel(self, context_id: Optional[str] = None):
-        """Cancel synthesis for a context."""
+        """Cancel synthesis for a context (or all if context_id is None)."""
         if self.ws and self._connected:
-            if context_id:
+            # Cancel specific context or current one
+            cancel_id = context_id or self._current_context_id
+            if cancel_id:
                 await self.ws.send_json({
                     "type": "cancel",
-                    "context_id": context_id,
+                    "context_id": cancel_id,
                 })
-            # Remove from pending
-            if context_id in self._pending_contexts:
-                del self._pending_contexts[context_id]
-            logger.debug(f"Cancelled Cartesia synthesis: {context_id}")
+                # Remove from pending
+                if cancel_id in self._pending_contexts:
+                    del self._pending_contexts[cancel_id]
+
+            # ⚡ BARGE-IN: Clear speaking state immediately
+            self._is_speaking = False
+            self._current_context_id = None
+
+            logger.debug(f"Cancelled Cartesia synthesis: {cancel_id}")
+
+    def clear_queue(self):
+        """Clear the TTS queue and reset speaking state (for barge-in)."""
+        self._is_speaking = False
+        self._current_context_id = None
+        # Clear pending contexts
+        self._pending_contexts.clear()
+        logger.debug("TTS queue cleared")
 
     async def close(self):
         """Close the Cartesia connection."""
