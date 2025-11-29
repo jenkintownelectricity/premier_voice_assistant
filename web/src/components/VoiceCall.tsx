@@ -85,6 +85,16 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
   // Call quality score (shown after call ends)
   const [qualityScore, setQualityScore] = useState<QualityScoreData | null>(null);
 
+  // Live settings control panel
+  const [showSettings, setShowSettings] = useState(false);
+  const [liveConfig, setLiveConfig] = useState({
+    speech_speed: 0.9,
+    response_delay_ms: 400,
+    turn_eagerness: 'balanced' as 'low' | 'balanced' | 'high',
+    enable_backchannels: false,
+  });
+  const [configLoaded, setConfigLoaded] = useState(false);
+
   const wsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<string[]>([]);
@@ -350,6 +360,28 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
           }
           setCallState('ended');
           break;
+        case 'current_config':
+          // Received current configuration from server
+          if (data.data) {
+            setLiveConfig(prev => ({
+              ...prev,
+              speech_speed: data.data.speech_speed ?? prev.speech_speed,
+              response_delay_ms: data.data.response_delay_ms ?? prev.response_delay_ms,
+              turn_eagerness: data.data.turn_eagerness ?? prev.turn_eagerness,
+              enable_backchannels: data.data.enable_backchannels ?? prev.enable_backchannels,
+            }));
+            setConfigLoaded(true);
+          }
+          break;
+        case 'config_updated':
+          // Configuration was updated
+          if (data.data?.current_config) {
+            setLiveConfig(prev => ({
+              ...prev,
+              ...data.data.current_config,
+            }));
+          }
+          break;
       }
     };
 
@@ -388,6 +420,33 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
       });
     }
   }, [isMuted]);
+
+  // Request current config from server
+  const requestConfig = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'get_config' }));
+    }
+  }, []);
+
+  // Update config in real-time
+  const updateConfig = useCallback((updates: Partial<typeof liveConfig>, save: boolean = false) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'update_config',
+        config: updates,
+        save: save,
+      }));
+      // Optimistically update local state
+      setLiveConfig(prev => ({ ...prev, ...updates }));
+    }
+  }, []);
+
+  // Request config when call becomes active
+  useEffect(() => {
+    if (callState === 'active' && !configLoaded) {
+      requestConfig();
+    }
+  }, [callState, configLoaded, requestConfig]);
 
   // Auto-connect on mount
   useEffect(() => {
@@ -835,9 +894,131 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
         </div>
       )}
 
+      {/* Live Settings Panel */}
+      {showSettings && callState === 'active' && (
+        <div className="border-t border-zinc-800 bg-zinc-900/95 backdrop-blur">
+          <div className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Live Settings</h3>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="text-zinc-400 hover:text-white"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Speech Speed */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-zinc-400">Speech Speed</label>
+                <span className="text-xs text-amber-400 font-mono">{liveConfig.speech_speed.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="1.5"
+                step="0.1"
+                value={liveConfig.speech_speed}
+                onChange={(e) => updateConfig({ speech_speed: parseFloat(e.target.value) })}
+                className="w-full h-1.5 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              />
+              <div className="flex justify-between text-xs text-zinc-500">
+                <span>Slow</span>
+                <span>Fast</span>
+              </div>
+            </div>
+
+            {/* Response Delay */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-zinc-400">Response Delay</label>
+                <span className="text-xs text-amber-400 font-mono">{liveConfig.response_delay_ms}ms</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1000"
+                step="50"
+                value={liveConfig.response_delay_ms}
+                onChange={(e) => updateConfig({ response_delay_ms: parseInt(e.target.value) })}
+                className="w-full h-1.5 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              />
+              <div className="flex justify-between text-xs text-zinc-500">
+                <span>Instant</span>
+                <span>Patient</span>
+              </div>
+            </div>
+
+            {/* Turn Eagerness */}
+            <div className="space-y-2">
+              <label className="text-xs text-zinc-400">Turn Eagerness</label>
+              <div className="flex gap-2">
+                {(['low', 'balanced', 'high'] as const).map((level) => (
+                  <button
+                    key={level}
+                    onClick={() => updateConfig({ turn_eagerness: level })}
+                    className={`flex-1 py-1.5 px-2 text-xs rounded-lg transition-colors ${
+                      liveConfig.turn_eagerness === level
+                        ? 'bg-amber-500 text-black font-semibold'
+                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                    }`}
+                  >
+                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Backchannels Toggle */}
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs text-zinc-400">Backchannels</label>
+                <p className="text-xs text-zinc-500">Say &quot;mm-hmm&quot;, &quot;I see&quot;</p>
+              </div>
+              <button
+                onClick={() => updateConfig({ enable_backchannels: !liveConfig.enable_backchannels })}
+                className={`w-10 h-5 rounded-full transition-colors ${
+                  liveConfig.enable_backchannels ? 'bg-amber-500' : 'bg-zinc-700'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                  liveConfig.enable_backchannels ? 'translate-x-5' : 'translate-x-0.5'
+                }`} />
+              </button>
+            </div>
+
+            {/* Save to Assistant Button */}
+            <button
+              onClick={() => updateConfig(liveConfig, true)}
+              className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-400 text-xs font-medium rounded-lg transition-colors border border-zinc-700"
+            >
+              💾 Save to Assistant Settings
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Bottom Controls */}
       <div className="p-4 border-t border-zinc-800">
         <div className="flex items-center justify-center gap-4">
+          {/* Settings Button */}
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+              showSettings
+                ? 'bg-amber-500 text-black'
+                : 'bg-zinc-800 text-white hover:bg-zinc-700'
+            }`}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+
           {/* Mute Button */}
           <button
             onClick={toggleMute}

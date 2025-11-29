@@ -649,6 +649,124 @@ class LightningPipeline:
             return self.llm.get_stats()
         return {}
 
+    # =========================================================================
+    # REAL-TIME CONFIGURATION UPDATES
+    # =========================================================================
+
+    def update_config(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update pipeline configuration in real-time during a call.
+
+        Supported updates:
+        - speech_speed: float (0.5 - 2.0)
+        - response_delay_ms: int (0 - 2000)
+        - turn_eagerness: str ("low", "balanced", "high")
+        - enable_backchannels: bool
+        - enable_emotional_matching: bool
+        - enable_talk_time_tracking: bool
+
+        Returns the current config after updates.
+        """
+        applied = {}
+
+        # Speech speed
+        if "speech_speed" in updates:
+            speed = float(updates["speech_speed"])
+            speed = max(0.5, min(2.0, speed))  # Clamp to valid range
+            self.config.speech_speed = speed
+            if self.tts:
+                self.tts.config.speed = speed
+            applied["speech_speed"] = speed
+            logger.info(f"🔧 Speed updated to {speed}x")
+
+        # Response delay
+        if "response_delay_ms" in updates:
+            delay = int(updates["response_delay_ms"])
+            delay = max(0, min(2000, delay))  # Clamp to valid range
+            self.config.response_delay_ms = delay
+            applied["response_delay_ms"] = delay
+            logger.info(f"🔧 Response delay updated to {delay}ms")
+
+        # Turn eagerness
+        if "turn_eagerness" in updates:
+            eagerness = updates["turn_eagerness"]
+            if eagerness in ("low", "balanced", "high"):
+                self.config.turn_eagerness = eagerness
+                if self.turn_model:
+                    self.turn_model.set_eagerness(eagerness)
+                applied["turn_eagerness"] = eagerness
+                logger.info(f"🔧 Turn eagerness updated to {eagerness}")
+
+        # Backchannels
+        if "enable_backchannels" in updates:
+            enabled = bool(updates["enable_backchannels"])
+            self.config.enable_backchannels = enabled
+            if self.turn_model:
+                self.turn_model.config.enable_backchannels = enabled
+            applied["enable_backchannels"] = enabled
+            logger.info(f"🔧 Backchannels {'enabled' if enabled else 'disabled'}")
+
+        # Emotional matching
+        if "enable_emotional_matching" in updates:
+            enabled = bool(updates["enable_emotional_matching"])
+            if self.turn_model:
+                self.turn_model.config.enable_emotional_matching = enabled
+            applied["enable_emotional_matching"] = enabled
+            logger.info(f"🔧 Emotional matching {'enabled' if enabled else 'disabled'}")
+
+        # Talk-time tracking
+        if "enable_talk_time_tracking" in updates:
+            enabled = bool(updates["enable_talk_time_tracking"])
+            if self.turn_model:
+                self.turn_model.config.enable_talk_time_tracking = enabled
+            applied["enable_talk_time_tracking"] = enabled
+            logger.info(f"🔧 Talk-time tracking {'enabled' if enabled else 'disabled'}")
+
+        # Voice ID (for switching voices mid-call)
+        if "voice_id" in updates:
+            voice_id = updates["voice_id"]
+            if voice_id and len(voice_id) > 10:
+                self.config.cartesia_voice_id = voice_id
+                if self.tts:
+                    self.tts.config.default_voice_id = voice_id
+                applied["voice_id"] = voice_id
+                logger.info(f"🔧 Voice changed to {voice_id[:8]}...")
+
+        return {
+            "applied": applied,
+            "current_config": self.get_current_config(),
+        }
+
+    def get_current_config(self) -> Dict[str, Any]:
+        """Get current pipeline configuration."""
+        config = {
+            "speech_speed": self.config.speech_speed,
+            "response_delay_ms": self.config.response_delay_ms,
+            "turn_eagerness": self.config.turn_eagerness,
+            "enable_backchannels": self.config.enable_backchannels,
+            "enable_turn_taking_model": self.config.enable_turn_taking_model,
+            "voice_id": self.config.cartesia_voice_id,
+        }
+
+        # Add turn model config if available
+        if self.turn_model:
+            config.update({
+                "enable_emotional_matching": self.turn_model.config.enable_emotional_matching,
+                "enable_talk_time_tracking": self.turn_model.config.enable_talk_time_tracking,
+                "prediction_threshold": self.turn_model.config.prediction_threshold,
+            })
+
+            # Add current stats
+            stats = self.turn_model.get_talk_time_stats()
+            config["talk_time_stats"] = {
+                "assistant_ratio": round(stats.assistant_ratio, 2),
+                "is_optimal": stats.is_ratio_optimal,
+                "user_turns": stats.user_turn_count,
+                "assistant_turns": stats.assistant_turn_count,
+            }
+
+        return config
+
     async def close(self):
         """Close all connections."""
         if self.stt:

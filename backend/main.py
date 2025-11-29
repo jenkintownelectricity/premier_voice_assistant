@@ -4818,6 +4818,55 @@ async def websocket_voice_endpoint(
                     elif streaming_pipeline and streaming_pipeline.tts:
                         await streaming_pipeline.tts.cancel()
 
+                elif msg_type == 'update_config':
+                    # Real-time configuration update during call
+                    updates = message.get('config', {})
+                    save_to_db = message.get('save', False)
+
+                    result = {}
+
+                    # Apply to Lightning Pipeline
+                    if lightning_pipeline:
+                        result = lightning_pipeline.update_config(updates)
+
+                    # Apply to Streaming Pipeline if active
+                    if streaming_pipeline and hasattr(streaming_pipeline, 'update_config'):
+                        streaming_pipeline.update_config(updates)
+
+                    # Save to database if requested
+                    if save_to_db and session.assistant_id:
+                        try:
+                            db_updates = {}
+                            if 'speech_speed' in updates:
+                                db_updates['speech_speed'] = updates['speech_speed']
+                            if 'response_delay_ms' in updates:
+                                db_updates['response_delay_ms'] = updates['response_delay_ms']
+                            if 'turn_eagerness' in updates:
+                                db_updates['turn_eagerness'] = updates['turn_eagerness']
+
+                            if db_updates:
+                                db.update_assistant(user_id, session.assistant_id, db_updates)
+                                logger.info(f"💾 Settings saved to assistant {session.assistant_id}")
+                                result['saved_to_db'] = True
+                        except Exception as e:
+                            logger.error(f"Failed to save settings: {e}")
+                            result['save_error'] = str(e)
+
+                    await websocket.send_json({
+                        "type": "config_updated",
+                        "data": result
+                    })
+
+                elif msg_type == 'get_config':
+                    # Get current configuration
+                    config = {}
+                    if lightning_pipeline:
+                        config = lightning_pipeline.get_current_config()
+                    await websocket.send_json({
+                        "type": "current_config",
+                        "data": config
+                    })
+
                 elif msg_type == 'audio':
                     # Receive audio chunk
                     audio_b64 = message.get('data', '')
