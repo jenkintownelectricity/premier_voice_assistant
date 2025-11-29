@@ -717,17 +717,19 @@ export default function AssistantsPage() {
         </div>
       )}
 
-      {/* Voice Call Modal */}
+      {/* Voice Call - Full Screen */}
       {activeCall && user && (
-        <VoiceCall
-          assistantId={activeCall.id}
-          assistantName={activeCall.name}
-          userId={user.id}
-          onClose={() => {
-            setActiveCall(null);
-            loadAssistants(); // Refresh to update call count
-          }}
-        />
+        <div className="fixed inset-0 z-50">
+          <VoiceCall
+            assistantId={activeCall.id}
+            assistantName={activeCall.name}
+            userId={user.id}
+            onClose={() => {
+              setActiveCall(null);
+              loadAssistants(); // Refresh to update call count
+            }}
+          />
+        </div>
       )}
     </div>
   );

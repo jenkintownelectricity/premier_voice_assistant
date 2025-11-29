@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { HoneycombButton } from './HoneycombButton';
 
 interface TranscriptMessage {
   role: 'user' | 'assistant';
@@ -52,12 +51,14 @@ interface VoiceCallProps {
 }
 
 export function VoiceCall({ assistantId, assistantName, userId, onClose }: VoiceCallProps) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const [callState, setCallState] = useState<'connecting' | 'active' | 'ended'>('connecting');
+  const [isMuted, setIsMuted] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isAssistantSpeaking, setIsAssistantSpeaking] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [streamingMode, setStreamingMode] = useState(true);  // Default to streaming PCM for Deepgram
+  const [callDuration, setCallDuration] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
 
   // Real-time sentiment state
   const [sentiment, setSentiment] = useState<SentimentData | null>(null);
@@ -65,20 +66,22 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
   const [latency, setLatency] = useState<LatencyData | null>(null);
   // Call quality score (shown after call ends)
   const [qualityScore, setQualityScore] = useState<QualityScoreData | null>(null);
-  const [showSummary, setShowSummary] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioQueueRef = useRef<string[]>([]);
   const isPlayingRef = useRef(false);
   const streamRef = useRef<MediaStream | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const callTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   const playNextAudio = useCallback(async () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
     isPlayingRef.current = true;
+    setIsAssistantSpeaking(true);
     const audioBase64 = audioQueueRef.current.shift()!;
     try {
       if (!audioContextRef.current) audioContextRef.current = new AudioContext();
@@ -90,81 +93,21 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
       const source = audioContextRef.current.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(audioContextRef.current.destination);
-      source.onended = () => { isPlayingRef.current = false; playNextAudio(); };
+      source.onended = () => {
+        isPlayingRef.current = false;
+        if (audioQueueRef.current.length === 0) {
+          setIsAssistantSpeaking(false);
+        }
+        playNextAudio();
+      };
       source.start();
     } catch (err) {
       console.error('Audio playback error:', err);
       isPlayingRef.current = false;
+      setIsAssistantSpeaking(false);
       playNextAudio();
     }
   }, []);
-
-  const connect = useCallback(() => {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://web-production-1b085.up.railway.app';
-    const wsUrl = backendUrl.replace(/^http/, 'ws');
-    const ws = new WebSocket(`${wsUrl}/ws/voice/${assistantId}`);
-    wsRef.current = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', user_id: userId }));
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      switch (data.type) {
-        case 'ready': setIsConnected(true); setError(null); break;
-        case 'transcript': setTranscript(prev => [...prev, { role: data.role, content: data.content }]); break;
-        case 'audio': audioQueueRef.current.push(data.data); playNextAudio(); break;
-        case 'speaking': setIsSpeaking(data.is_speaking); break;
-        case 'sentiment': setSentiment(data.data); break;
-        case 'latency': setLatency(data.data); break;
-        case 'info':
-          // Check if streaming mode is active
-          if (data.message?.includes('Streaming pipeline active')) {
-            setStreamingMode(true);
-          }
-          break;
-        case 'error': setError(data.message); break;
-        case 'call_ended':
-          if (data.quality_score) {
-            setQualityScore(data.quality_score);
-            setShowSummary(true);
-          }
-          setIsConnected(false);
-          setIsRecording(false);
-          break;
-      }
-    };
-    ws.onerror = () => setError('Connection error');
-    ws.onclose = () => setIsConnected(false);
-  }, [assistantId, userId, playNextAudio]);
-
-  const stopRecording = useCallback(() => {
-    // Stop ScriptProcessor streaming
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-    if (sourceRef.current) {
-      sourceRef.current.disconnect();
-      sourceRef.current = null;
-    }
-    // Stop MediaRecorder (batch mode)
-    if (mediaRecorderRef.current?.state !== 'inactive') {
-      mediaRecorderRef.current?.stop();
-    }
-    // Stop media stream
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setIsRecording(false);
-  }, []);
-
-  const disconnect = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.send(JSON.stringify({ type: 'end_call' }));
-      wsRef.current.close();
-    }
-    stopRecording();
-    setIsConnected(false);
-  }, [stopRecording]);
 
   // Convert Float32 audio samples to 16-bit PCM
   const floatTo16BitPCM = (float32Array: Float32Array): ArrayBuffer => {
@@ -199,7 +142,8 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
     return result;
   };
 
-  const startStreamingRecording = useCallback(async () => {
+  // Start continuous audio streaming
+  const startAudioStream = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -219,18 +163,33 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
       const source = audioContext.createMediaStreamSource(stream);
       sourceRef.current = source;
 
-      // Use ScriptProcessorNode for raw PCM (deprecated but widely supported)
-      // Buffer size: 4096 samples at 16kHz = 256ms chunks
+      // Create analyser for audio level visualization
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyserRef.current = analyser;
+      source.connect(analyser);
+
+      // Use ScriptProcessorNode for raw PCM
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
       processorRef.current = processor;
 
       processor.onaudioprocess = (e) => {
-        if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+        if (wsRef.current?.readyState !== WebSocket.OPEN || isMuted) return;
 
         const inputData = e.inputBuffer.getChannelData(0);
-        // Downsample if needed (AudioContext might not honor sampleRate request)
         const downsampled = downsampleBuffer(inputData, audioContext.sampleRate, 16000);
         const pcmBuffer = floatTo16BitPCM(downsampled);
+
+        // Calculate RMS for speaking detection
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+          sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+        const db = 20 * Math.log10(rms + 0.0001);
+        const normalizedLevel = Math.max(0, Math.min(100, (db + 60) * 2));
+        setAudioLevel(normalizedLevel);
+        setIsSpeaking(normalizedLevel > 15);
 
         // Convert to base64 and send
         const bytes = new Uint8Array(pcmBuffer);
@@ -243,95 +202,138 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
         wsRef.current?.send(JSON.stringify({
           type: 'audio',
           data: base64,
-          format: 'pcm_16000'  // Tell backend this is raw PCM
+          format: 'pcm_16000'
         }));
       };
 
       source.connect(processor);
       processor.connect(audioContext.destination);
 
-      setIsRecording(true);
-      console.log('Started streaming PCM audio capture');
+      console.log('Started continuous audio streaming');
     } catch (err) {
-      console.error('Failed to start streaming recording:', err);
-      setError('Microphone access denied');
+      console.error('Failed to start audio stream:', err);
+      setError('Microphone access denied. Please allow microphone access to use voice calls.');
     }
+  }, [isMuted]);
+
+  const stopAudioStream = useCallback(() => {
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
+    if (analyserRef.current) {
+      analyserRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setAudioLevel(0);
+    setIsSpeaking(false);
   }, []);
 
-  const startBatchRecording = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        }
-      });
-      streamRef.current = stream;
+  const connect = useCallback(() => {
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://web-production-1b085.up.railway.app';
+    const wsUrl = backendUrl.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${wsUrl}/ws/voice/${assistantId}`);
+    wsRef.current = ws;
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-      mediaRecorderRef.current = mediaRecorder;
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'auth', user_id: userId }));
+    };
 
-      mediaRecorder.ondataavailable = async (event) => {
-        if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64 = (reader.result as string).split(',')[1];
-            wsRef.current?.send(JSON.stringify({ type: 'audio', data: base64 }));
-          };
-          reader.readAsDataURL(event.data);
-        }
-      };
-
-      mediaRecorder.start(3000);  // 3 second chunks for batch processing
-      setIsRecording(true);
-      console.log('Started batch audio recording (webm/opus)');
-    } catch (err) {
-      console.error('Failed to start batch recording:', err);
-      setError('Microphone access denied');
-    }
-  }, []);
-
-  const toggleRecording = useCallback(async () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      // Use streaming PCM for Deepgram, batch webm for Modal fallback
-      // For now, always use batch until backend signals streaming is ready
-      // The backend will check the 'format' field to know which mode
-      if (streamingMode) {
-        await startStreamingRecording();
-      } else {
-        await startBatchRecording();
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      switch (data.type) {
+        case 'ready':
+          setCallState('active');
+          setError(null);
+          // Auto-start audio streaming when connected
+          startAudioStream();
+          // Start call timer
+          callTimerRef.current = setInterval(() => {
+            setCallDuration(d => d + 1);
+          }, 1000);
+          break;
+        case 'transcript':
+          setTranscript(prev => [...prev, { role: data.role, content: data.content }]);
+          break;
+        case 'audio':
+          audioQueueRef.current.push(data.data);
+          playNextAudio();
+          break;
+        case 'speaking':
+          setIsAssistantSpeaking(data.is_speaking);
+          break;
+        case 'sentiment':
+          setSentiment(data.data);
+          break;
+        case 'latency':
+          setLatency(data.data);
+          break;
+        case 'error':
+          setError(data.message);
+          break;
+        case 'call_ended':
+          if (data.quality_score) {
+            setQualityScore(data.quality_score);
+          }
+          setCallState('ended');
+          break;
       }
-    }
-  }, [isRecording, streamingMode, stopRecording, startStreamingRecording, startBatchRecording]);
+    };
 
-  useEffect(() => { return () => { disconnect(); }; }, [disconnect]);
+    ws.onerror = () => setError('Connection error');
+    ws.onclose = () => {
+      if (callState === 'active') {
+        setCallState('ended');
+      }
+    };
+  }, [assistantId, userId, playNextAudio, startAudioStream, callState]);
 
-  // Helper functions for sentiment display
-  const getSentimentColor = (s: string) => {
-    switch (s) {
-      case 'positive': return 'text-green-400 bg-green-500/20';
-      case 'negative': return 'text-red-400 bg-red-500/20';
-      default: return 'text-zinc-400 bg-zinc-500/20';
+  const endCall = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.send(JSON.stringify({ type: 'end_call' }));
+      wsRef.current.close();
     }
-  };
+    stopAudioStream();
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+    }
+    setCallState('ended');
+  }, [stopAudioStream]);
 
-  const getSentimentEmoji = (s: string) => {
-    switch (s) {
-      case 'positive': return '😊';
-      case 'negative': return '😟';
-      default: return '😐';
+  const toggleMute = useCallback(() => {
+    setIsMuted(prev => !prev);
+    if (streamRef.current) {
+      streamRef.current.getAudioTracks().forEach(track => {
+        track.enabled = isMuted; // Toggle: if currently muted, enable; if not muted, disable
+      });
     }
-  };
+  }, [isMuted]);
 
-  const getUrgencyColor = (u: string) => {
-    switch (u) {
-      case 'urgent': return 'text-red-400 bg-red-500/20 animate-pulse';
-      case 'elevated': return 'text-yellow-400 bg-yellow-500/20';
-      default: return 'text-zinc-400 bg-zinc-500/20';
-    }
+  // Auto-connect on mount
+  useEffect(() => {
+    connect();
+    return () => {
+      stopAudioStream();
+      if (callTimerRef.current) {
+        clearInterval(callTimerRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   const getLatencyColor = (status: string) => {
@@ -342,11 +344,11 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
     }
   };
 
-  const getTrendIcon = (trend: string) => {
-    switch (trend) {
-      case 'improving': return '↗';
-      case 'declining': return '↘';
-      default: return '→';
+  const getSentimentEmoji = (s: string) => {
+    switch (s) {
+      case 'positive': return '😊';
+      case 'negative': return '😟';
+      default: return '😐';
     }
   };
 
@@ -360,190 +362,226 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
     }
   };
 
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  // Call Summary Modal
-  if (showSummary && qualityScore) {
+  // Call Summary Screen
+  if (callState === 'ended') {
     return (
-      <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
-        <div className="bg-zinc-900 border border-amber-500/30 rounded-lg p-6 max-w-md w-full mx-4">
-          <div className="text-center mb-6">
-            <h2 className="text-xl font-bold text-amber-500 mb-2">Call Complete</h2>
-            <p className="text-zinc-400 text-sm">Here's how the call went</p>
-          </div>
+      <div className="min-h-screen bg-gradient-to-b from-zinc-900 to-black flex flex-col">
+        {/* Header */}
+        <div className="p-4 flex items-center justify-between">
+          <button onClick={onClose} className="text-zinc-400 hover:text-white p-2">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <span className="text-zinc-400 text-sm">Call Ended</span>
+          <div className="w-10" />
+        </div>
 
-          {/* Quality Grade - Big Display */}
-          <div className="flex justify-center mb-6">
-            <div className={`w-24 h-24 rounded-full border-4 flex items-center justify-center ${getGradeColor(qualityScore.grade)}`}>
-              <span className="text-4xl font-bold">{qualityScore.grade}</span>
-            </div>
-          </div>
+        {/* Summary Content */}
+        <div className="flex-1 flex flex-col items-center justify-center px-6">
+          {qualityScore ? (
+            <>
+              <div className={`w-28 h-28 rounded-full border-4 flex items-center justify-center mb-4 ${getGradeColor(qualityScore.grade)}`}>
+                <span className="text-5xl font-bold">{qualityScore.grade}</span>
+              </div>
+              <div className="text-center mb-6">
+                <span className="text-4xl font-bold text-white">{qualityScore.total}</span>
+                <span className="text-zinc-400 text-xl">/100</span>
+              </div>
+              <div className="text-zinc-400 mb-8">
+                {formatDuration(qualityScore.factors.duration_seconds)} • {qualityScore.factors.exchanges} exchanges
+              </div>
 
-          {/* Score */}
-          <div className="text-center mb-6">
-            <span className="text-3xl font-bold text-white">{qualityScore.total}</span>
-            <span className="text-zinc-400">/100</span>
-          </div>
-
-          {/* Score Breakdown */}
-          <div className="space-y-2 mb-6">
-            <div className="text-xs text-zinc-400 mb-2">Score Breakdown</div>
-            {Object.entries(qualityScore.breakdown).map(([key, value]) => (
-              <div key={key} className="flex items-center justify-between">
-                <span className="text-sm text-zinc-300 capitalize">{key.replace('_', ' ')}</span>
-                <div className="flex items-center gap-2">
-                  <div className="w-24 h-2 bg-zinc-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-amber-500 rounded-full"
-                      style={{ width: `${(value / (key === 'sentiment' ? 30 : key === 'flow' ? 25 : key === 'duration' ? 20 : key === 'resolution' ? 15 : 10)) * 100}%` }}
-                    />
+              {/* Score Breakdown */}
+              <div className="w-full max-w-sm space-y-3 mb-8">
+                {Object.entries(qualityScore.breakdown).map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="text-sm text-zinc-400 capitalize">{key.replace('_', ' ')}</span>
+                    <div className="flex items-center gap-2">
+                      <div className="w-32 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500 rounded-full"
+                          style={{ width: `${(value / 30) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-zinc-500 w-6 text-right">{value}</span>
+                    </div>
                   </div>
-                  <span className="text-xs text-zinc-400 w-8 text-right">{value}</span>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-
-          {/* Call Stats */}
-          <div className="grid grid-cols-3 gap-4 p-3 bg-black/50 rounded-lg mb-6">
-            <div className="text-center">
-              <div className="text-lg font-bold text-white">{formatDuration(qualityScore.factors.duration_seconds)}</div>
-              <div className="text-xs text-zinc-500">Duration</div>
-            </div>
-            <div className="text-center">
-              <div className="text-lg font-bold text-white">{qualityScore.factors.exchanges}</div>
-              <div className="text-xs text-zinc-500">Exchanges</div>
-            </div>
-            <div className="text-center">
-              <div className={`text-lg font-bold capitalize ${
-                qualityScore.factors.sentiment === 'positive' ? 'text-green-400' :
-                qualityScore.factors.sentiment === 'negative' ? 'text-red-400' : 'text-zinc-400'
-              }`}>
-                {qualityScore.factors.sentiment}
+            </>
+          ) : (
+            <>
+              <div className="w-20 h-20 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
+                <svg className="w-10 h-10 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
               </div>
-              <div className="text-xs text-zinc-500">Sentiment</div>
-            </div>
-          </div>
+              <h2 className="text-xl text-white mb-2">Call Complete</h2>
+              <p className="text-zinc-400">{formatDuration(callDuration)}</p>
+            </>
+          )}
+        </div>
 
-          <HoneycombButton onClick={onClose} variant="solid" className="w-full">
+        {/* Done Button */}
+        <div className="p-6">
+          <button
+            onClick={onClose}
+            className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-black font-semibold rounded-2xl transition-colors"
+          >
             Done
-          </HoneycombButton>
+          </button>
         </div>
       </div>
     );
   }
 
+  // Active Call Screen
   return (
-    <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
-      <div className="bg-zinc-900 border border-amber-500/30 rounded-lg p-6 max-w-2xl w-full mx-4">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-amber-500">{assistantName}</h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white text-2xl">&times;</button>
+    <div className="min-h-screen bg-gradient-to-b from-zinc-900 to-black flex flex-col">
+      {/* Header */}
+      <div className="p-4 flex items-center justify-between">
+        <button onClick={endCall} className="text-zinc-400 hover:text-white p-2">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div className="flex items-center gap-2">
+          {callState === 'connecting' && (
+            <span className="text-zinc-400 text-sm animate-pulse">Connecting...</span>
+          )}
+          {callState === 'active' && latency && (
+            <span className={`text-xs font-mono ${getLatencyColor(latency.status)}`}>
+              {latency.total_ms}ms
+            </span>
+          )}
         </div>
+        <div className="w-10" />
+      </div>
 
-        {/* Status Bar with Connection, Speaking, Sentiment, Urgency */}
-        <div className="flex items-center gap-3 mb-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-zinc-400 text-sm">{isConnected ? 'Connected' : 'Disconnected'}</span>
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col items-center pt-8">
+        {/* Avatar with Speaking Indicator */}
+        <div className="relative mb-4">
+          <div className={`w-32 h-32 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center transition-all duration-300 ${
+            isAssistantSpeaking ? 'ring-4 ring-amber-400 ring-opacity-60 scale-105' : ''
+          }`}>
+            <span className="text-5xl font-bold text-black">
+              {assistantName.charAt(0).toUpperCase()}
+            </span>
           </div>
-          {isSpeaking && <span className="text-amber-500 text-sm animate-pulse">Speaking...</span>}
-
-          {/* Real-time Sentiment Indicator */}
-          {sentiment && (
-            <div className={`flex items-center gap-1 px-2 py-1 rounded text-xs ${getSentimentColor(sentiment.sentiment)}`}>
-              <span>{getSentimentEmoji(sentiment.sentiment)}</span>
-              <span className="capitalize">{sentiment.sentiment}</span>
-              <span className="opacity-60">{getTrendIcon(sentiment.trend)}</span>
-            </div>
-          )}
-
-          {/* Urgency Indicator */}
-          {sentiment && sentiment.urgency !== 'normal' && (
-            <div className={`px-2 py-1 rounded text-xs font-semibold ${getUrgencyColor(sentiment.urgency)}`}>
-              {sentiment.urgency === 'urgent' ? '🚨 URGENT' : '⚡ Elevated'}
-            </div>
+          {isAssistantSpeaking && (
+            <div className="absolute -inset-2 rounded-full border-2 border-amber-400 animate-ping opacity-30" />
           )}
         </div>
 
-        {/* Real-time Latency Display */}
-        {latency && isConnected && (
-          <div className="mb-4 p-3 bg-black/50 rounded-lg">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500">Response Time</span>
-              <span className={`font-mono font-bold ${getLatencyColor(latency.status)}`}>
-                {latency.total_ms}ms
-                {latency.status === 'good' && ' ✓'}
-                {latency.status === 'slow' && ' ⚠'}
+        {/* Assistant Name */}
+        <h1 className="text-2xl font-semibold text-white mb-1">{assistantName}</h1>
+
+        {/* Call Duration */}
+        <p className="text-zinc-400 text-lg font-mono mb-2">
+          {callState === 'connecting' ? 'Connecting...' : formatDuration(callDuration)}
+        </p>
+
+        {/* Sentiment Indicator */}
+        {sentiment && (
+          <div className="flex items-center gap-2 text-sm text-zinc-400">
+            <span>{getSentimentEmoji(sentiment.sentiment)}</span>
+            <span className="capitalize">{sentiment.sentiment}</span>
+            {sentiment.urgency !== 'normal' && (
+              <span className={`px-2 py-0.5 rounded text-xs ${
+                sentiment.urgency === 'urgent' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
+              }`}>
+                {sentiment.urgency}
               </span>
-            </div>
-            <div className="flex gap-4 mt-2 text-xs text-zinc-500">
-              <span>STT: {latency.stt_ms}ms</span>
-              <span>AI: {latency.llm_ms}ms</span>
-              <span>TTS: {latency.tts_ms}ms</span>
-            </div>
-            {/* Latency bar visualization */}
-            <div className="mt-2 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-300 ${
-                  latency.status === 'good' ? 'bg-green-500' :
-                  latency.status === 'warning' ? 'bg-yellow-500' : 'bg-red-500'
-                }`}
-                style={{ width: `${Math.min(100, (latency.total_ms / latency.target_ms) * 50)}%` }}
-              />
-            </div>
+            )}
           </div>
         )}
 
-        {error && <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-2 rounded mb-4">{error}</div>}
+        {/* Error Display */}
+        {error && (
+          <div className="mx-4 mt-4 bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-2 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
 
-        {/* Transcript */}
-        <div className="bg-black/50 rounded-lg p-4 h-64 overflow-y-auto mb-4">
-          {transcript.length === 0 ? (
-            <p className="text-zinc-500 text-center">Start speaking to begin...</p>
-          ) : transcript.map((msg, i) => (
-            <div key={i} className={`mb-2 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-              <span className={`inline-block px-3 py-1 rounded-lg ${msg.role === 'user' ? 'bg-amber-500/20 text-amber-200' : 'bg-zinc-700 text-white'}`}>{msg.content}</span>
+        {/* Audio Level Indicator */}
+        {callState === 'active' && (
+          <div className="mt-6 flex items-center gap-1 h-12">
+            {[...Array(20)].map((_, i) => (
+              <div
+                key={i}
+                className={`w-1 rounded-full transition-all duration-75 ${
+                  isMuted ? 'bg-zinc-700' :
+                  i < audioLevel / 5 ? (isSpeaking ? 'bg-green-400' : 'bg-zinc-500') : 'bg-zinc-800'
+                }`}
+                style={{
+                  height: `${Math.max(8, Math.sin((i / 20) * Math.PI) * 48)}px`
+                }}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Speaking Status */}
+        {callState === 'active' && (
+          <p className="text-sm text-zinc-500 mt-2">
+            {isMuted ? 'Muted' : isSpeaking ? 'Listening...' : 'Speak anytime'}
+          </p>
+        )}
+
+        {/* Transcript - Scrollable */}
+        <div className="flex-1 w-full max-w-lg mt-6 px-4 overflow-y-auto">
+          {transcript.map((msg, i) => (
+            <div
+              key={i}
+              className={`mb-3 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div className={`max-w-[80%] px-4 py-2 rounded-2xl ${
+                msg.role === 'user'
+                  ? 'bg-amber-500 text-black rounded-br-sm'
+                  : 'bg-zinc-800 text-white rounded-bl-sm'
+              }`}>
+                {msg.content}
+              </div>
             </div>
           ))}
         </div>
+      </div>
 
-        {/* Sentiment Score Bar (when available) */}
-        {sentiment && (
-          <div className="mb-4">
-            <div className="flex justify-between text-xs text-zinc-500 mb-1">
-              <span>Negative</span>
-              <span>Sentiment Score: {sentiment.score}</span>
-              <span>Positive</span>
-            </div>
-            <div className="h-2 bg-zinc-800 rounded-full overflow-hidden relative">
-              {/* Center marker */}
-              <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-zinc-600" />
-              {/* Score indicator */}
-              <div
-                className={`absolute top-0 bottom-0 w-2 rounded-full transition-all duration-300 ${
-                  sentiment.sentiment === 'positive' ? 'bg-green-500' :
-                  sentiment.sentiment === 'negative' ? 'bg-red-500' : 'bg-zinc-500'
-                }`}
-                style={{ left: `${Math.max(0, Math.min(98, 50 + sentiment.score / 2))}%` }}
-              />
-            </div>
-          </div>
-        )}
+      {/* Bottom Controls */}
+      <div className="p-6 pb-10">
+        <div className="flex items-center justify-center gap-8">
+          {/* Mute Button */}
+          <button
+            onClick={toggleMute}
+            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
+              isMuted
+                ? 'bg-white text-black'
+                : 'bg-zinc-800 text-white hover:bg-zinc-700'
+            }`}
+          >
+            {isMuted ? (
+              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+              </svg>
+            ) : (
+              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            )}
+          </button>
 
-        <div className="flex justify-center gap-4">
-          {!isConnected ? (
-            <HoneycombButton onClick={connect} variant="solid">Start Call</HoneycombButton>
-          ) : (
-            <>
-              <HoneycombButton onClick={toggleRecording} variant={isRecording ? 'outline' : 'solid'}>{isRecording ? 'Stop' : 'Record'}</HoneycombButton>
-              <HoneycombButton onClick={disconnect} variant="outline">End Call</HoneycombButton>
-            </>
-          )}
+          {/* End Call Button */}
+          <button
+            onClick={endCall}
+            className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
+          >
+            <svg className="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.28 3H5z" />
+            </svg>
+          </button>
         </div>
       </div>
     </div>
