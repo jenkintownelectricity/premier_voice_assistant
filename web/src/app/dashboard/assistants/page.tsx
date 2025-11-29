@@ -189,6 +189,7 @@ export default function AssistantsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState(false);
   const [activeCall, setActiveCall] = useState<{ id: string; name: string } | null>(null);
 
   // Template selection
@@ -253,6 +254,64 @@ export default function AssistantsPage() {
     }
   };
 
+  // Handle edit button click
+  const handleEdit = async (assistantId: string) => {
+    if (!user?.id) return;
+    setLoadingEdit(true);
+    try {
+      const response = await api.getAssistant(user.id, assistantId);
+      const assistant = response.assistant;
+
+      // Populate form with existing data
+      setEditingId(assistantId);
+      setName(assistant.name);
+      setDescription(assistant.description || '');
+      setSystemPrompt(assistant.system_prompt);
+      setVoiceId(assistant.voice_id || 'default');
+      setModel(assistant.model || 'claude-sonnet-4-5-20250929');
+      setTemperature(assistant.temperature ?? 0.7);
+      setMaxTokens(assistant.max_tokens ?? 150);
+      setFirstMessage(assistant.first_message || '');
+
+      // Advanced settings from metadata if available
+      const meta = assistant.metadata || {};
+      setVadSensitivity(meta.vad_sensitivity ?? 0.5);
+      setEndpointingMs(meta.endpointing_ms ?? 600);
+      setEnableBargein(meta.enable_bargein ?? true);
+      setStreamingChunks(meta.streaming_chunks ?? true);
+      setFirstMessageLatencyMs(meta.first_message_latency_ms ?? 800);
+      setTurnDetectionMode(meta.turn_detection_mode ?? 'server_vad');
+
+      setSelectedTemplate('custom');
+      setShowCreate(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to load assistant details');
+    } finally {
+      setLoadingEdit(false);
+    }
+  };
+
+  // Reset form to defaults
+  const resetForm = () => {
+    setName('');
+    setDescription('');
+    setSystemPrompt('');
+    setVoiceId('default');
+    setModel('claude-sonnet-4-5-20250929');
+    setTemperature(0.7);
+    setMaxTokens(150);
+    setFirstMessage('');
+    setShowAdvanced(false);
+    setVadSensitivity(0.5);
+    setEndpointingMs(600);
+    setEnableBargein(true);
+    setStreamingChunks(true);
+    setFirstMessageLatencyMs(800);
+    setTurnDetectionMode('server_vad');
+    setSelectedTemplate('custom');
+    setEditingId(null);
+  };
+
   const loadAssistants = async () => {
     if (!user?.id) return;
     try {
@@ -265,12 +324,12 @@ export default function AssistantsPage() {
     }
   };
 
-  const handleCreate = async () => {
+  const handleSave = async () => {
     if (!user?.id || !name.trim() || !systemPrompt.trim()) return;
 
     setCreating(true);
     try {
-      await api.createAssistant(user.id, {
+      const data = {
         name: name.trim(),
         system_prompt: systemPrompt.trim(),
         description: description.trim() || undefined,
@@ -285,31 +344,24 @@ export default function AssistantsPage() {
         streaming_chunks: streamingChunks,
         first_message_latency_ms: firstMessageLatencyMs,
         turn_detection_mode: turnDetectionMode,
-      });
+      };
 
-      // Reset form
-      setName('');
-      setDescription('');
-      setSystemPrompt('');
-      setVoiceId('default');
-      setModel('claude-sonnet-4-5-20250929');
-      setTemperature(0.7);
-      setMaxTokens(150);
-      setFirstMessage('');
-      setShowAdvanced(false);
-      setVadSensitivity(0.5);
-      setEndpointingMs(600);
-      setEnableBargein(true);
-      setStreamingChunks(true);
-      setFirstMessageLatencyMs(800);
-      setTurnDetectionMode('server_vad');
-      setSelectedTemplate('custom');
+      if (editingId) {
+        // Update existing assistant
+        await api.updateAssistant(user.id, editingId, data);
+      } else {
+        // Create new assistant
+        await api.createAssistant(user.id, data);
+      }
+
+      // Reset form and close
+      resetForm();
       setShowCreate(false);
 
       // Reload list
       loadAssistants();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create assistant');
+      alert(err instanceof Error ? err.message : `Failed to ${editingId ? 'update' : 'create'} assistant`);
     } finally {
       setCreating(false);
     }
@@ -370,13 +422,14 @@ export default function AssistantsPage() {
         </HoneycombButton>
       </div>
 
-      {/* Create Form */}
+      {/* Create/Edit Form */}
       {showCreate && (
         <Card glow>
-          <CardTitle>Create New Assistant</CardTitle>
+          <CardTitle>{editingId ? 'Edit Assistant' : 'Create New Assistant'}</CardTitle>
           <CardContent>
             <div className="space-y-4">
-              {/* Quick Start Templates */}
+              {/* Quick Start Templates - only show for new assistants */}
+              {!editingId && (
               <div>
                 <label className="block text-sm font-medium text-gold mb-3">
                   Quick Start Template
@@ -405,8 +458,9 @@ export default function AssistantsPage() {
                   </p>
                 )}
               </div>
+              )}
 
-              <div className="border-t border-gold/10 pt-4" />
+              {!editingId && <div className="border-t border-gold/10 pt-4" />}
 
               <Input
                 label="Name"
@@ -662,13 +716,18 @@ export default function AssistantsPage() {
               )}
               <div className="flex gap-3 pt-2">
                 <HoneycombButton
-                  onClick={handleCreate}
+                  onClick={handleSave}
                   disabled={creating || !name.trim() || !systemPrompt.trim()}
                 >
-                  {creating ? 'Creating...' : 'Create Assistant'}
+                  {creating
+                    ? (editingId ? 'Saving...' : 'Creating...')
+                    : (editingId ? 'Save Changes' : 'Create Assistant')}
                 </HoneycombButton>
                 <button
-                  onClick={() => setShowCreate(false)}
+                  onClick={() => {
+                    resetForm();
+                    setShowCreate(false);
+                  }}
                   className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
                 >
                   Cancel
@@ -733,6 +792,14 @@ export default function AssistantsPage() {
                         Start Call
                       </button>
                     )}
+                    <button
+                      onClick={() => handleEdit(assistant.id)}
+                      disabled={loadingEdit}
+                      className="px-3 py-1.5 text-sm border border-blue-500/30 rounded
+                        text-blue-400 hover:bg-blue-500/10 transition-colors disabled:opacity-50"
+                    >
+                      Edit
+                    </button>
                     <button
                       onClick={() => handleToggleActive(assistant)}
                       className="px-3 py-1.5 text-sm border border-gold/30 rounded
