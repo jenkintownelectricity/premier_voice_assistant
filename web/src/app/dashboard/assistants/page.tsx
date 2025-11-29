@@ -227,7 +227,7 @@ export default function AssistantsPage() {
   const loadVoiceClones = async () => {
     if (!user?.id) return;
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
       const response = await fetch(`${apiUrl}/voice-clones`, {
         headers: { 'X-User-ID': user.id },
       });
