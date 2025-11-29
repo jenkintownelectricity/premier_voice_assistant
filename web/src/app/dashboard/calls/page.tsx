@@ -157,7 +157,7 @@ function extractInfoFromTranscript(transcript: Array<{ role: string; content: st
 
   for (const msg of assistantMessages) {
     for (const pattern of actionPatterns) {
-      const matches = msg.matchAll(pattern);
+      const matches = Array.from(msg.matchAll(pattern));
       for (const match of matches) {
         const item = match[1].trim().replace(/[.!?].*$/, '');
         if (item.length > 5 && !actionItems.includes(item)) {
