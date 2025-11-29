@@ -57,7 +57,7 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [streamingMode, setStreamingMode] = useState(false);
+  const [streamingMode, setStreamingMode] = useState(true);  // Default to streaming PCM for Deepgram
 
   // Real-time sentiment state
   const [sentiment, setSentiment] = useState<SentimentData | null>(null);
