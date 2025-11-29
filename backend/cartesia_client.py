@@ -136,7 +136,7 @@ class CartesiaConfig:
     container: str = "raw"  # raw for WebSocket streaming
 
     # Performance
-    speed: float = 1.0  # Speech speed (0.5 - 2.0)
+    speed: float = 1.0  # Speech speed (0.5 - 2.0) - configurable per assistant
 
     # Emotion controls
     emotion: Optional[str] = None  # e.g., "happy", "sad", "angry"
