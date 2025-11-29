@@ -432,8 +432,8 @@ export default function AssistantsPage() {
                     className="w-full px-4 py-3 bg-oled-dark border border-gold/30 rounded-lg
                       text-white focus:outline-none focus:border-gold transition-colors"
                   >
-                    <option value="claude-sonnet-4-5-20250929">Claude 3.5 Sonnet</option>
-                    <option value="claude-haiku-4-5-20241022">Claude 3 Haiku</option>
+                    <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5</option>
+                    <option value="claude-haiku-3-5-20241022">Claude Haiku 3.5</option>
                   </select>
                 </div>
               </div>
