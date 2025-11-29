@@ -61,6 +61,7 @@ class LightningConfig:
     cartesia_api_key: str = field(default_factory=lambda: os.getenv("CARTESIA_API_KEY", ""))
     cartesia_voice_id: str = field(default_factory=lambda: os.getenv("CARTESIA_VOICE_ID", "f786b574-daa5-4673-aa0c-cbe3e8534c02"))  # Katie voice
     cartesia_language: str = "en"
+    speech_speed: float = 0.9  # TTS speed (0.5-2.0), 0.9 for natural conversation
 
     # Pipeline behavior
     enable_barge_in: bool = True  # Allow user to interrupt
@@ -365,6 +366,7 @@ class LightningPipeline:
                     text=sentence,
                     voice_id=self.config.cartesia_voice_id,
                     language=self.config.cartesia_language,
+                    speed=self.config.speech_speed,
                 )
 
         try:
@@ -388,6 +390,7 @@ class LightningPipeline:
                     text=full_response,
                     voice_id=self.config.cartesia_voice_id,
                     language=self.config.cartesia_language,
+                    speed=self.config.speech_speed,
                 )
 
             # Add assistant response to history
@@ -483,6 +486,7 @@ class LightningPipeline:
             text=text,
             voice_id=voice_id or self.config.cartesia_voice_id,
             language=language or self.config.cartesia_language,
+            speed=self.config.speech_speed,
         )
 
     async def process_text(self, text: str) -> str:

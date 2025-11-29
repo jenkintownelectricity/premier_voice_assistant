@@ -196,6 +196,12 @@ class CreateAssistantRequest(BaseModel):
     streaming_chunks: Optional[bool] = True
     first_message_latency_ms: Optional[int] = 800
     turn_detection_mode: Optional[str] = "server_vad"
+    # Voice control settings (competitive with Vapi/ElevenLabs)
+    speech_speed: Optional[float] = 0.9  # TTS speed (0.7-1.2), 0.9 for natural conversation
+    response_delay_ms: Optional[int] = 400  # Delay before responding after user stops (Vapi default: 400ms)
+    punctuation_pause_ms: Optional[int] = 300  # Pause after punctuation detected
+    no_punctuation_pause_ms: Optional[int] = 1000  # Pause when no punctuation (waiting for more speech)
+    turn_eagerness: Optional[str] = "balanced"  # low, balanced, high - how quickly to take turns
 
 
 class UpdateAssistantRequest(BaseModel):
@@ -215,6 +221,12 @@ class UpdateAssistantRequest(BaseModel):
     streaming_chunks: Optional[bool] = None
     first_message_latency_ms: Optional[int] = None
     turn_detection_mode: Optional[str] = None
+    # Voice control settings (competitive with Vapi/ElevenLabs)
+    speech_speed: Optional[float] = None  # TTS speed (0.7-1.2)
+    response_delay_ms: Optional[int] = None  # Delay before responding
+    punctuation_pause_ms: Optional[int] = None  # Pause after punctuation
+    no_punctuation_pause_ms: Optional[int] = None  # Pause when no punctuation
+    turn_eagerness: Optional[str] = None  # low, balanced, high
 
 
 def pcm_to_wav(pcm_data: bytes, sample_rate: int = 16000, channels: int = 1, sample_width: int = 2) -> bytes:
@@ -2153,7 +2165,13 @@ async def create_assistant(
             "enable_bargein": request.enable_bargein,
             "streaming_chunks": request.streaming_chunks,
             "first_message_latency_ms": request.first_message_latency_ms,
-            "turn_detection_mode": request.turn_detection_mode
+            "turn_detection_mode": request.turn_detection_mode,
+            # Voice control settings (competitive with Vapi/ElevenLabs)
+            "speech_speed": request.speech_speed,
+            "response_delay_ms": request.response_delay_ms,
+            "punctuation_pause_ms": request.punctuation_pause_ms,
+            "no_punctuation_pause_ms": request.no_punctuation_pause_ms,
+            "turn_eagerness": request.turn_eagerness,
         }
 
         result = db.client.table("va_assistants").insert(assistant_data).execute()
@@ -2202,7 +2220,9 @@ async def update_assistant(
         for field in ["name", "description", "system_prompt", "voice_id",
                       "model", "temperature", "max_tokens", "first_message", "is_active",
                       "vad_sensitivity", "endpointing_ms", "enable_bargein",
-                      "streaming_chunks", "first_message_latency_ms", "turn_detection_mode"]:
+                      "streaming_chunks", "first_message_latency_ms", "turn_detection_mode",
+                      "speech_speed", "response_delay_ms", "punctuation_pause_ms",
+                      "no_punctuation_pause_ms", "turn_eagerness"]:
             value = getattr(request, field)
             if value is not None:
                 updates[field] = value
@@ -4607,6 +4627,9 @@ async def websocket_voice_endpoint(
             assistant_voice_id = assistant.get('voice_id')
             if assistant_voice_id and len(assistant_voice_id) > 10:  # Valid UUID is 36 chars
                 lightning_config.cartesia_voice_id = assistant_voice_id
+            # Apply speech speed from assistant settings
+            if assistant.get('speech_speed'):
+                lightning_config.speech_speed = assistant.get('speech_speed')
             lightning_pipeline = LightningPipeline(lightning_config)
 
             # Set up callbacks
@@ -6592,6 +6615,9 @@ async def websocket_lightning_endpoint(
         assistant_voice_id = assistant.get('voice_id')
         if assistant_voice_id and len(assistant_voice_id) > 10:
             config.cartesia_voice_id = assistant_voice_id
+        # Apply speech speed from assistant settings
+        if assistant.get('speech_speed'):
+            config.speech_speed = assistant.get('speech_speed')
 
         pipeline = LightningPipeline(config)
 
