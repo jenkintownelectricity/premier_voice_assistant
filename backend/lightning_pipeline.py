@@ -59,7 +59,7 @@ class LightningConfig:
 
     # TTS (Cartesia Sonic-3)
     cartesia_api_key: str = field(default_factory=lambda: os.getenv("CARTESIA_API_KEY", ""))
-    cartesia_voice_id: str = field(default_factory=lambda: os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091"))
+    cartesia_voice_id: str = field(default_factory=lambda: os.getenv("CARTESIA_VOICE_ID", "f786b574-daa5-4673-aa0c-cbe3e8534c02"))  # Katie voice
     cartesia_language: str = "en"
 
     # Pipeline behavior

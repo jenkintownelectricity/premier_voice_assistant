@@ -4,18 +4,18 @@ Cartesia Sonic-3 Client for Premier Voice Assistant.
 Ultra-low latency streaming TTS with voice cloning and 42 language support.
 
 Performance targets:
-- Time to First Byte (TTFB): ~30ms
-- Supports 42 languages covering 95% of world population
+- Time to First Byte (TTFB): Industry-leading latency
+- Supports 42 languages
 - Real-time voice cloning from 3-10 seconds of audio
 - Cross-lingual voice cloning (Cartesia Localize)
 
 Architecture:
 ┌─────────────────────────────────────────────────────────────┐
 │  CartesiaSonic3                                              │
-│  ├── WebSocket Streaming TTS (~30ms TTFB)                   │
+│  ├── WebSocket Streaming TTS                                │
 │  ├── Voice Cloning (3-10 seconds audio)                     │
-│  ├── Cross-lingual Localization (40+ languages)             │
-│  └── Emotion & Speed Controls                               │
+│  ├── Cross-lingual Localization (42 languages)              │
+│  └── Emotion, Speed & Volume Controls                       │
 └─────────────────────────────────────────────────────────────┘
 """
 
@@ -124,8 +124,8 @@ class CartesiaConfig:
     model_id: str = "sonic-3"  # Latest Sonic 3 model (auto-routes to latest snapshot)
     model_multilingual: str = "sonic-3"  # Sonic 3 supports 42 languages
 
-    # Voice settings
-    default_voice_id: str = "a0e99841-438c-4a64-b679-ae501e7d6091"  # Default voice
+    # Voice settings - using Katie voice (recommended for voice agents)
+    default_voice_id: str = "f786b574-daa5-4673-aa0c-cbe3e8534c02"  # Katie voice
     language: str = "en"
 
     # Output format
@@ -156,11 +156,11 @@ class CartesiaSonic3:
     Streaming Text-to-Speech using Cartesia Sonic-3.
 
     Features:
-    - ~30ms time-to-first-byte
+    - Industry-leading latency
     - 42 language support
     - Real-time voice cloning
     - Cross-lingual voice localization
-    - Emotion and speed controls
+    - Emotion, speed and volume controls
     - Word-level timestamps
 
     Usage:

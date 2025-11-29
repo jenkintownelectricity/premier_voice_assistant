@@ -59,8 +59,8 @@ class StreamingConfig:
 
     # Cartesia TTS
     cartesia_api_key: str = field(default_factory=lambda: os.getenv("CARTESIA_API_KEY", ""))
-    cartesia_voice_id: str = "a0e99841-438c-4a64-b679-ae501e7d6091"  # Default voice
-    cartesia_model: str = "sonic-english"
+    cartesia_voice_id: str = "f786b574-daa5-4673-aa0c-cbe3e8534c02"  # Katie voice (recommended for voice agents)
+    cartesia_model: str = "sonic-3"  # Latest Sonic 3 model
     cartesia_output_format: str = "pcm_16000"  # 16kHz PCM for low latency
 
     # Anthropic LLM
