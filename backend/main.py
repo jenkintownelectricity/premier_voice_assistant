@@ -1042,6 +1042,47 @@ async def get_feature_limits(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/limits")
+async def get_limits(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's plan limits (alias for /feature-limits).
+    Returns limits in format expected by frontend.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        feature_gate = get_feature_gate()
+        plan = feature_gate.get_user_plan(user_id)
+
+        if not plan:
+            # Default limits for users without a plan
+            return {
+                "limits": {
+                    "max_voice_clones": 0,
+                    "max_assistants": 1,
+                    "max_minutes": 10
+                }
+            }
+
+        plan_name = plan.get("plan_name", "free")
+
+        # Get all features for this plan
+        from backend.feature_gates import get_plan_features
+        features = get_plan_features(plan_name)
+
+        return {
+            "limits": features
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class SetBudgetRequest(BaseModel):
     monthly_budget_dollars: float
     alert_thresholds: list[int] = [80, 90, 100]
