@@ -30,6 +30,25 @@ interface SettingsState {
   webhook_url: string;
 }
 
+// LLM Providers for API key configuration
+const LLM_PROVIDERS_CONFIG = [
+  { id: 'groq', name: 'Groq', docsUrl: 'https://console.groq.com/keys', placeholder: 'gsk_...' },
+  { id: 'anthropic', name: 'Anthropic (Claude)', docsUrl: 'https://console.anthropic.com/settings/keys', placeholder: 'sk-ant-...' },
+  { id: 'openai', name: 'OpenAI', docsUrl: 'https://platform.openai.com/api-keys', placeholder: 'sk-...' },
+  { id: 'google', name: 'Google (Gemini)', docsUrl: 'https://aistudio.google.com/apikey', placeholder: 'AIza...' },
+  { id: 'mistral', name: 'Mistral AI', docsUrl: 'https://console.mistral.ai/api-keys/', placeholder: '' },
+  { id: 'together', name: 'Together AI', docsUrl: 'https://api.together.xyz/settings/api-keys', placeholder: '' },
+  { id: 'fireworks', name: 'Fireworks AI', docsUrl: 'https://fireworks.ai/account/api-keys', placeholder: 'fw_...' },
+  { id: 'deepseek', name: 'DeepSeek', docsUrl: 'https://platform.deepseek.com/api_keys', placeholder: 'sk-...' },
+  { id: 'xai', name: 'xAI (Grok)', docsUrl: 'https://console.x.ai/', placeholder: 'xai-...' },
+  { id: 'cohere', name: 'Cohere', docsUrl: 'https://dashboard.cohere.com/api-keys', placeholder: '' },
+  { id: 'perplexity', name: 'Perplexity', docsUrl: 'https://www.perplexity.ai/settings/api', placeholder: 'pplx-...' },
+];
+
+interface ApiKeys {
+  [key: string]: string;
+}
+
 const defaultSettings: SettingsState = {
   ai_enabled: true,
   ai_greeting_enabled: true,
@@ -89,12 +108,32 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // API Keys state
+  const [apiKeys, setApiKeys] = useState<ApiKeys>({});
+  const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({});
+  const [savingKeys, setSavingKeys] = useState(false);
+  const [keysSaved, setKeysSaved] = useState(false);
+
   useEffect(() => {
     const fetchSettings = async () => {
       if (!user?.id) return;
       try {
         const response = await profileApi.getSettings(user.id);
         setSettings({ ...defaultSettings, ...response.settings });
+
+        // Fetch API keys (masked)
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+          const keysResponse = await fetch(`${apiUrl}/user/api-keys`, {
+            headers: { 'X-User-ID': user.id },
+          });
+          if (keysResponse.ok) {
+            const data = await keysResponse.json();
+            setApiKeys(data.keys || {});
+          }
+        } catch {
+          console.log('API keys endpoint not available yet');
+        }
       } catch (error) {
         console.error('Failed to load settings:', error);
       } finally {
@@ -103,6 +142,30 @@ export default function SettingsPage() {
     };
     fetchSettings();
   }, [user?.id]);
+
+  const saveApiKeys = async () => {
+    if (!user?.id) return;
+    setSavingKeys(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+      const response = await fetch(`${apiUrl}/user/api-keys`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': user.id,
+        },
+        body: JSON.stringify({ keys: apiKeys }),
+      });
+      if (response.ok) {
+        setKeysSaved(true);
+        setTimeout(() => setKeysSaved(false), 3000);
+      }
+    } catch (error) {
+      console.error('Failed to save API keys:', error);
+    } finally {
+      setSavingKeys(false);
+    }
+  };
 
   const updateSetting = async (key: keyof SettingsState, value: boolean | string) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -142,6 +205,81 @@ export default function SettingsPage() {
           {saving ? 'Saving...' : saved ? 'Saved!' : 'Save Changes'}
         </HoneycombButton>
       </div>
+
+      {/* LLM API Keys */}
+      <Card>
+        <CardTitle>
+          <div className="flex items-center justify-between">
+            <span>LLM API Keys</span>
+            <button
+              onClick={saveApiKeys}
+              disabled={savingKeys}
+              className="text-sm px-3 py-1 bg-gold/20 hover:bg-gold/30 text-gold rounded-lg transition-colors disabled:opacity-50"
+            >
+              {savingKeys ? 'Saving...' : keysSaved ? 'Saved!' : 'Save Keys'}
+            </button>
+          </div>
+        </CardTitle>
+        <CardContent>
+          <p className="text-gray-400 text-sm mb-4">
+            Enter your API keys for the LLM providers you want to use. Keys are encrypted and stored securely.
+            You only need keys for the providers you plan to use with your agents.
+          </p>
+          <div className="space-y-4">
+            {LLM_PROVIDERS_CONFIG.map((provider) => (
+              <div key={provider.id} className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-white font-medium">{provider.name}</label>
+                  <a
+                    href={provider.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                  >
+                    Get API Key
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showApiKeys[provider.id] ? 'text' : 'password'}
+                    value={apiKeys[provider.id] || ''}
+                    onChange={(e) => setApiKeys(prev => ({ ...prev, [provider.id]: e.target.value }))}
+                    placeholder={provider.placeholder || 'Enter API key...'}
+                    className="w-full bg-oled-gray border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:border-gold focus:outline-none pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKeys(prev => ({ ...prev, [provider.id]: !prev[provider.id] }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                  >
+                    {showApiKeys[provider.id] ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                {apiKeys[provider.id] && (
+                  <div className="flex items-center gap-1 text-xs text-green-400">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Key configured
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* AI Assistant */}
       <Card>
