@@ -2165,6 +2165,20 @@ async def get_call(
 
         call = result.data[0]
 
+        # Parse transcript if it's a string
+        if call.get("transcript") and isinstance(call["transcript"], str):
+            try:
+                call["transcript"] = json.loads(call["transcript"])
+            except json.JSONDecodeError:
+                call["transcript"] = []
+
+        # Parse summary if it's a string
+        if call.get("summary") and isinstance(call["summary"], str):
+            try:
+                call["summary"] = json.loads(call["summary"])
+            except json.JSONDecodeError:
+                pass  # Keep as string if not valid JSON
+
         # Get assistant name
         if call.get("assistant_id"):
             assistant = db.client.table("va_assistants").select("name").eq(

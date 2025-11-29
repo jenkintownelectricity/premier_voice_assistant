@@ -300,7 +300,11 @@ export default function VoiceClonesPage() {
               : 'bg-gray-700 text-gray-400 cursor-not-allowed'
           }`}
         >
-          {canCreateMore ? '+ Create Voice Clone' : 'Voice Clone Limit Reached'}
+          {canCreateMore
+            ? '+ Create Voice Clone'
+            : usageLimits?.max_voice_clones === 0
+              ? 'Upgrade Plan to Create Voice Clones'
+              : 'Voice Clone Limit Reached'}
         </button>
       )}
 
