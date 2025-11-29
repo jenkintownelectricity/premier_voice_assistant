@@ -633,14 +633,36 @@ Based on market research, these features drive viral adoption:
 
 ## Technical Stack
 
-### Current Stack
+### ⚡ Lightning Stack (NEW - Sub-150ms Latency)
+
+The ultimate voice AI pipeline for real-time conversations:
+
+| Component | Provider | Latency | Notes |
+|-----------|----------|---------|-------|
+| **STT** | Deepgram Nova-3 | ~30ms | 36+ languages, code-switching |
+| **LLM** | Groq Llama 3.3 70B | ~40ms TTFT | 800 tok/s, Claude fallback |
+| **TTS** | Cartesia Sonic-3 | ~30ms TTFB | 42 languages, voice cloning |
+
+**Total perceived latency: ~150ms** (human threshold is 500ms)
+
+```
+Audio In → Deepgram → Groq → Cartesia → Audio Out
+              ↓          ↓        ↓
+           ~30ms      ~40ms    ~30ms
+                         ↓
+              Sentence-level streaming
+              (TTS starts on first sentence!)
+```
+
+### Full Stack
 - **Frontend**: Next.js 14, React Native (Expo)
 - **Backend**: FastAPI (Python)
 - **Database**: Supabase (PostgreSQL)
 - **Auth**: Supabase Auth
-- **AI**: Anthropic Claude (with prompt caching + token streaming)
-- **Streaming STT**: Deepgram Nova-3 (<300ms latency)
-- **Streaming TTS**: Cartesia Sonic-3 (40ms TTFB)
+- **AI/LLM**: Groq (primary), Anthropic Claude (fallback)
+- **Streaming STT**: Deepgram Nova-3 (~30ms chunks)
+- **Streaming TTS**: Cartesia Sonic-3 (30ms TTFB, 42 languages)
+- **Voice Cloning**: Cartesia (3-10s samples, cross-lingual)
 - **Batch Voice**: Modal (Kokoro TTS, Whisper STT) - fallback
 - **Phone**: Twilio
 - **Payments**: Stripe
@@ -727,7 +749,12 @@ NEXT_PUBLIC_STRIPE_KEY=your-stripe-publishable-key
 SUPABASE_URL=https://[project-id].supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ADMIN_API_KEY=your-admin-key
-ANTHROPIC_API_KEY=your-claude-key
+
+# Lightning Stack (Sub-150ms Voice AI)
+GROQ_API_KEY=your-groq-key          # Free at console.groq.com
+DEEPGRAM_API_KEY=your-deepgram-key  # $200 free at console.deepgram.com
+CARTESIA_API_KEY=your-cartesia-key  # Trial at play.cartesia.ai
+ANTHROPIC_API_KEY=your-claude-key   # Fallback LLM
 ```
 
 ### Live URLs
