@@ -4616,7 +4616,9 @@ async def websocket_voice_endpoint(
                 session.add_to_transcript(role, text)
 
             async def on_lightning_audio(audio_bytes: bytes):
-                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                # Wrap raw PCM in WAV header for browser playback
+                wav_audio = pcm_to_wav(audio_bytes, sample_rate=16000)
+                audio_b64 = base64.b64encode(wav_audio).decode('utf-8')
                 await websocket.send_json({
                     "type": "audio",
                     "data": audio_b64
@@ -4672,7 +4674,9 @@ async def websocket_voice_endpoint(
                 session.add_to_transcript(role, text)
 
             async def on_streaming_audio(audio_bytes: bytes):
-                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                # Wrap raw PCM in WAV header for browser playback
+                wav_audio = pcm_to_wav(audio_bytes, sample_rate=16000)
+                audio_b64 = base64.b64encode(wav_audio).decode('utf-8')
                 await websocket.send_json({
                     "type": "audio",
                     "data": audio_b64

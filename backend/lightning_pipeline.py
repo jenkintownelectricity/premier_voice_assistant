@@ -266,9 +266,14 @@ class LightningPipeline:
     # =========================================================================
 
     async def _on_stt_transcript(self, text: str, is_final: bool):
-        """Handle transcript from Deepgram."""
-        if is_final and self.on_transcript:
-            await self._safe_callback(self.on_transcript, "user", text)
+        """Handle interim transcript from Deepgram.
+
+        Note: We don't send transcript here - _on_utterance_end handles final transcripts
+        to avoid duplicates.
+        """
+        # Only log interim transcripts for debugging
+        if not is_final:
+            logger.debug(f"Interim transcript: {text}")
 
     async def _on_speech_start(self):
         """User started speaking."""
