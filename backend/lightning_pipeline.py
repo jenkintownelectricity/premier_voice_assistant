@@ -266,9 +266,14 @@ class LightningPipeline:
     # =========================================================================
 
     async def _on_stt_transcript(self, text: str, is_final: bool):
-        """Handle transcript from Deepgram."""
-        if is_final and self.on_transcript:
-            await self._safe_callback(self.on_transcript, "user", text)
+        """Handle interim transcript from Deepgram.
+
+        Note: We don't send transcript here - _on_utterance_end handles final transcripts
+        to avoid duplicates.
+        """
+        # Only log interim transcripts for debugging
+        if not is_final:
+            logger.debug(f"Interim transcript: {text}")
 
     async def _on_speech_start(self):
         """User started speaking."""
@@ -422,14 +427,19 @@ class LightningPipeline:
 
     async def _on_tts_audio(self, audio_bytes: bytes):
         """Handle audio chunk from Cartesia."""
-        # Track time to first audio
+        # Track time to first audio and report latency
         if self._first_audio_time is None:
             self._first_audio_time = time.time()
 
             if self._processing_start:
-                ttfb = int((self._first_audio_time - self._processing_start) * 1000)
-                self._current_metrics.tts_ttfb_ms = ttfb
-                logger.info(f"TTS TTFB: {ttfb}ms")
+                perceived = int((self._first_audio_time - self._processing_start) * 1000)
+                self._current_metrics.tts_ttfb_ms = perceived
+                self._current_metrics.total_perceived_ms = perceived
+                logger.info(f"⚡ Perceived latency: {perceived}ms (STT: {self._current_metrics.stt_ms}ms, LLM: {self._current_metrics.llm_ttft_ms}ms)")
+
+                # Report latency immediately when first audio arrives
+                if self.on_latency:
+                    await self._safe_callback(self.on_latency, self._current_metrics)
 
         # Don't send if interrupted
         if self.state == PipelineState.INTERRUPTED:
