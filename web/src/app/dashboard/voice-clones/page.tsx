@@ -45,7 +45,7 @@ export default function VoiceClonesPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [playingCloneId, setPlayingCloneId] = useState<string | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
 
   const fetchVoiceClones = useCallback(async () => {
     if (!user) return;

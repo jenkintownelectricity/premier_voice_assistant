@@ -50,8 +50,8 @@ export default function MonitoringPage() {
     if (!user?.id) return;
 
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://web-production-1b085.up.railway.app';
-      const response = await fetch(`${backendUrl}/calls/active`, {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+      const response = await fetch(`${apiUrl}/calls/active`, {
         headers: {
           'X-User-ID': user.id,
         },
@@ -128,8 +128,8 @@ export default function MonitoringPage() {
     setSelectedCall(call);
     setIsListening(true);
 
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://web-production-1b085.up.railway.app';
-    const wsUrl = backendUrl.replace(/^http/, 'ws');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+    const wsUrl = apiUrl.replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/ws/monitor/${call.id}`);
     wsRef.current = ws;
 
