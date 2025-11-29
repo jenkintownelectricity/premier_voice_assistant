@@ -264,17 +264,16 @@ class CartesiaSonic3:
         msg_type = data.get("type", "")
         context_id = data.get("context_id", "")
 
-        # Track timing
-        if context_id in self._pending_contexts:
-            ctx = self._pending_contexts[context_id]
-            if ctx.get("first_chunk_time") is None:
-                ctx["first_chunk_time"] = time.time()
-                ttfb = int((ctx["first_chunk_time"] - ctx["start_time"]) * 1000)
-                self._last_ttfb = ttfb
-                logger.info(f"Cartesia TTFB: {ttfb}ms")
-
         if msg_type == "chunk":
-            # Audio chunk
+            # Audio chunk - track TTFB only for actual audio
+            if context_id in self._pending_contexts:
+                ctx = self._pending_contexts[context_id]
+                if ctx.get("first_chunk_time") is None:
+                    ctx["first_chunk_time"] = time.time()
+                    ttfb = int((ctx["first_chunk_time"] - ctx["start_time"]) * 1000)
+                    self._last_ttfb = ttfb
+                    logger.info(f"Cartesia TTFB: {ttfb}ms")
+
             audio_b64 = data.get("data", "")
             if audio_b64:
                 audio_bytes = base64.b64decode(audio_b64)
@@ -317,9 +316,14 @@ class CartesiaSonic3:
 
         elif msg_type == "error":
             error_msg = data.get("message", "Unknown error")
-            logger.error(f"Cartesia error: {error_msg}")
+            error_code = data.get("code", "")
+            logger.error(f"Cartesia error: {error_msg} (code: {error_code}, full: {data})")
             if self.on_error:
                 await self._safe_callback(self.on_error, error_msg)
+
+        else:
+            # Log unknown message types for debugging
+            logger.warning(f"Cartesia unknown message type: {msg_type}, data: {data}")
 
     async def _safe_callback(self, callback, *args):
         """Safely execute a callback."""

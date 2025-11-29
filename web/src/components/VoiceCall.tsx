@@ -51,6 +51,8 @@ interface ErrorDetails {
   callId?: string;
 }
 
+type ConnectionStatus = 'connecting' | 'lightning' | 'streaming' | 'modal' | 'disconnected';
+
 interface VoiceCallProps {
   assistantId: string;
   assistantName: string;
@@ -74,6 +76,7 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
   const [audioLevel, setAudioLevel] = useState(0);
   const [callId, setCallId] = useState<string | null>(null);
   const [pipelineInfo, setPipelineInfo] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
 
   // Real-time sentiment state
   const [sentiment, setSentiment] = useState<SentimentData | null>(null);
@@ -293,7 +296,24 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
           break;
         case 'info':
           // Pipeline info (e.g., "Lightning pipeline active")
-          if (data.message) setPipelineInfo(data.message);
+          if (data.message) {
+            setPipelineInfo(data.message);
+            // Parse pipeline type from message
+            const msg = data.message.toLowerCase();
+            if (msg.includes('lightning')) {
+              setConnectionStatus('lightning');
+            } else if (msg.includes('streaming')) {
+              setConnectionStatus('streaming');
+            } else if (msg.includes('modal') || msg.includes('batch')) {
+              setConnectionStatus('modal');
+            }
+          }
+          break;
+        case 'pipeline_status':
+          // Direct pipeline status update
+          if (data.status) {
+            setConnectionStatus(data.status as ConnectionStatus);
+          }
           break;
         case 'transcript':
           setTranscript(prev => [...prev, { role: data.role, content: data.content }]);
@@ -334,9 +354,11 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
     };
 
     ws.onerror = (e) => {
+      setConnectionStatus('disconnected');
       trackError('Connection error', 'WS_ERROR', 'WebSocket connection failed');
     };
     ws.onclose = (e) => {
+      setConnectionStatus('disconnected');
       if (callState === 'active') {
         if (e.code !== 1000) {
           trackError(`Connection closed unexpectedly (code: ${e.code})`, 'WS_CLOSE', e.reason || 'No reason provided');
@@ -413,6 +435,21 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
       case 'C': return 'text-yellow-400 bg-yellow-500/20 border-yellow-500';
       case 'D': return 'text-orange-400 bg-orange-500/20 border-orange-500';
       default: return 'text-red-400 bg-red-500/20 border-red-500';
+    }
+  };
+
+  const getConnectionStatusInfo = (status: ConnectionStatus) => {
+    switch (status) {
+      case 'lightning':
+        return { color: 'bg-green-500', textColor: 'text-green-400', label: 'Lightning', icon: '⚡' };
+      case 'streaming':
+        return { color: 'bg-yellow-500', textColor: 'text-yellow-400', label: 'Streaming', icon: '🔄' };
+      case 'modal':
+        return { color: 'bg-orange-500', textColor: 'text-orange-400', label: 'Backup', icon: '🐢' };
+      case 'disconnected':
+        return { color: 'bg-red-500', textColor: 'text-red-400', label: 'Disconnected', icon: '❌' };
+      default:
+        return { color: 'bg-zinc-500', textColor: 'text-zinc-400', label: 'Connecting', icon: '...' };
     }
   };
 
@@ -553,9 +590,20 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Connection Status Indicator */}
+          {callState === 'active' && (
+            <div className="flex items-center gap-1.5">
+              <div className={`w-2 h-2 rounded-full ${getConnectionStatusInfo(connectionStatus).color} ${
+                connectionStatus === 'lightning' ? 'animate-pulse' : ''
+              }`} />
+              <span className={`text-xs font-medium ${getConnectionStatusInfo(connectionStatus).textColor}`}>
+                {getConnectionStatusInfo(connectionStatus).icon} {getConnectionStatusInfo(connectionStatus).label}
+              </span>
+            </div>
+          )}
+          {/* Latency Display */}
           {callState === 'active' && latency && (
             <span className={`text-xs font-mono flex items-center gap-1 ${getLatencyColor(latency.status)}`}>
-              {latency.status === 'lightning' && <span>⚡</span>}
               {latency.total_ms}ms
             </span>
           )}
@@ -585,7 +633,15 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
           ) : (
             <div className="text-zinc-500">Ready</div>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {errorHistory.length > 0 && (
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="flex items-center gap-1 text-red-400 hover:text-red-300"
+              >
+                <span className="text-xs">⚠️ {errorHistory.length}</span>
+              </button>
+            )}
             {isSpeaking && <span className="text-green-400">● Listening</span>}
             {isAssistantSpeaking && <span className="text-amber-400">● Speaking</span>}
           </div>
