@@ -34,7 +34,16 @@ COMMENT ON COLUMN public.va_assistants.no_punctuation_pause_ms IS 'Wait when no 
 COMMENT ON COLUMN public.va_assistants.turn_eagerness IS 'Turn-taking style: low (patient), balanced, high (eager).';
 
 -- =====================================================
--- UPDATE FUNCTIONS TO INCLUDE NEW COLUMNS
+-- DROP EXISTING FUNCTIONS (required to change return types)
+-- =====================================================
+
+DROP FUNCTION IF EXISTS va_get_assistant(UUID);
+DROP FUNCTION IF EXISTS va_client_get_assistant(UUID);
+DROP FUNCTION IF EXISTS va_client_create_assistant(VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, DECIMAL, INTEGER, TEXT, DECIMAL, INTEGER, BOOLEAN, BOOLEAN, INTEGER, VARCHAR);
+DROP FUNCTION IF EXISTS va_client_update_assistant(UUID, JSONB);
+
+-- =====================================================
+-- RECREATE FUNCTIONS WITH NEW COLUMNS
 -- =====================================================
 
 -- Update va_get_assistant to return new columns
