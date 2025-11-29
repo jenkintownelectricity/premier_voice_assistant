@@ -11,6 +11,7 @@ TTS>=0.21.0; python_version < '3.12'  # Coqui TTS with XTTS-v2
 
 # LLM Integration
 anthropic>=0.39.0
+groq>=0.11.0  # Groq LPU inference - 10-20x faster than GPU
 
 # Database & Storage
 supabase>=2.12.0

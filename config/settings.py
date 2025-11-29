@@ -41,7 +41,15 @@ VOICE_SAMPLES = {
 }
 
 # LLM Settings
+# Primary: Groq for speed (40ms TTFT)
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+LLM_PRIMARY_PROVIDER = os.getenv("LLM_PRIMARY_PROVIDER", "groq")
+LLM_FALLBACK_PROVIDER = os.getenv("LLM_FALLBACK_PROVIDER", "claude")
+
+# Fallback: Claude for complex reasoning
 CLAUDE_MODEL = "claude-sonnet-4-5-20250929"  # Stable Sonnet version
+
+# Common settings
 MAX_TOKENS = 150  # Keep responses concise for voice
 TEMPERATURE = 0.7
 
@@ -50,11 +58,13 @@ ENABLE_RESPONSE_CACHE = True
 CACHE_TTL = 3600  # 1 hour
 SEMANTIC_SIMILARITY_THRESHOLD = 0.85
 
-# Latency Targets (milliseconds)
-TARGET_STT_LATENCY = 200
-TARGET_LLM_LATENCY = 150
-TARGET_TTS_LATENCY = 150
-TARGET_TOTAL_LATENCY = 500
+# Latency Targets (milliseconds) - Lightning Stack
+# With Groq + Deepgram + Cartesia streaming:
+TARGET_STT_LATENCY = 50   # Deepgram Nova ~30ms chunks
+TARGET_LLM_LATENCY = 50   # Groq ~40ms TTFT
+TARGET_TTS_LATENCY = 50   # Cartesia ~30ms TTFB
+TARGET_TOTAL_LATENCY = 200  # Perceived latency with streaming
+# Human conversation threshold is ~500ms - we target <200ms!
 
 # Cost Tracking
 TARGET_COST_PER_MINUTE = 0.005  # $0.005/min target
