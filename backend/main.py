@@ -75,6 +75,148 @@ CLAUDE_PRICING = {
     },
 }
 
+# ============================================================================
+# LLM PROVIDERS - All major providers with API documentation links
+# ============================================================================
+LLM_PROVIDERS = {
+    "anthropic": {
+        "name": "Anthropic (Claude)",
+        "api_docs": "https://docs.anthropic.com/en/api/getting-started",
+        "api_keys_url": "https://console.anthropic.com/settings/keys",
+        "models": [
+            {"id": "claude-sonnet-4-5-20250929", "name": "Claude Sonnet 4.5 (Latest)", "context": "200K", "speed": "fast"},
+            {"id": "claude-opus-4-5-20251101", "name": "Claude Opus 4.5 (Smartest)", "context": "200K", "speed": "medium"},
+            {"id": "claude-haiku-4-5-20241022", "name": "Claude Haiku 4.5 (Fastest)", "context": "200K", "speed": "fastest"},
+        ],
+        "default_model": "claude-sonnet-4-5-20250929",
+        "env_key": "ANTHROPIC_API_KEY",
+    },
+    "openai": {
+        "name": "OpenAI (GPT)",
+        "api_docs": "https://platform.openai.com/docs/api-reference",
+        "api_keys_url": "https://platform.openai.com/api-keys",
+        "models": [
+            {"id": "gpt-4o", "name": "GPT-4o (Latest)", "context": "128K", "speed": "fast"},
+            {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Fastest)", "context": "128K", "speed": "fastest"},
+            {"id": "gpt-4-turbo", "name": "GPT-4 Turbo", "context": "128K", "speed": "medium"},
+            {"id": "o1", "name": "o1 (Reasoning)", "context": "200K", "speed": "slow"},
+            {"id": "o1-mini", "name": "o1 Mini (Fast Reasoning)", "context": "128K", "speed": "medium"},
+        ],
+        "default_model": "gpt-4o",
+        "env_key": "OPENAI_API_KEY",
+    },
+    "groq": {
+        "name": "Groq (Ultra Fast)",
+        "api_docs": "https://console.groq.com/docs/api-reference",
+        "api_keys_url": "https://console.groq.com/keys",
+        "models": [
+            {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B (Best)", "context": "128K", "speed": "fastest"},
+            {"id": "llama-3.1-70b-versatile", "name": "Llama 3.1 70B", "context": "128K", "speed": "fastest"},
+            {"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B (Instant)", "context": "128K", "speed": "fastest"},
+            {"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B", "context": "32K", "speed": "fastest"},
+            {"id": "gemma2-9b-it", "name": "Gemma 2 9B", "context": "8K", "speed": "fastest"},
+        ],
+        "default_model": "llama-3.3-70b-versatile",
+        "env_key": "GROQ_API_KEY",
+    },
+    "google": {
+        "name": "Google (Gemini)",
+        "api_docs": "https://ai.google.dev/gemini-api/docs",
+        "api_keys_url": "https://aistudio.google.com/apikey",
+        "models": [
+            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash (Latest)", "context": "1M", "speed": "fastest"},
+            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "context": "2M", "speed": "medium"},
+            {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "context": "1M", "speed": "fast"},
+        ],
+        "default_model": "gemini-2.0-flash",
+        "env_key": "GOOGLE_API_KEY",
+    },
+    "mistral": {
+        "name": "Mistral AI",
+        "api_docs": "https://docs.mistral.ai/api/",
+        "api_keys_url": "https://console.mistral.ai/api-keys/",
+        "models": [
+            {"id": "mistral-large-latest", "name": "Mistral Large (Best)", "context": "128K", "speed": "medium"},
+            {"id": "mistral-medium-latest", "name": "Mistral Medium", "context": "32K", "speed": "fast"},
+            {"id": "mistral-small-latest", "name": "Mistral Small (Fastest)", "context": "32K", "speed": "fastest"},
+            {"id": "codestral-latest", "name": "Codestral (Code)", "context": "32K", "speed": "fast"},
+        ],
+        "default_model": "mistral-large-latest",
+        "env_key": "MISTRAL_API_KEY",
+    },
+    "together": {
+        "name": "Together AI",
+        "api_docs": "https://docs.together.ai/reference/completions",
+        "api_keys_url": "https://api.together.xyz/settings/api-keys",
+        "models": [
+            {"id": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "name": "Llama 3.3 70B Turbo", "context": "128K", "speed": "fast"},
+            {"id": "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo", "name": "Llama 3.1 405B", "context": "128K", "speed": "medium"},
+            {"id": "Qwen/Qwen2.5-72B-Instruct-Turbo", "name": "Qwen 2.5 72B", "context": "32K", "speed": "fast"},
+            {"id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B", "name": "DeepSeek R1 70B", "context": "64K", "speed": "fast"},
+        ],
+        "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "env_key": "TOGETHER_API_KEY",
+    },
+    "fireworks": {
+        "name": "Fireworks AI",
+        "api_docs": "https://docs.fireworks.ai/api-reference/introduction",
+        "api_keys_url": "https://fireworks.ai/account/api-keys",
+        "models": [
+            {"id": "accounts/fireworks/models/llama-v3p3-70b-instruct", "name": "Llama 3.3 70B", "context": "128K", "speed": "fastest"},
+            {"id": "accounts/fireworks/models/llama-v3p1-405b-instruct", "name": "Llama 3.1 405B", "context": "128K", "speed": "fast"},
+            {"id": "accounts/fireworks/models/deepseek-r1", "name": "DeepSeek R1", "context": "64K", "speed": "medium"},
+        ],
+        "default_model": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        "env_key": "FIREWORKS_API_KEY",
+    },
+    "deepseek": {
+        "name": "DeepSeek",
+        "api_docs": "https://platform.deepseek.com/api-docs",
+        "api_keys_url": "https://platform.deepseek.com/api_keys",
+        "models": [
+            {"id": "deepseek-chat", "name": "DeepSeek Chat (V3)", "context": "64K", "speed": "fast"},
+            {"id": "deepseek-reasoner", "name": "DeepSeek R1 (Reasoning)", "context": "64K", "speed": "medium"},
+        ],
+        "default_model": "deepseek-chat",
+        "env_key": "DEEPSEEK_API_KEY",
+    },
+    "xai": {
+        "name": "xAI (Grok)",
+        "api_docs": "https://docs.x.ai/api",
+        "api_keys_url": "https://console.x.ai/",
+        "models": [
+            {"id": "grok-2-latest", "name": "Grok 2 (Latest)", "context": "128K", "speed": "fast"},
+            {"id": "grok-2-vision-latest", "name": "Grok 2 Vision", "context": "32K", "speed": "fast"},
+        ],
+        "default_model": "grok-2-latest",
+        "env_key": "XAI_API_KEY",
+    },
+    "cohere": {
+        "name": "Cohere",
+        "api_docs": "https://docs.cohere.com/reference/chat",
+        "api_keys_url": "https://dashboard.cohere.com/api-keys",
+        "models": [
+            {"id": "command-r-plus", "name": "Command R+ (Best)", "context": "128K", "speed": "medium"},
+            {"id": "command-r", "name": "Command R", "context": "128K", "speed": "fast"},
+            {"id": "command-light", "name": "Command Light (Fastest)", "context": "4K", "speed": "fastest"},
+        ],
+        "default_model": "command-r-plus",
+        "env_key": "COHERE_API_KEY",
+    },
+    "perplexity": {
+        "name": "Perplexity (Online)",
+        "api_docs": "https://docs.perplexity.ai/api-reference/chat-completions",
+        "api_keys_url": "https://www.perplexity.ai/settings/api",
+        "models": [
+            {"id": "sonar-pro", "name": "Sonar Pro (Best Online)", "context": "200K", "speed": "medium"},
+            {"id": "sonar", "name": "Sonar (Online Search)", "context": "127K", "speed": "fast"},
+            {"id": "sonar-reasoning-pro", "name": "Sonar Reasoning Pro", "context": "127K", "speed": "slow"},
+        ],
+        "default_model": "sonar-pro",
+        "env_key": "PERPLEXITY_API_KEY",
+    },
+}
+
 def calculate_claude_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     """
     Calculate the cost in cents for a Claude API call.
@@ -185,7 +327,8 @@ class CreateAssistantRequest(BaseModel):
     system_prompt: str
     description: Optional[str] = None
     voice_id: Optional[str] = "default"
-    model: Optional[str] = "claude-sonnet-4-5-20250929"
+    llm_provider: Optional[str] = "groq"  # Provider: groq, anthropic, openai, google, mistral, etc.
+    model: Optional[str] = "llama-3.3-70b-versatile"  # Model ID from the selected provider
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 150
     first_message: Optional[str] = None
@@ -209,6 +352,7 @@ class UpdateAssistantRequest(BaseModel):
     description: Optional[str] = None
     system_prompt: Optional[str] = None
     voice_id: Optional[str] = None
+    llm_provider: Optional[str] = None  # Provider: groq, anthropic, openai, google, mistral, etc.
     model: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
@@ -2062,6 +2206,55 @@ async def get_error_correlation(
     except Exception as e:
         logger.error(f"Error analyzing error correlation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# LLM PROVIDERS ROUTES
+# ============================================================================
+
+@app.get("/llm-providers")
+async def get_llm_providers():
+    """
+    Get all available LLM providers with their models and API documentation links.
+
+    Returns:
+        Dictionary of LLM providers with:
+        - name: Display name
+        - api_docs: API documentation URL
+        - api_keys_url: URL to get API keys
+        - models: List of available models with id, name, context window, speed
+        - default_model: Default model ID for this provider
+        - env_key: Environment variable name for API key
+    """
+    return {
+        "providers": LLM_PROVIDERS,
+        "recommended": ["groq", "anthropic", "openai"],  # Recommended for voice assistants
+        "fastest": ["groq", "fireworks", "together"],  # Lowest latency options
+    }
+
+
+@app.get("/llm-providers/{provider_id}")
+async def get_llm_provider_details(provider_id: str):
+    """
+    Get details for a specific LLM provider.
+
+    Args:
+        provider_id: The provider ID (e.g., 'anthropic', 'openai', 'groq')
+
+    Returns:
+        Provider details with models and API links
+    """
+    if provider_id not in LLM_PROVIDERS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found. Available: {list(LLM_PROVIDERS.keys())}"
+        )
+
+    provider = LLM_PROVIDERS[provider_id]
+    return {
+        "id": provider_id,
+        **provider
+    }
 
 
 # ============================================================================
@@ -4630,6 +4823,15 @@ async def websocket_voice_endpoint(
             assistant_voice_id = assistant.get('voice_id')
             if assistant_voice_id and len(assistant_voice_id) > 10:  # Valid UUID is 36 chars
                 lightning_config.cartesia_voice_id = assistant_voice_id
+            # Apply LLM provider and model from assistant
+            if assistant.get('llm_provider'):
+                lightning_config.llm_provider = assistant.get('llm_provider')
+                logger.info(f"🤖 Using LLM provider: {lightning_config.llm_provider}")
+            if assistant.get('model'):
+                # Update groq_model if using Groq-compatible provider
+                if lightning_config.llm_provider in ('groq', 'together', 'fireworks'):
+                    lightning_config.groq_model = assistant.get('model')
+                logger.info(f"🤖 Using model: {assistant.get('model')}")
             # Apply voice control settings from assistant
             if assistant.get('speech_speed'):
                 lightning_config.speech_speed = assistant.get('speech_speed')

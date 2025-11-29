@@ -198,12 +198,141 @@ export default function AssistantsPage() {
   // Voice clones
   const [voiceClones, setVoiceClones] = useState<VoiceClone[]>([]);
 
+  // LLM Providers with API documentation links
+  const LLM_PROVIDERS: Record<string, {
+    name: string;
+    api_docs: string;
+    api_keys_url: string;
+    models: { id: string; name: string; context: string; speed: string }[];
+    default_model: string;
+  }> = {
+    groq: {
+      name: "Groq (Ultra Fast)",
+      api_docs: "https://console.groq.com/docs/api-reference",
+      api_keys_url: "https://console.groq.com/keys",
+      models: [
+        { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B (Best)", context: "128K", speed: "fastest" },
+        { id: "llama-3.1-70b-versatile", name: "Llama 3.1 70B", context: "128K", speed: "fastest" },
+        { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B (Instant)", context: "128K", speed: "fastest" },
+        { id: "mixtral-8x7b-32768", name: "Mixtral 8x7B", context: "32K", speed: "fastest" },
+      ],
+      default_model: "llama-3.3-70b-versatile",
+    },
+    anthropic: {
+      name: "Anthropic (Claude)",
+      api_docs: "https://docs.anthropic.com/en/api/getting-started",
+      api_keys_url: "https://console.anthropic.com/settings/keys",
+      models: [
+        { id: "claude-sonnet-4-5-20250929", name: "Claude Sonnet 4.5 (Latest)", context: "200K", speed: "fast" },
+        { id: "claude-opus-4-5-20251101", name: "Claude Opus 4.5 (Smartest)", context: "200K", speed: "medium" },
+        { id: "claude-haiku-4-5-20241022", name: "Claude Haiku 4.5 (Fastest)", context: "200K", speed: "fastest" },
+      ],
+      default_model: "claude-sonnet-4-5-20250929",
+    },
+    openai: {
+      name: "OpenAI (GPT)",
+      api_docs: "https://platform.openai.com/docs/api-reference",
+      api_keys_url: "https://platform.openai.com/api-keys",
+      models: [
+        { id: "gpt-4o", name: "GPT-4o (Latest)", context: "128K", speed: "fast" },
+        { id: "gpt-4o-mini", name: "GPT-4o Mini (Fastest)", context: "128K", speed: "fastest" },
+        { id: "gpt-4-turbo", name: "GPT-4 Turbo", context: "128K", speed: "medium" },
+        { id: "o1-mini", name: "o1 Mini (Reasoning)", context: "128K", speed: "medium" },
+      ],
+      default_model: "gpt-4o",
+    },
+    google: {
+      name: "Google (Gemini)",
+      api_docs: "https://ai.google.dev/gemini-api/docs",
+      api_keys_url: "https://aistudio.google.com/apikey",
+      models: [
+        { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash (Latest)", context: "1M", speed: "fastest" },
+        { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", context: "2M", speed: "medium" },
+        { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", context: "1M", speed: "fast" },
+      ],
+      default_model: "gemini-2.0-flash",
+    },
+    mistral: {
+      name: "Mistral AI",
+      api_docs: "https://docs.mistral.ai/api/",
+      api_keys_url: "https://console.mistral.ai/api-keys/",
+      models: [
+        { id: "mistral-large-latest", name: "Mistral Large (Best)", context: "128K", speed: "medium" },
+        { id: "mistral-small-latest", name: "Mistral Small (Fastest)", context: "32K", speed: "fastest" },
+        { id: "codestral-latest", name: "Codestral (Code)", context: "32K", speed: "fast" },
+      ],
+      default_model: "mistral-large-latest",
+    },
+    together: {
+      name: "Together AI",
+      api_docs: "https://docs.together.ai/reference/completions",
+      api_keys_url: "https://api.together.xyz/settings/api-keys",
+      models: [
+        { id: "meta-llama/Llama-3.3-70B-Instruct-Turbo", name: "Llama 3.3 70B Turbo", context: "128K", speed: "fast" },
+        { id: "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo", name: "Llama 3.1 405B", context: "128K", speed: "medium" },
+        { id: "deepseek-ai/DeepSeek-R1-Distill-Llama-70B", name: "DeepSeek R1 70B", context: "64K", speed: "fast" },
+      ],
+      default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    },
+    fireworks: {
+      name: "Fireworks AI",
+      api_docs: "https://docs.fireworks.ai/api-reference/introduction",
+      api_keys_url: "https://fireworks.ai/account/api-keys",
+      models: [
+        { id: "accounts/fireworks/models/llama-v3p3-70b-instruct", name: "Llama 3.3 70B", context: "128K", speed: "fastest" },
+        { id: "accounts/fireworks/models/llama-v3p1-405b-instruct", name: "Llama 3.1 405B", context: "128K", speed: "fast" },
+      ],
+      default_model: "accounts/fireworks/models/llama-v3p3-70b-instruct",
+    },
+    deepseek: {
+      name: "DeepSeek",
+      api_docs: "https://platform.deepseek.com/api-docs",
+      api_keys_url: "https://platform.deepseek.com/api_keys",
+      models: [
+        { id: "deepseek-chat", name: "DeepSeek Chat (V3)", context: "64K", speed: "fast" },
+        { id: "deepseek-reasoner", name: "DeepSeek R1 (Reasoning)", context: "64K", speed: "medium" },
+      ],
+      default_model: "deepseek-chat",
+    },
+    xai: {
+      name: "xAI (Grok)",
+      api_docs: "https://docs.x.ai/api",
+      api_keys_url: "https://console.x.ai/",
+      models: [
+        { id: "grok-2-latest", name: "Grok 2 (Latest)", context: "128K", speed: "fast" },
+        { id: "grok-2-vision-latest", name: "Grok 2 Vision", context: "32K", speed: "fast" },
+      ],
+      default_model: "grok-2-latest",
+    },
+    cohere: {
+      name: "Cohere",
+      api_docs: "https://docs.cohere.com/reference/chat",
+      api_keys_url: "https://dashboard.cohere.com/api-keys",
+      models: [
+        { id: "command-r-plus", name: "Command R+ (Best)", context: "128K", speed: "medium" },
+        { id: "command-r", name: "Command R", context: "128K", speed: "fast" },
+      ],
+      default_model: "command-r-plus",
+    },
+    perplexity: {
+      name: "Perplexity (Online)",
+      api_docs: "https://docs.perplexity.ai/api-reference/chat-completions",
+      api_keys_url: "https://www.perplexity.ai/settings/api",
+      models: [
+        { id: "sonar-pro", name: "Sonar Pro (Best Online)", context: "200K", speed: "medium" },
+        { id: "sonar", name: "Sonar (Online Search)", context: "127K", speed: "fast" },
+      ],
+      default_model: "sonar-pro",
+    },
+  };
+
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [voiceId, setVoiceId] = useState('default');
-  const [model, setModel] = useState('claude-sonnet-4-5-20250929');
+  const [llmProvider, setLlmProvider] = useState('groq');
+  const [model, setModel] = useState('llama-3.3-70b-versatile');
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(150);
   const [firstMessage, setFirstMessage] = useState('');
@@ -275,7 +404,8 @@ export default function AssistantsPage() {
       setDescription(assistant.description || '');
       setSystemPrompt(assistant.system_prompt);
       setVoiceId(assistant.voice_id || 'default');
-      setModel(assistant.model || 'claude-sonnet-4-5-20250929');
+      setLlmProvider(assistant.llm_provider || 'groq');
+      setModel(assistant.model || 'llama-3.3-70b-versatile');
       setTemperature(assistant.temperature ?? 0.7);
       setMaxTokens(assistant.max_tokens ?? 150);
       setFirstMessage(assistant.first_message || '');
@@ -312,7 +442,8 @@ export default function AssistantsPage() {
     setDescription('');
     setSystemPrompt('');
     setVoiceId('default');
-    setModel('claude-sonnet-4-5-20250929');
+    setLlmProvider('groq');
+    setModel('llama-3.3-70b-versatile');
     setTemperature(0.7);
     setMaxTokens(150);
     setFirstMessage('');
@@ -354,6 +485,7 @@ export default function AssistantsPage() {
         system_prompt: systemPrompt.trim(),
         description: description.trim() || undefined,
         voice_id: voiceId,
+        llm_provider: llmProvider,
         model,
         temperature,
         max_tokens: maxTokens,
@@ -513,46 +645,122 @@ export default function AssistantsPage() {
                     transition-colors min-h-[120px]"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gold mb-2">
-                    Voice
-                  </label>
-                  <select
-                    value={voiceId}
-                    onChange={(e) => setVoiceId(e.target.value)}
-                    className="w-full px-4 py-3 bg-oled-dark border border-gold/30 rounded-lg
-                      text-white focus:outline-none focus:border-gold transition-colors"
-                  >
-                    <optgroup label="Built-in Voices">
-                      <option value="default">Default</option>
-                      <option value="fabio">Fabio</option>
-                      <option value="jake">Jake</option>
+              {/* Voice Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gold mb-2">
+                  Voice
+                </label>
+                <select
+                  value={voiceId}
+                  onChange={(e) => setVoiceId(e.target.value)}
+                  className="w-full px-4 py-3 bg-oled-dark border border-gold/30 rounded-lg
+                    text-white focus:outline-none focus:border-gold transition-colors"
+                >
+                  <optgroup label="Built-in Voices">
+                    <option value="default">Default</option>
+                    <option value="fabio">Fabio</option>
+                    <option value="jake">Jake</option>
+                  </optgroup>
+                  {voiceClones.length > 0 && (
+                    <optgroup label="Your Voice Clones">
+                      {voiceClones.map((clone) => (
+                        <option key={clone.id} value={clone.voice_name}>
+                          {clone.display_name}
+                        </option>
+                      ))}
                     </optgroup>
-                    {voiceClones.length > 0 && (
-                      <optgroup label="Your Voice Clones">
-                        {voiceClones.map((clone) => (
-                          <option key={clone.id} value={clone.voice_name}>
-                            {clone.display_name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+                  )}
+                </select>
+              </div>
+
+              {/* LLM Provider & Model Selection */}
+              <div className="space-y-3 p-4 bg-oled-dark/50 rounded-lg border border-gold/20">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium text-gold">LLM Provider</h4>
+                  {LLM_PROVIDERS[llmProvider] && (
+                    <a
+                      href={LLM_PROVIDERS[llmProvider].api_keys_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                    >
+                      Get API Key
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  )}
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gold mb-2">
-                    Model
-                  </label>
-                  <select
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    className="w-full px-4 py-3 bg-oled-dark border border-gold/30 rounded-lg
-                      text-white focus:outline-none focus:border-gold transition-colors"
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <select
+                      value={llmProvider}
+                      onChange={(e) => {
+                        const provider = e.target.value;
+                        setLlmProvider(provider);
+                        // Set default model for selected provider
+                        if (LLM_PROVIDERS[provider]) {
+                          setModel(LLM_PROVIDERS[provider].default_model);
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-oled-dark border border-gold/30 rounded-lg
+                        text-white text-sm focus:outline-none focus:border-gold transition-colors"
+                    >
+                      <optgroup label="Recommended (Low Latency)">
+                        <option value="groq">Groq (Ultra Fast)</option>
+                        <option value="fireworks">Fireworks AI</option>
+                        <option value="together">Together AI</option>
+                      </optgroup>
+                      <optgroup label="Premium Models">
+                        <option value="anthropic">Anthropic (Claude)</option>
+                        <option value="openai">OpenAI (GPT)</option>
+                        <option value="google">Google (Gemini)</option>
+                      </optgroup>
+                      <optgroup label="Other Providers">
+                        <option value="mistral">Mistral AI</option>
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="xai">xAI (Grok)</option>
+                        <option value="cohere">Cohere</option>
+                        <option value="perplexity">Perplexity (Online)</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div>
+                    <select
+                      value={model}
+                      onChange={(e) => setModel(e.target.value)}
+                      className="w-full px-3 py-2 bg-oled-dark border border-gold/30 rounded-lg
+                        text-white text-sm focus:outline-none focus:border-gold transition-colors"
+                    >
+                      {LLM_PROVIDERS[llmProvider]?.models.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.context})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">
+                    Speed: <span className={
+                      LLM_PROVIDERS[llmProvider]?.models.find(m => m.id === model)?.speed === 'fastest' ? 'text-green-400' :
+                      LLM_PROVIDERS[llmProvider]?.models.find(m => m.id === model)?.speed === 'fast' ? 'text-yellow-400' :
+                      'text-orange-400'
+                    }>
+                      {LLM_PROVIDERS[llmProvider]?.models.find(m => m.id === model)?.speed || 'medium'}
+                    </span>
+                  </span>
+                  <a
+                    href={LLM_PROVIDERS[llmProvider]?.api_docs}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-400 hover:text-gold flex items-center gap-1"
                   >
-                    <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5</option>
-                    <option value="claude-haiku-3-5-20241022">Claude Haiku 3.5</option>
-                  </select>
+                    API Docs
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
                 </div>
               </div>
               <div>
