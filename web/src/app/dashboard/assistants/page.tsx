@@ -217,6 +217,13 @@ export default function AssistantsPage() {
   const [firstMessageLatencyMs, setFirstMessageLatencyMs] = useState(800);
   const [turnDetectionMode, setTurnDetectionMode] = useState('server_vad');
 
+  // Voice control settings (competitive with Vapi/ElevenLabs)
+  const [speechSpeed, setSpeechSpeed] = useState(0.9);
+  const [responseDelayMs, setResponseDelayMs] = useState(400);
+  const [punctuationPauseMs, setPunctuationPauseMs] = useState(300);
+  const [noPunctuationPauseMs, setNoPunctuationPauseMs] = useState(1000);
+  const [turnEagerness, setTurnEagerness] = useState('balanced');
+
   useEffect(() => {
     if (user?.id) {
       loadAssistants();
@@ -308,6 +315,11 @@ export default function AssistantsPage() {
     setStreamingChunks(true);
     setFirstMessageLatencyMs(800);
     setTurnDetectionMode('server_vad');
+    setSpeechSpeed(0.9);
+    setResponseDelayMs(400);
+    setPunctuationPauseMs(300);
+    setNoPunctuationPauseMs(1000);
+    setTurnEagerness('balanced');
     setSelectedTemplate('custom');
     setEditingId(null);
   };
@@ -344,6 +356,12 @@ export default function AssistantsPage() {
         streaming_chunks: streamingChunks,
         first_message_latency_ms: firstMessageLatencyMs,
         turn_detection_mode: turnDetectionMode,
+        // Voice control settings
+        speech_speed: speechSpeed,
+        response_delay_ms: responseDelayMs,
+        punctuation_pause_ms: punctuationPauseMs,
+        no_punctuation_pause_ms: noPunctuationPauseMs,
+        turn_eagerness: turnEagerness,
       };
 
       if (editingId) {
@@ -711,6 +729,199 @@ export default function AssistantsPage() {
                         </p>
                       </div>
                     </label>
+                  </div>
+
+                  {/* Voice Customization Section */}
+                  <div className="border-t border-gold/10 pt-4 mt-4">
+                    <h4 className="text-sm font-medium text-gold mb-3 flex items-center gap-2">
+                      🎙️ Voice Customization
+                      <span className="text-xs text-gray-500 font-normal">(Conversation Flow Settings)</span>
+                    </h4>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Speech Speed */}
+                      <div>
+                        <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
+                          Speech Speed ({speechSpeed}x)
+                          <div className="group relative">
+                            <span className="cursor-help text-gold/60 hover:text-gold">ⓘ</span>
+                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-oled-dark border border-gold/30 rounded-lg text-xs text-gray-400 z-10">
+                              Controls how quickly the assistant speaks. Values range from 0.7x (slower) to 1.2x (faster). Default 0.9x provides natural conversation pace.
+                            </div>
+                          </div>
+                        </label>
+                        <input
+                          type="range"
+                          min="0.7"
+                          max="1.2"
+                          step="0.05"
+                          value={speechSpeed}
+                          onChange={(e) => setSpeechSpeed(parseFloat(e.target.value))}
+                          className="w-full accent-gold"
+                        />
+                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                          <span>Slower</span>
+                          <span>Faster</span>
+                        </div>
+                      </div>
+
+                      {/* Turn Eagerness */}
+                      <div>
+                        <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
+                          Turn Eagerness
+                          <div className="group relative">
+                            <span className="cursor-help text-gold/60 hover:text-gold">ⓘ</span>
+                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-oled-dark border border-gold/30 rounded-lg text-xs text-gray-400 z-10">
+                              <strong>Low:</strong> Patient - waits longer before responding, ideal for collecting detailed info.<br/>
+                              <strong>Balanced:</strong> Normal turn-taking for most scenarios.<br/>
+                              <strong>High:</strong> Eager - responds quickly for fast-paced conversations.
+                            </div>
+                          </div>
+                        </label>
+                        <select
+                          value={turnEagerness}
+                          onChange={(e) => setTurnEagerness(e.target.value)}
+                          className="w-full px-4 py-2 bg-oled-dark border border-gold/30 rounded-lg
+                            text-white focus:outline-none focus:border-gold transition-colors"
+                        >
+                          <option value="low">Low (Patient) - For info collection</option>
+                          <option value="balanced">Balanced (Normal)</option>
+                          <option value="high">High (Eager) - Quick responses</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 mt-4">
+                      {/* Response Delay */}
+                      <div>
+                        <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
+                          Response Delay (ms)
+                          <div className="group relative">
+                            <span className="cursor-help text-gold/60 hover:text-gold">ⓘ</span>
+                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-oled-dark border border-gold/30 rounded-lg text-xs text-gray-400 z-10">
+                              How long the assistant waits after user stops speaking before responding. Higher values (800ms+) give users more time to complete thoughts. Lower values (200ms) feel more responsive.
+                            </div>
+                          </div>
+                        </label>
+                        <input
+                          type="number"
+                          min="200"
+                          max="2000"
+                          step="100"
+                          value={responseDelayMs}
+                          onChange={(e) => setResponseDelayMs(parseInt(e.target.value))}
+                          className="w-full px-4 py-2 bg-oled-dark border border-gold/30 rounded-lg
+                            text-white focus:outline-none focus:border-gold transition-colors"
+                        />
+                      </div>
+
+                      {/* Punctuation Pause */}
+                      <div>
+                        <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
+                          Punctuation Pause (ms)
+                          <div className="group relative">
+                            <span className="cursor-help text-gold/60 hover:text-gold">ⓘ</span>
+                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-oled-dark border border-gold/30 rounded-lg text-xs text-gray-400 z-10">
+                              Pause after detecting punctuation (period, question mark). Shorter pauses (200ms) for quick conversations, longer (500ms) for natural pacing.
+                            </div>
+                          </div>
+                        </label>
+                        <input
+                          type="number"
+                          min="100"
+                          max="1000"
+                          step="50"
+                          value={punctuationPauseMs}
+                          onChange={(e) => setPunctuationPauseMs(parseInt(e.target.value))}
+                          className="w-full px-4 py-2 bg-oled-dark border border-gold/30 rounded-lg
+                            text-white focus:outline-none focus:border-gold transition-colors"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4">
+                      {/* No Punctuation Pause */}
+                      <div className="max-w-[calc(50%-0.5rem)]">
+                        <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
+                          No Punctuation Pause (ms)
+                          <div className="group relative">
+                            <span className="cursor-help text-gold/60 hover:text-gold">ⓘ</span>
+                            <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-2 bg-oled-dark border border-gold/30 rounded-lg text-xs text-gray-400 z-10">
+                              Wait time when no punctuation is detected (user may still be speaking). Higher values (1500ms) prevent interrupting users mid-thought.
+                            </div>
+                          </div>
+                        </label>
+                        <input
+                          type="number"
+                          min="500"
+                          max="3000"
+                          step="100"
+                          value={noPunctuationPauseMs}
+                          onChange={(e) => setNoPunctuationPauseMs(parseInt(e.target.value))}
+                          className="w-full px-4 py-2 bg-oled-dark border border-gold/30 rounded-lg
+                            text-white focus:outline-none focus:border-gold transition-colors"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Presets */}
+                    <div className="mt-4 pt-4 border-t border-gold/10">
+                      <label className="text-sm font-medium text-gray-300 mb-2 block">Quick Presets</label>
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSpeechSpeed(0.85);
+                            setResponseDelayMs(800);
+                            setPunctuationPauseMs(400);
+                            setNoPunctuationPauseMs(1500);
+                            setTurnEagerness('low');
+                          }}
+                          className="px-3 py-1.5 text-xs border border-gold/30 rounded text-gray-300 hover:bg-gold/10 transition-colors"
+                        >
+                          📝 Info Collection
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSpeechSpeed(0.9);
+                            setResponseDelayMs(400);
+                            setPunctuationPauseMs(300);
+                            setNoPunctuationPauseMs(1000);
+                            setTurnEagerness('balanced');
+                          }}
+                          className="px-3 py-1.5 text-xs border border-gold/30 rounded text-gray-300 hover:bg-gold/10 transition-colors"
+                        >
+                          💬 Natural Conversation
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSpeechSpeed(1.0);
+                            setResponseDelayMs(250);
+                            setPunctuationPauseMs(200);
+                            setNoPunctuationPauseMs(600);
+                            setTurnEagerness('high');
+                          }}
+                          className="px-3 py-1.5 text-xs border border-gold/30 rounded text-gray-300 hover:bg-gold/10 transition-colors"
+                        >
+                          ⚡ Quick Responses
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSpeechSpeed(0.8);
+                            setResponseDelayMs(1000);
+                            setPunctuationPauseMs(500);
+                            setNoPunctuationPauseMs(2000);
+                            setTurnEagerness('low');
+                          }}
+                          className="px-3 py-1.5 text-xs border border-gold/30 rounded text-gray-300 hover:bg-gold/10 transition-colors"
+                        >
+                          🎓 Elderly/Patient
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
