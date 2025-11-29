@@ -237,8 +237,8 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
   }, []);
 
   const connect = useCallback(() => {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://web-production-1b085.up.railway.app';
-    const wsUrl = backendUrl.replace(/^http/, 'ws');
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+    const wsUrl = apiUrl.replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/ws/voice/${assistantId}`);
     wsRef.current = ws;
 
