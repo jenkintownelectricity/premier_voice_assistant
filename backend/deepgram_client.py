@@ -250,6 +250,9 @@ class DeepgramNova3:
             # Start receive loop
             asyncio.create_task(self._receive_loop())
 
+            # Small delay to ensure receive loop is ready
+            await asyncio.sleep(0.1)
+
             return True
 
         except aiohttp.ClientResponseError as e:
