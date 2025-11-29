@@ -22,7 +22,7 @@ interface LatencyData {
   tts_ms: number;
   total_ms: number;
   target_ms: number;
-  status: 'good' | 'warning' | 'slow';
+  status: 'lightning' | 'fast' | 'good' | 'normal' | 'warning' | 'slow';
 }
 
 interface QualityScoreData {
@@ -338,8 +338,11 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
 
   const getLatencyColor = (status: string) => {
     switch (status) {
+      case 'lightning': return 'text-cyan-400';  // ⚡ Sub-150ms
+      case 'fast': return 'text-green-400';      // Sub-500ms
       case 'good': return 'text-green-400';
       case 'warning': return 'text-yellow-400';
+      case 'normal': return 'text-yellow-400';
       default: return 'text-red-400';
     }
   };
@@ -457,7 +460,8 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
         </div>
         <div className="flex items-center gap-2">
           {callState === 'active' && latency && (
-            <span className={`text-xs font-mono ${getLatencyColor(latency.status)}`}>
+            <span className={`text-xs font-mono flex items-center gap-1 ${getLatencyColor(latency.status)}`}>
+              {latency.status === 'lightning' && <span>⚡</span>}
               {latency.total_ms}ms
             </span>
           )}
