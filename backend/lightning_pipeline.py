@@ -403,7 +403,8 @@ class LightningPipeline:
             logger.info("Barge-in detected!")
             self._set_state(PipelineState.INTERRUPTED)
             if self.tts:
-                await self.tts.cancel()
+                self.tts.clear_queue()  # Clear queue immediately
+                await self.tts.cancel()  # Cancel current synthesis
 
         self._set_state(PipelineState.LISTENING)
 
@@ -545,6 +546,7 @@ class LightningPipeline:
         llm_first_token = None
         full_response = ""
         first_words_sent = False  # Track if we've sent first words to TTS
+        text_sent_to_tts = ""  # ⚡ Track exactly what text has been sent to TTS
 
         # Reset sentence detector
         if self.sentence_detector:
@@ -552,7 +554,7 @@ class LightningPipeline:
 
         async def on_token(token: str):
             """Handle each LLM token with first-word streaming."""
-            nonlocal llm_first_token, full_response, first_words_sent
+            nonlocal llm_first_token, full_response, first_words_sent, text_sent_to_tts
 
             # Track TTFT
             if llm_first_token is None:
@@ -579,34 +581,57 @@ class LightningPipeline:
                         if first_chunk:
                             logger.info(f"⚡ First-word streaming: '{first_chunk[:30]}...'")
                             first_words_sent = True
+                            text_sent_to_tts = first_chunk  # Track what we sent
                             self._set_state(PipelineState.SPEAKING)
-                            # Send first words to TTS without waiting for sentence
-                            asyncio.create_task(self.tts.synthesize(
+                            # Send first words to TTS - await to ensure queue tracking works
+                            await self.tts.synthesize(
                                 text=first_chunk,
                                 voice_id=self.config.cartesia_voice_id,
                                 language=self.config.cartesia_language,
                                 speed=self.config.speech_speed,
-                            ))
+                            )
 
         async def on_sentence(sentence: str):
             """Handle complete sentence - send to TTS immediately!"""
-            nonlocal first_words_sent
+            nonlocal first_words_sent, text_sent_to_tts
 
             if not sentence.strip():
                 return
 
-            # Skip if this sentence was already sent via first-word streaming
-            if first_words_sent and sentence.strip() == full_response.strip():
-                first_words_sent = False  # Reset for next sentence
-                return
+            sentence = sentence.strip()
 
-            logger.debug(f"Sentence detected: {sentence[:50]}...")
+            # ⚡ OVERLAP PREVENTION: Only send text that hasn't been sent yet
+            # If first-word streaming sent "Hello! How", and this sentence is
+            # "Hello! How are you today?", we only send " are you today?"
+            text_to_send = sentence
+            if text_sent_to_tts and sentence.startswith(text_sent_to_tts):
+                # Extract only the new part
+                remaining = sentence[len(text_sent_to_tts):].strip()
+                if remaining:
+                    text_to_send = remaining
+                    logger.debug(f"Sentence continuation: '{text_to_send[:30]}...'")
+                else:
+                    # Entire sentence was already sent via first-word streaming
+                    logger.debug(f"Sentence already sent, skipping: '{sentence[:30]}...'")
+                    return
+            elif text_sent_to_tts and text_sent_to_tts in sentence:
+                # The sent text is somewhere in the sentence - this is a more complex overlap
+                # For safety, skip if there's significant overlap (>50%)
+                overlap_ratio = len(text_sent_to_tts) / len(sentence)
+                if overlap_ratio > 0.5:
+                    logger.debug(f"Significant overlap ({overlap_ratio:.0%}), skipping sentence")
+                    return
+
+            logger.debug(f"Sentence to TTS: '{text_to_send[:50]}...'")
+
+            # Update tracking
+            text_sent_to_tts = sentence  # Track the full sentence as sent
 
             # Send to TTS immediately
             if self.tts and self.state != PipelineState.INTERRUPTED:
                 self._set_state(PipelineState.SPEAKING)
                 await self.tts.synthesize(
-                    text=sentence,
+                    text=text_to_send,
                     voice_id=self.config.cartesia_voice_id,
                     language=self.config.cartesia_language,
                     speed=self.config.speech_speed,
