@@ -4627,9 +4627,11 @@ async def websocket_voice_endpoint(
             assistant_voice_id = assistant.get('voice_id')
             if assistant_voice_id and len(assistant_voice_id) > 10:  # Valid UUID is 36 chars
                 lightning_config.cartesia_voice_id = assistant_voice_id
-            # Apply speech speed from assistant settings
+            # Apply voice control settings from assistant
             if assistant.get('speech_speed'):
                 lightning_config.speech_speed = assistant.get('speech_speed')
+            if assistant.get('response_delay_ms'):
+                lightning_config.response_delay_ms = assistant.get('response_delay_ms')
             lightning_pipeline = LightningPipeline(lightning_config)
 
             # Set up callbacks
@@ -6615,9 +6617,11 @@ async def websocket_lightning_endpoint(
         assistant_voice_id = assistant.get('voice_id')
         if assistant_voice_id and len(assistant_voice_id) > 10:
             config.cartesia_voice_id = assistant_voice_id
-        # Apply speech speed from assistant settings
+        # Apply voice control settings from assistant
         if assistant.get('speech_speed'):
             config.speech_speed = assistant.get('speech_speed')
+        if assistant.get('response_delay_ms'):
+            config.response_delay_ms = assistant.get('response_delay_ms')
 
         pipeline = LightningPipeline(config)
 

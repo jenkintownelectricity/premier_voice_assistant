@@ -63,6 +63,9 @@ class LightningConfig:
     cartesia_language: str = "en"
     speech_speed: float = 0.9  # TTS speed (0.5-2.0), 0.9 for natural conversation
 
+    # Voice timing controls (for natural conversation flow)
+    response_delay_ms: int = 400  # Wait before responding after user stops
+
     # Pipeline behavior
     enable_barge_in: bool = True  # Allow user to interrupt
     enable_sentence_streaming: bool = True  # Stream to TTS at sentence boundaries
@@ -312,6 +315,14 @@ class LightningPipeline:
 
         # Add to history
         self._conversation_history.append({"role": "user", "content": text})
+
+        # Apply response delay (gives user time to continue speaking)
+        if self.config.response_delay_ms > 0:
+            await asyncio.sleep(self.config.response_delay_ms / 1000.0)
+            # Check if we were interrupted during the delay
+            if self.state == PipelineState.INTERRUPTED:
+                logger.debug("Response cancelled during delay - user started speaking")
+                return
 
         # Start processing
         self._processing_start = time.time()
