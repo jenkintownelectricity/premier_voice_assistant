@@ -231,6 +231,7 @@ class LightningPipeline:
                 default_voice_id=self.config.cartesia_voice_id,
                 language=self.config.cartesia_language,
                 sample_rate=self.config.sample_rate,
+                speed=self.config.speech_speed,  # Pass speech speed to TTS
             )
             self.tts = CartesiaSonic3(tts_config)
             self.tts.on_audio = self._on_tts_audio
@@ -240,6 +241,8 @@ class LightningPipeline:
                 logger.error("Failed to connect to Cartesia")
                 success = False
                 self.tts = None
+            else:
+                logger.info(f"Cartesia TTS connected (speed={self.config.speech_speed})")
         else:
             logger.warning("Cartesia not configured - TTS disabled")
 
@@ -364,12 +367,23 @@ class LightningPipeline:
 
             # Get turn prediction
             prediction = await self.turn_model.predict_turn()
-            logger.debug(
-                f"Turn prediction: take={prediction.should_take_turn}, "
-                f"confidence={prediction.confidence:.2f}, "
+
+            # Log turn-taking decision (INFO level for visibility)
+            logger.info(
+                f"🎯 Turn-Taking: confidence={prediction.confidence:.2f}, "
                 f"delay={prediction.recommended_delay_ms}ms, "
-                f"reason={prediction.reason}"
+                f"emotion={prediction.recommended_tone.value}, "
+                f"reason='{prediction.reason}'"
             )
+
+            # Log talk-time stats periodically
+            stats = self.turn_model.get_talk_time_stats()
+            if stats.user_turn_count > 0:
+                logger.info(
+                    f"📊 Talk-Time: ratio={stats.assistant_ratio:.1%}, "
+                    f"optimal={stats.is_ratio_optimal}, "
+                    f"turns={stats.user_turn_count}/{stats.assistant_turn_count}"
+                )
 
             if prediction.should_take_turn:
                 # Apply recommended delay
@@ -555,6 +569,20 @@ class LightningPipeline:
         """Send audio to the pipeline for processing."""
         if self.stt:
             await self.stt.send_audio(audio_bytes)
+
+        # Feed audio features to turn-taking model for prosody analysis
+        if self.turn_model and len(audio_bytes) >= 2:
+            # Calculate RMS energy from 16-bit PCM audio
+            try:
+                import struct
+                samples = struct.unpack(f'<{len(audio_bytes)//2}h', audio_bytes)
+                if samples:
+                    rms = (sum(s**2 for s in samples) / len(samples)) ** 0.5
+                    # Normalize to 0-1 range (16-bit max is 32767)
+                    energy = min(1.0, rms / 10000.0)
+                    self.turn_model.on_audio_features(energy=energy)
+            except Exception:
+                pass  # Don't fail on audio processing errors
 
     async def speak(
         self,
