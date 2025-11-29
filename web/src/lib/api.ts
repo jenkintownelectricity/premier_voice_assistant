@@ -206,6 +206,12 @@ export const api = {
       streaming_chunks?: boolean;
       first_message_latency_ms?: number;
       turn_detection_mode?: string;
+      // Voice control settings
+      speech_speed?: number;
+      response_delay_ms?: number;
+      punctuation_pause_ms?: number;
+      no_punctuation_pause_ms?: number;
+      turn_eagerness?: string;
     }
   ) =>
     fetchAPI<{
@@ -252,6 +258,12 @@ export const api = {
       streaming_chunks?: boolean;
       first_message_latency_ms?: number;
       turn_detection_mode?: string;
+      // Voice control settings
+      speech_speed?: number;
+      response_delay_ms?: number;
+      punctuation_pause_ms?: number;
+      no_punctuation_pause_ms?: number;
+      turn_eagerness?: string;
     }
   ) =>
     fetchAPI<{

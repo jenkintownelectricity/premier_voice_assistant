@@ -280,14 +280,22 @@ export default function AssistantsPage() {
       setMaxTokens(assistant.max_tokens ?? 150);
       setFirstMessage(assistant.first_message || '');
 
-      // Advanced settings from metadata if available
+      // Advanced settings - check both direct fields and metadata for backwards compatibility
       const meta = (assistant.metadata || {}) as Record<string, number | boolean | string>;
-      setVadSensitivity(typeof meta.vad_sensitivity === 'number' ? meta.vad_sensitivity : 0.5);
-      setEndpointingMs(typeof meta.endpointing_ms === 'number' ? meta.endpointing_ms : 600);
-      setEnableBargein(typeof meta.enable_bargein === 'boolean' ? meta.enable_bargein : true);
-      setStreamingChunks(typeof meta.streaming_chunks === 'boolean' ? meta.streaming_chunks : true);
-      setFirstMessageLatencyMs(typeof meta.first_message_latency_ms === 'number' ? meta.first_message_latency_ms : 800);
-      setTurnDetectionMode(typeof meta.turn_detection_mode === 'string' ? meta.turn_detection_mode : 'server_vad');
+      const a = assistant as Record<string, unknown>;
+      setVadSensitivity(typeof a.vad_sensitivity === 'number' ? a.vad_sensitivity : (typeof meta.vad_sensitivity === 'number' ? meta.vad_sensitivity : 0.5));
+      setEndpointingMs(typeof a.endpointing_ms === 'number' ? a.endpointing_ms : (typeof meta.endpointing_ms === 'number' ? meta.endpointing_ms : 600));
+      setEnableBargein(typeof a.enable_bargein === 'boolean' ? a.enable_bargein : (typeof meta.enable_bargein === 'boolean' ? meta.enable_bargein : true));
+      setStreamingChunks(typeof a.streaming_chunks === 'boolean' ? a.streaming_chunks : (typeof meta.streaming_chunks === 'boolean' ? meta.streaming_chunks : true));
+      setFirstMessageLatencyMs(typeof a.first_message_latency_ms === 'number' ? a.first_message_latency_ms : (typeof meta.first_message_latency_ms === 'number' ? meta.first_message_latency_ms : 800));
+      setTurnDetectionMode(typeof a.turn_detection_mode === 'string' ? a.turn_detection_mode : (typeof meta.turn_detection_mode === 'string' ? meta.turn_detection_mode : 'server_vad'));
+
+      // Voice control settings
+      setSpeechSpeed(typeof a.speech_speed === 'number' ? a.speech_speed : 0.9);
+      setResponseDelayMs(typeof a.response_delay_ms === 'number' ? a.response_delay_ms : 400);
+      setPunctuationPauseMs(typeof a.punctuation_pause_ms === 'number' ? a.punctuation_pause_ms : 300);
+      setNoPunctuationPauseMs(typeof a.no_punctuation_pause_ms === 'number' ? a.no_punctuation_pause_ms : 1000);
+      setTurnEagerness(typeof a.turn_eagerness === 'string' ? a.turn_eagerness : 'balanced');
 
       setSelectedTemplate('custom');
       setShowCreate(true);
