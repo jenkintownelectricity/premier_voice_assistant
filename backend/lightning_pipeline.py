@@ -54,10 +54,14 @@ class LightningConfig:
     deepgram_model: str = "nova-2"
     deepgram_language: str = "en-US"  # Use "multi" for code-switching
 
+    # LLM Provider Selection
+    llm_provider: str = "groq"  # Provider: groq, anthropic, openai, google, mistral, etc.
+
     # LLM (Groq + Claude fallback)
     groq_api_key: str = field(default_factory=lambda: os.getenv("GROQ_API_KEY", ""))
     groq_model: str = "llama-3.3-70b-versatile"
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+    openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     max_tokens: int = 150
     temperature: float = 0.7
 
@@ -470,6 +474,17 @@ class LightningPipeline:
                 )
 
         try:
+            # Map llm_provider to HybridLLMClient provider
+            # Currently supports: groq, anthropic (claude)
+            # Other providers (openai, google, mistral, etc.) require additional implementation
+            provider_map = {
+                "groq": "groq",
+                "anthropic": "claude",
+                "together": "groq",  # Together uses Llama, similar to Groq
+                "fireworks": "groq",  # Fireworks uses Llama, similar to Groq
+            }
+            prefer_provider = provider_map.get(self.config.llm_provider, "groq")
+
             # Stream LLM response with sentence detection
             await self.llm.stream_response(
                 user_message=user_text,
@@ -477,6 +492,7 @@ class LightningPipeline:
                 conversation_history=self._conversation_history[:-1],
                 on_token=on_token,
                 on_sentence=on_sentence if self.config.enable_sentence_streaming else None,
+                prefer_provider=prefer_provider,
             )
 
             # Calculate LLM total time
@@ -618,10 +634,20 @@ class LightningPipeline:
 
         self._conversation_history.append({"role": "user", "content": text})
 
+        # Map llm_provider to HybridLLMClient provider
+        provider_map = {
+            "groq": "groq",
+            "anthropic": "claude",
+            "together": "groq",
+            "fireworks": "groq",
+        }
+        prefer_provider = provider_map.get(self.config.llm_provider, "groq")
+
         response = await self.llm.stream_response(
             user_message=text,
             system_prompt=self._system_prompt,
             conversation_history=self._conversation_history[:-1],
+            prefer_provider=prefer_provider,
         )
 
         self._conversation_history.append({"role": "assistant", "content": response})

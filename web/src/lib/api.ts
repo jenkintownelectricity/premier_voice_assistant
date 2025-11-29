@@ -195,6 +195,7 @@ export const api = {
       system_prompt: string;
       description?: string;
       voice_id?: string;
+      llm_provider?: string;  // Provider: groq, anthropic, openai, google, etc.
       model?: string;
       temperature?: number;
       max_tokens?: number;
@@ -246,6 +247,7 @@ export const api = {
       description?: string;
       system_prompt?: string;
       voice_id?: string;
+      llm_provider?: string;  // Provider: groq, anthropic, openai, google, etc.
       model?: string;
       temperature?: number;
       max_tokens?: number;
