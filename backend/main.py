@@ -35,6 +35,13 @@ from backend.streaming_manager import (
     StreamingPipeline, StreamingConfig, PipelineState,
     create_streaming_pipeline
 )
+from backend.lightning_pipeline import (
+    LightningPipeline, LightningConfig, PipelineState as LightningState,
+    LatencyMetrics
+)
+from backend.groq_client import HybridLLMClient, GroqConfig
+from backend.cartesia_client import CartesiaSonic3, CartesiaConfig, get_supported_languages as get_tts_languages
+from backend.deepgram_client import DeepgramNova3, DeepgramConfig, get_supported_languages as get_stt_languages
 
 # Configure logging
 logging.basicConfig(
@@ -5933,6 +5940,552 @@ async def share_call_with_team(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =============================================================================
+# LIGHTNING PIPELINE ENDPOINTS (Sub-150ms Voice AI)
+# =============================================================================
+
+class LightningChatRequest(BaseModel):
+    """Request for Lightning Pipeline chat."""
+    message: str
+    system_prompt: Optional[str] = "You are a helpful voice assistant. Keep responses concise."
+    voice_id: Optional[str] = None
+    language: Optional[str] = "en"
+
+
+class LightningTTSRequest(BaseModel):
+    """Request for Lightning TTS (Cartesia Sonic-3)."""
+    text: str
+    voice_id: Optional[str] = None
+    language: Optional[str] = "en"
+    speed: Optional[float] = 1.0
+
+
+class LightningVoiceCloneRequest(BaseModel):
+    """Request for Cartesia voice cloning."""
+    name: str
+    description: Optional[str] = ""
+    language: Optional[str] = "en"
+
+
+class LightningLocalizeRequest(BaseModel):
+    """Request to localize a cloned voice to another language."""
+    voice_id: str
+    target_language: str
+    name: Optional[str] = None
+
+
+@app.get("/lightning/status")
+async def lightning_status():
+    """
+    Get Lightning Pipeline status and configuration.
+
+    Returns which components are available and their configuration.
+    """
+    config = LightningConfig()
+
+    return {
+        "status": "active",
+        "version": "1.0.0",
+        "components": {
+            "stt": {
+                "provider": "deepgram",
+                "model": "nova-2",
+                "available": bool(config.deepgram_api_key),
+                "languages": len(get_stt_languages()),
+                "latency_target_ms": 30,
+            },
+            "llm": {
+                "primary": "groq",
+                "model": config.groq_model,
+                "fallback": "claude",
+                "groq_available": bool(config.groq_api_key),
+                "claude_available": bool(config.anthropic_api_key),
+                "latency_target_ms": 40,
+            },
+            "tts": {
+                "provider": "cartesia",
+                "model": "sonic-3",
+                "available": bool(config.cartesia_api_key),
+                "languages": len(get_tts_languages()),
+                "latency_target_ms": 30,
+            }
+        },
+        "latency_targets": {
+            "stt_ms": 30,
+            "llm_ttft_ms": 40,
+            "tts_ttfb_ms": 30,
+            "total_perceived_ms": 150,
+            "human_threshold_ms": 500,
+        },
+        "features": {
+            "sentence_streaming": True,
+            "barge_in": True,
+            "voice_cloning": bool(config.cartesia_api_key),
+            "cross_lingual_voices": bool(config.cartesia_api_key),
+            "code_switching": True,  # Deepgram multi-language
+        }
+    }
+
+
+@app.get("/lightning/languages")
+async def lightning_languages():
+    """
+    Get all supported languages for STT and TTS.
+    """
+    return {
+        "stt": {
+            "provider": "deepgram",
+            "languages": get_stt_languages(),
+            "code_switching": True,
+            "code_switching_note": "Use language='multi' for auto-detection"
+        },
+        "tts": {
+            "provider": "cartesia",
+            "languages": get_tts_languages(),
+            "voice_cloning_languages": len(get_tts_languages()),
+        }
+    }
+
+
+@app.post("/lightning/chat")
+async def lightning_chat(
+    request: LightningChatRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Fast text chat using Groq (40ms TTFT) with Claude fallback.
+
+    This is the LLM-only endpoint - no audio processing.
+    Use /ws/lightning/{assistant_id} for full voice streaming.
+    """
+    try:
+        # Initialize hybrid LLM client
+        llm = HybridLLMClient()
+
+        start_time = time.time()
+        first_token_time = None
+        tokens = []
+
+        def on_token(token):
+            nonlocal first_token_time
+            if first_token_time is None:
+                first_token_time = time.time()
+            tokens.append(token)
+
+        response = await llm.stream_response(
+            user_message=request.message,
+            system_prompt=request.system_prompt,
+            on_token=on_token,
+        )
+
+        total_time = int((time.time() - start_time) * 1000)
+        ttft = int((first_token_time - start_time) * 1000) if first_token_time else 0
+
+        return {
+            "response": response,
+            "metrics": {
+                "ttft_ms": ttft,
+                "total_ms": total_time,
+                "tokens": len(tokens),
+                "provider": "groq" if llm._groq_available else "claude",
+            },
+            "stats": llm.get_stats(),
+        }
+
+    except Exception as e:
+        logger.error(f"Lightning chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/lightning/tts")
+async def lightning_tts(
+    request: LightningTTSRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Ultra-fast TTS using Cartesia Sonic-3 (~30ms TTFB).
+
+    Returns streaming audio chunks.
+    """
+    config = CartesiaConfig()
+
+    if not config.api_key:
+        raise HTTPException(status_code=503, detail="Cartesia TTS not configured")
+
+    try:
+        cartesia = CartesiaSonic3(config)
+
+        if not await cartesia.connect():
+            raise HTTPException(status_code=503, detail="Failed to connect to Cartesia")
+
+        start_time = time.time()
+        audio_chunks = []
+        first_chunk_time = None
+
+        async for chunk in cartesia.synthesize_stream(
+            text=request.text,
+            voice_id=request.voice_id,
+            language=request.language,
+            speed=request.speed,
+        ):
+            if first_chunk_time is None:
+                first_chunk_time = time.time()
+            audio_chunks.append(chunk)
+
+        await cartesia.close()
+
+        total_time = int((time.time() - start_time) * 1000)
+        ttfb = int((first_chunk_time - start_time) * 1000) if first_chunk_time else 0
+
+        # Concatenate audio
+        audio_data = b"".join(audio_chunks)
+        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+
+        return {
+            "audio": audio_b64,
+            "format": "pcm_s16le",
+            "sample_rate": 16000,
+            "metrics": {
+                "ttfb_ms": ttfb,
+                "total_ms": total_time,
+                "chunks": len(audio_chunks),
+                "bytes": len(audio_data),
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Lightning TTS error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/lightning/voice-clone")
+async def lightning_voice_clone(
+    request: LightningVoiceCloneRequest,
+    audio: UploadFile = File(...),
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Clone a voice using Cartesia (3-10 seconds of audio).
+
+    The cloned voice can be used for TTS in any of the 42 supported languages.
+    """
+    config = CartesiaConfig()
+
+    if not config.api_key:
+        raise HTTPException(status_code=503, detail="Cartesia not configured")
+
+    try:
+        # Read audio file
+        audio_data = await audio.read()
+
+        if len(audio_data) < 1000:
+            raise HTTPException(status_code=400, detail="Audio file too short. Need 3-10 seconds.")
+
+        cartesia = CartesiaSonic3(config)
+
+        voice_id = await cartesia.clone_voice(
+            audio_data=audio_data,
+            name=request.name,
+            description=request.description,
+            language=request.language,
+        )
+
+        if not voice_id:
+            raise HTTPException(status_code=500, detail="Voice cloning failed")
+
+        # Save to database
+        db = get_supabase()
+        db.client.table("va_voice_clones").insert({
+            "user_id": user_id,
+            "name": request.name,
+            "voice_id": voice_id,
+            "provider": "cartesia",
+            "language": request.language,
+            "description": request.description,
+        }).execute()
+
+        return {
+            "voice_id": voice_id,
+            "name": request.name,
+            "language": request.language,
+            "provider": "cartesia",
+            "supported_languages": len(get_tts_languages()),
+            "message": "Voice cloned! Use /lightning/localize to adapt it to other languages."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Voice clone error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/lightning/localize")
+async def lightning_localize_voice(
+    request: LightningLocalizeRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Localize a cloned voice to speak another language naturally.
+
+    Uses Cartesia's cross-lingual voice cloning to make your voice
+    sound natural in Spanish, Hindi, Japanese, etc.
+    """
+    config = CartesiaConfig()
+
+    if not config.api_key:
+        raise HTTPException(status_code=503, detail="Cartesia not configured")
+
+    try:
+        cartesia = CartesiaSonic3(config)
+
+        new_voice_id = await cartesia.localize_voice(
+            voice_id=request.voice_id,
+            target_language=request.target_language,
+            name=request.name,
+        )
+
+        if not new_voice_id:
+            raise HTTPException(status_code=500, detail="Voice localization failed")
+
+        # Save to database
+        db = get_supabase()
+        db.client.table("va_voice_clones").insert({
+            "user_id": user_id,
+            "name": request.name or f"Localized ({request.target_language})",
+            "voice_id": new_voice_id,
+            "provider": "cartesia",
+            "language": request.target_language,
+            "parent_voice_id": request.voice_id,
+            "description": f"Localized from {request.voice_id}",
+        }).execute()
+
+        return {
+            "voice_id": new_voice_id,
+            "source_voice_id": request.voice_id,
+            "target_language": request.target_language,
+            "message": f"Voice localized to {request.target_language}!"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Voice localization error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/lightning/{assistant_id}")
+async def websocket_lightning_endpoint(
+    websocket: WebSocket,
+    assistant_id: str,
+):
+    """
+    ⚡ Lightning WebSocket - Sub-150ms Voice AI
+
+    Uses the full Lightning Stack:
+    - Deepgram Nova-3: ~30ms STT
+    - Groq Llama 3.3 70B: ~40ms TTFT
+    - Cartesia Sonic-3: ~30ms TTS
+    - Sentence-level streaming: TTS starts on first sentence!
+
+    Protocol:
+    - Client sends: {"type": "auth", "user_id": "..."}
+    - Client sends: {"type": "audio", "data": "<base64 audio>"}
+    - Client sends: {"type": "end_call"}
+    - Server sends: {"type": "ready", "call_id": "...", "stack": "lightning"}
+    - Server sends: {"type": "transcript", "role": "user"|"assistant", "content": "..."}
+    - Server sends: {"type": "audio", "data": "<base64 audio>"}
+    - Server sends: {"type": "latency", "data": {...}}  <- Real-time latency metrics!
+    - Server sends: {"type": "speaking", "is_speaking": true|false}
+    """
+    await websocket.accept()
+    pipeline: Optional[LightningPipeline] = None
+    call_id = None
+    user_id = None
+
+    try:
+        # Wait for authentication
+        auth_data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+        if auth_data.get('type') != 'auth' or not auth_data.get('user_id'):
+            await websocket.send_json({"type": "error", "message": "Authentication required"})
+            await websocket.close()
+            return
+
+        user_id = auth_data['user_id']
+        logger.info(f"⚡ Lightning WebSocket authenticated for user {user_id}")
+
+        # Get assistant configuration
+        db = get_supabase()
+        assistant_result = db.client.table("va_assistants").select("*").eq(
+            "id", assistant_id
+        ).eq("user_id", user_id).eq("is_active", True).execute()
+
+        if not assistant_result.data:
+            await websocket.send_json({"type": "error", "message": "Assistant not found"})
+            await websocket.close()
+            return
+
+        assistant = assistant_result.data[0]
+
+        # Check feature gate
+        feature_gate = get_feature_gate()
+        try:
+            allowed, details = feature_gate.check_feature(user_id, "max_minutes")
+            if not allowed:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "You've used all your minutes. Upgrade to continue."
+                })
+                await websocket.close()
+                return
+        except Exception as e:
+            logger.warning(f"Feature gate error: {e}")
+
+        # Create call record
+        import uuid
+        call_id = str(uuid.uuid4())
+        db.client.table("va_call_logs").insert({
+            "id": call_id,
+            "user_id": user_id,
+            "assistant_id": assistant_id,
+            "status": "active",
+            "pipeline": "lightning",  # Track that this used Lightning Stack
+        }).execute()
+
+        # Initialize Lightning Pipeline
+        config = LightningConfig()
+        config.cartesia_voice_id = assistant.get('voice_id', config.cartesia_voice_id)
+
+        pipeline = LightningPipeline(config)
+
+        # Set up callbacks
+        async def on_transcript(role: str, text: str):
+            await websocket.send_json({
+                "type": "transcript",
+                "role": role,
+                "content": text
+            })
+
+        async def on_audio(audio_bytes: bytes):
+            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+            await websocket.send_json({
+                "type": "audio",
+                "data": audio_b64
+            })
+
+        async def on_state_change(state: LightningState):
+            is_speaking = state == LightningState.SPEAKING
+            await websocket.send_json({
+                "type": "speaking",
+                "is_speaking": is_speaking
+            })
+
+        async def on_latency(metrics: LatencyMetrics):
+            await websocket.send_json({
+                "type": "latency",
+                "data": {
+                    "stt_ms": metrics.stt_ms,
+                    "llm_ttft_ms": metrics.llm_ttft_ms,
+                    "tts_ttfb_ms": metrics.tts_ttfb_ms,
+                    "perceived_ms": metrics.total_perceived_ms,
+                    "target_ms": 150,
+                    "status": "lightning" if metrics.total_perceived_ms < 200 else "fast" if metrics.total_perceived_ms < 500 else "normal"
+                }
+            })
+
+        pipeline.on_transcript = on_transcript
+        pipeline.on_audio_out = on_audio
+        pipeline.on_state_change = on_state_change
+        pipeline.on_latency = on_latency
+
+        # Initialize with assistant's system prompt
+        await pipeline.initialize(
+            system_prompt=assistant.get('system_prompt', 'You are a helpful assistant.'),
+            voice_id=assistant.get('voice_id'),
+        )
+
+        # Send ready message
+        await websocket.send_json({
+            "type": "ready",
+            "call_id": call_id,
+            "stack": "lightning",
+            "assistant_name": assistant['name'],
+            "latency_target_ms": 150,
+        })
+
+        logger.info(f"⚡ Lightning Pipeline ready for call {call_id}")
+
+        # Send first message if configured
+        first_message = assistant.get('first_message')
+        if first_message:
+            await pipeline.speak(first_message)
+
+        # Main message loop
+        while True:
+            try:
+                message = await websocket.receive_json()
+                msg_type = message.get('type')
+
+                if msg_type == 'audio':
+                    # Decode and send to pipeline
+                    audio_b64 = message.get('data', '')
+                    if audio_b64:
+                        audio_bytes = base64.b64decode(audio_b64)
+                        await pipeline.send_audio(audio_bytes)
+
+                elif msg_type == 'end_call':
+                    logger.info(f"Call {call_id} ended by user")
+                    break
+
+                elif msg_type == 'ping':
+                    await websocket.send_json({"type": "pong"})
+
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected for call {call_id}")
+                break
+            except Exception as e:
+                logger.error(f"Message handling error: {e}")
+                await websocket.send_json({"type": "error", "message": str(e)})
+
+    except asyncio.TimeoutError:
+        await websocket.send_json({"type": "error", "message": "Authentication timeout"})
+    except Exception as e:
+        logger.error(f"Lightning WebSocket error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        # Cleanup
+        if pipeline:
+            await pipeline.close()
+
+        # Update call record
+        if call_id and user_id:
+            try:
+                db = get_supabase()
+                metrics = pipeline.get_metrics() if pipeline else {}
+                db.client.table("va_call_logs").update({
+                    "status": "completed",
+                    "ended_at": datetime.utcnow().isoformat(),
+                    "metrics": metrics,
+                }).eq("id", call_id).execute()
+            except Exception as e:
+                logger.error(f"Failed to update call record: {e}")
+
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
+# =============================================================================
+# END LIGHTNING PIPELINE ENDPOINTS
+# =============================================================================
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -5969,6 +6522,14 @@ if __name__ == "__main__":
     print("  GET    /admin/codes                   - List all codes")
     print("  DELETE /admin/codes/{code}            - Deactivate code")
     print("  POST   /admin/add-minutes             - Add bonus minutes to user")
+    print("\n⚡ Lightning Pipeline (Sub-150ms Voice AI):")
+    print("  GET    /lightning/status              - Pipeline status & config")
+    print("  GET    /lightning/languages           - Supported languages (42 TTS, 36+ STT)")
+    print("  POST   /lightning/chat                - Fast LLM chat (Groq ~40ms TTFT)")
+    print("  POST   /lightning/tts                 - Ultra-fast TTS (Cartesia ~30ms)")
+    print("  POST   /lightning/voice-clone         - Clone voice (3-10s audio)")
+    print("  POST   /lightning/localize            - Localize voice to other languages")
+    print("  WS     /ws/lightning/{assistant_id}   - Full voice streaming pipeline")
     print("\n" + "=" * 60)
 
     uvicorn.run(
