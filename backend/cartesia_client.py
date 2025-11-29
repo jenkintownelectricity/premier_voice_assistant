@@ -120,9 +120,9 @@ class CartesiaConfig:
     """Configuration for Cartesia client."""
     api_key: str = field(default_factory=lambda: os.getenv("CARTESIA_API_KEY", ""))
 
-    # Model
-    model_id: str = "sonic-2"  # Current Cartesia model
-    model_multilingual: str = "sonic-multilingual"  # For non-English
+    # Model - use Cartesia's current model names
+    model_id: str = "sonic-3"  # Latest Sonic 3 model (auto-routes to latest snapshot)
+    model_multilingual: str = "sonic-3"  # Sonic 3 supports 42 languages
 
     # Voice settings
     default_voice_id: str = "a0e99841-438c-4a64-b679-ae501e7d6091"  # Default voice
