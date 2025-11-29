@@ -251,6 +251,21 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
     setIsSpeaking(false);
   }, []);
 
+  // Track error with details - defined before connect so it can be used in the dependency array
+  const trackError = useCallback((message: string, code?: string, context?: string) => {
+    const details: ErrorDetails = {
+      message,
+      code,
+      timestamp: new Date(),
+      context,
+      callId: callId || undefined,
+    };
+    setError(message);
+    setErrorDetails(details);
+    setErrorHistory(prev => [...prev, details]);
+    console.error('[VoiceCall Error]', details);
+  }, [callId]);
+
   const connect = useCallback(() => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
     const wsUrl = apiUrl.replace(/^http/, 'ws');
@@ -400,21 +415,6 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
       default: return 'text-red-400 bg-red-500/20 border-red-500';
     }
   };
-
-  // Track error with details
-  const trackError = useCallback((message: string, code?: string, context?: string) => {
-    const details: ErrorDetails = {
-      message,
-      code,
-      timestamp: new Date(),
-      context,
-      callId: callId || undefined,
-    };
-    setError(message);
-    setErrorDetails(details);
-    setErrorHistory(prev => [...prev, details]);
-    console.error('[VoiceCall Error]', details);
-  }, [callId]);
 
   // Submit error report to backend
   const submitErrorReport = useCallback(async (additionalNotes?: string) => {
