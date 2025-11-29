@@ -274,13 +274,13 @@ export default function AssistantsPage() {
       setFirstMessage(assistant.first_message || '');
 
       // Advanced settings from metadata if available
-      const meta = assistant.metadata || {};
-      setVadSensitivity(meta.vad_sensitivity ?? 0.5);
-      setEndpointingMs(meta.endpointing_ms ?? 600);
-      setEnableBargein(meta.enable_bargein ?? true);
-      setStreamingChunks(meta.streaming_chunks ?? true);
-      setFirstMessageLatencyMs(meta.first_message_latency_ms ?? 800);
-      setTurnDetectionMode(meta.turn_detection_mode ?? 'server_vad');
+      const meta = (assistant.metadata || {}) as Record<string, number | boolean | string>;
+      setVadSensitivity(typeof meta.vad_sensitivity === 'number' ? meta.vad_sensitivity : 0.5);
+      setEndpointingMs(typeof meta.endpointing_ms === 'number' ? meta.endpointing_ms : 600);
+      setEnableBargein(typeof meta.enable_bargein === 'boolean' ? meta.enable_bargein : true);
+      setStreamingChunks(typeof meta.streaming_chunks === 'boolean' ? meta.streaming_chunks : true);
+      setFirstMessageLatencyMs(typeof meta.first_message_latency_ms === 'number' ? meta.first_message_latency_ms : 800);
+      setTurnDetectionMode(typeof meta.turn_detection_mode === 'string' ? meta.turn_detection_mode : 'server_vad');
 
       setSelectedTemplate('custom');
       setShowCreate(true);
