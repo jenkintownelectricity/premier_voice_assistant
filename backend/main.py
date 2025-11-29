@@ -4606,19 +4606,30 @@ async def websocket_voice_endpoint(
             })
             session.add_to_transcript("assistant", assistant['first_message'])
 
-            # Synthesize and send first message audio
+            # Synthesize first message audio using appropriate TTS
             try:
-                audio_bytes = voice_assistant.synthesize_speech(
-                    assistant['first_message'],
-                    assistant.get('voice_id', 'default'),
-                    user_id
-                )
-                if audio_bytes:
-                    audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-                    await websocket.send_json({
-                        "type": "audio",
-                        "data": audio_b64
-                    })
+                if lightning_pipeline and lightning_pipeline.tts:
+                    # Use Lightning TTS (Cartesia - fast)
+                    logger.info("Using Lightning TTS for first message")
+                    await lightning_pipeline.speak(assistant['first_message'])
+                elif streaming_pipeline and streaming_pipeline.tts:
+                    # Use streaming TTS (Cartesia)
+                    logger.info("Using streaming TTS for first message")
+                    await streaming_pipeline.speak(assistant['first_message'])
+                else:
+                    # Fallback to Modal TTS (slow)
+                    logger.info("Using Modal TTS for first message (fallback)")
+                    audio_bytes = voice_assistant.synthesize_speech(
+                        assistant['first_message'],
+                        assistant.get('voice_id', 'default'),
+                        user_id
+                    )
+                    if audio_bytes:
+                        audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                        await websocket.send_json({
+                            "type": "audio",
+                            "data": audio_b64
+                        })
             except Exception as e:
                 logger.error(f"Error synthesizing first message: {e}")
 

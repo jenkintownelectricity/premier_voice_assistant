@@ -232,6 +232,8 @@ class DeepgramNova3:
                 "Authorization": f"Token {self.config.api_key}",
             }
 
+            logger.info(f"Connecting to Deepgram ({self.config.model}, lang={self.config.language})...")
+
             self.session = aiohttp.ClientSession()
             self.ws = await self.session.ws_connect(
                 url,
@@ -250,14 +252,23 @@ class DeepgramNova3:
 
             return True
 
+        except aiohttp.ClientResponseError as e:
+            logger.error(f"Deepgram auth error: {e.status} - {e.message}")
+            return False
+        except aiohttp.WSServerHandshakeError as e:
+            logger.error(f"Deepgram WebSocket handshake failed: {e.status} - {e.message}")
+            return False
         except Exception as e:
-            logger.error(f"Failed to connect to Deepgram: {e}")
+            logger.error(f"Failed to connect to Deepgram: {type(e).__name__}: {e}")
             return False
 
     async def _receive_loop(self):
         """Receive and process messages from Deepgram."""
         if not self.ws:
+            logger.error("Deepgram receive loop: WebSocket is None")
             return
+
+        logger.info("Deepgram receive loop started")
 
         try:
             async for msg in self.ws:
@@ -272,13 +283,22 @@ class DeepgramNova3:
                     break
 
                 elif msg.type == aiohttp.WSMsgType.CLOSED:
-                    logger.info("Deepgram WebSocket closed")
+                    logger.info("Deepgram WebSocket closed by server")
                     break
 
+                elif msg.type == aiohttp.WSMsgType.CLOSE:
+                    close_code = msg.data
+                    close_msg = msg.extra
+                    logger.warning(f"Deepgram close frame: code={close_code}, msg={close_msg}")
+                    break
+
+        except asyncio.CancelledError:
+            logger.info("Deepgram receive loop cancelled")
         except Exception as e:
-            logger.error(f"Error in Deepgram receive loop: {e}")
+            logger.error(f"Error in Deepgram receive loop: {type(e).__name__}: {e}")
         finally:
             self._connected = False
+            logger.info("Deepgram receive loop ended, _connected=False")
 
     async def _handle_message(self, data: dict):
         """Handle a message from Deepgram."""
