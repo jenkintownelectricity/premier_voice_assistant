@@ -20,6 +20,13 @@ interface Assistant {
   call_count: number;
 }
 
+interface VoiceClone {
+  id: string;
+  voice_name: string;
+  display_name: string;
+  is_public: boolean;
+}
+
 // Industry-specific quick start templates
 const ASSISTANT_TEMPLATES = [
   {
@@ -187,6 +194,9 @@ export default function AssistantsPage() {
   // Template selection
   const [selectedTemplate, setSelectedTemplate] = useState('custom');
 
+  // Voice clones
+  const [voiceClones, setVoiceClones] = useState<VoiceClone[]>([]);
+
   // Form state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -209,8 +219,25 @@ export default function AssistantsPage() {
   useEffect(() => {
     if (user?.id) {
       loadAssistants();
+      loadVoiceClones();
     }
   }, [user?.id]);
+
+  const loadVoiceClones = async () => {
+    if (!user?.id) return;
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/voice-clones`, {
+        headers: { 'X-User-ID': user.id },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setVoiceClones(data.voice_clones || []);
+      }
+    } catch (err) {
+      console.error('Failed to load voice clones:', err);
+    }
+  };
 
   // Handle template selection
   const handleTemplateSelect = (templateId: string) => {
@@ -417,9 +444,20 @@ export default function AssistantsPage() {
                     className="w-full px-4 py-3 bg-oled-dark border border-gold/30 rounded-lg
                       text-white focus:outline-none focus:border-gold transition-colors"
                   >
-                    <option value="default">Default</option>
-                    <option value="fabio">Fabio</option>
-                    <option value="jake">Jake</option>
+                    <optgroup label="Built-in Voices">
+                      <option value="default">Default</option>
+                      <option value="fabio">Fabio</option>
+                      <option value="jake">Jake</option>
+                    </optgroup>
+                    {voiceClones.length > 0 && (
+                      <optgroup label="Your Voice Clones">
+                        {voiceClones.map((clone) => (
+                          <option key={clone.id} value={clone.voice_name}>
+                            {clone.display_name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
                 <div>

@@ -2262,6 +2262,144 @@ async def get_call_stats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/calls/active")
+async def get_active_calls(
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Get currently active voice calls for monitoring.
+
+    Returns list of calls that are in progress, with real-time data.
+    """
+    try:
+        # Filter active calls for this user
+        user_calls = []
+        for call_id, call_data in active_voice_calls.items():
+            if call_data.get("user_id") == user_id:
+                # Calculate current duration
+                start_time = call_data.get("started_at")
+                if start_time:
+                    duration = int((datetime.utcnow() - start_time).total_seconds())
+                else:
+                    duration = 0
+
+                user_calls.append({
+                    "id": call_id,
+                    "assistant_id": call_data.get("assistant_id"),
+                    "assistant_name": call_data.get("assistant_name", "Assistant"),
+                    "user_id": user_id,
+                    "started_at": call_data.get("started_at").isoformat() if call_data.get("started_at") else None,
+                    "duration_seconds": duration,
+                    "status": "active",
+                    "sentiment": call_data.get("sentiment"),
+                    "urgency": call_data.get("urgency", "normal"),
+                    "transcript": call_data.get("transcript", [])[-10:],  # Last 10 messages
+                    "caller_info": call_data.get("caller_info"),
+                })
+
+        return {"calls": user_calls}
+
+    except Exception as e:
+        logger.error(f"Error getting active calls: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/monitor/{call_id}")
+async def websocket_monitor_endpoint(
+    websocket: WebSocket,
+    call_id: str,
+):
+    """
+    WebSocket endpoint for monitoring an active call.
+
+    Protocol:
+    - Client sends: {"type": "auth", "user_id": "...", "mode": "listen"|"takeover"}
+    - Server sends: {"type": "audio", "data": "<base64 audio>"}
+    - Server sends: {"type": "transcript", "role": "...", "content": "..."}
+    - Server sends: {"type": "call_update", "update": {...}}
+    - Server sends: {"type": "call_ended"}
+    """
+    await websocket.accept()
+
+    try:
+        # Wait for authentication
+        auth_data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+        if auth_data.get('type') != 'auth' or not auth_data.get('user_id'):
+            await websocket.send_json({"type": "error", "message": "Authentication required"})
+            await websocket.close()
+            return
+
+        user_id = auth_data['user_id']
+        mode = auth_data.get('mode', 'listen')
+
+        # Check if call exists and belongs to user
+        if call_id not in active_voice_calls:
+            await websocket.send_json({"type": "error", "message": "Call not found or ended"})
+            await websocket.close()
+            return
+
+        call_data = active_voice_calls[call_id]
+        if call_data.get("user_id") != user_id:
+            await websocket.send_json({"type": "error", "message": "Not authorized to monitor this call"})
+            await websocket.close()
+            return
+
+        # Add to monitors list
+        if call_id not in call_monitors:
+            call_monitors[call_id] = []
+        call_monitors[call_id].append(websocket)
+
+        logger.info(f"Monitor connected to call {call_id} in {mode} mode")
+
+        # Send current call state
+        await websocket.send_json({
+            "type": "call_update",
+            "update": {
+                "transcript": call_data.get("transcript", []),
+                "sentiment": call_data.get("sentiment"),
+                "urgency": call_data.get("urgency", "normal"),
+            }
+        })
+
+        # Listen for commands (takeover, release, etc.)
+        while True:
+            try:
+                message = await websocket.receive_json()
+                msg_type = message.get('type')
+
+                if msg_type == 'takeover':
+                    # Mark call as taken over by human
+                    active_voice_calls[call_id]["is_human_controlled"] = True
+                    active_voice_calls[call_id]["controlling_user"] = user_id
+                    logger.info(f"Call {call_id} taken over by user {user_id}")
+
+                elif msg_type == 'release':
+                    # Release back to AI
+                    active_voice_calls[call_id]["is_human_controlled"] = False
+                    active_voice_calls[call_id]["controlling_user"] = None
+                    logger.info(f"Call {call_id} released back to AI")
+
+                elif msg_type == 'audio' and mode == 'takeover':
+                    # Forward audio from human operator to call
+                    # This would need to be forwarded to the main call websocket
+                    pass
+
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger.error(f"Monitor websocket error: {e}")
+                break
+
+    except Exception as e:
+        logger.error(f"Monitor websocket error: {e}")
+    finally:
+        # Remove from monitors list
+        if call_id in call_monitors and websocket in call_monitors[call_id]:
+            call_monitors[call_id].remove(websocket)
+            if not call_monitors[call_id]:
+                del call_monitors[call_id]
+
+
 # ============================================================================
 # ADMIN ROUTES
 # ============================================================================
@@ -3762,6 +3900,12 @@ async def create_team_dashboard(
 # WEBSOCKET VOICE STREAMING
 # =====================================================
 
+# Global registry of active voice calls for monitoring
+active_voice_calls: Dict[str, dict] = {}
+# Subscribers listening to calls (call_id -> list of websockets)
+call_monitors: Dict[str, List[WebSocket]] = {}
+
+
 class VoiceCallSession:
     """Manages a single WebSocket voice call session."""
 
@@ -3800,7 +3944,7 @@ class VoiceCallSession:
         self.sentiment_history = []  # Track sentiment over time
 
     async def start_call(self):
-        """Initialize call log in database."""
+        """Initialize call log in database and register for monitoring."""
         try:
             self.call_start_time = time.time()
             result = self.db.client.rpc(
@@ -3812,6 +3956,29 @@ class VoiceCallSession:
                 }
             ).execute()
             self.call_id = result.data
+
+            # Get assistant name for monitoring display
+            assistant_name = "Unknown Assistant"
+            try:
+                assistant_result = self.db.client.table('va_assistants').select('name').eq('id', self.assistant_id).single().execute()
+                if assistant_result.data:
+                    assistant_name = assistant_result.data.get('name', 'Unknown Assistant')
+            except Exception as e:
+                logger.warning(f"Could not fetch assistant name: {e}")
+
+            # Register call for live monitoring
+            active_voice_calls[self.call_id] = {
+                'id': self.call_id,
+                'user_id': self.user_id,
+                'assistant_id': self.assistant_id,
+                'assistant_name': assistant_name,
+                'start_time': datetime.utcnow().isoformat(),
+                'is_human_controlled': False,
+                'controlling_user': None,
+                'caller_number': 'Web Call',
+                'session': self  # Reference to session for takeover
+            }
+
             logger.info(f"Started call {self.call_id} for user {self.user_id}")
             return self.call_id
         except Exception as e:
@@ -3859,18 +4026,87 @@ class VoiceCallSession:
             ).execute()
             logger.info(f"Ended call {self.call_id} with quality score {quality_data['total']} ({quality_data['grade']})")
 
+            # Notify monitors that call has ended
+            await self.notify_monitors({
+                'type': 'call_ended',
+                'call_id': self.call_id,
+                'ended_reason': ended_reason,
+                'duration': self.get_duration_seconds()
+            })
+
+            # Unregister from active calls
+            if self.call_id in active_voice_calls:
+                del active_voice_calls[self.call_id]
+
+            # Clean up monitors list
+            if self.call_id in call_monitors:
+                del call_monitors[self.call_id]
+
             return quality_data
         except Exception as e:
             logger.error(f"Failed to end call: {e}")
             return None
 
     def add_to_transcript(self, role: str, content: str):
-        """Add message to transcript."""
-        self.transcript.append({
+        """Add message to transcript and notify monitors."""
+        entry = {
             'role': role,
             'content': content,
             'timestamp': datetime.utcnow().isoformat()
-        })
+        }
+        self.transcript.append(entry)
+
+        # Notify monitors of new transcript entry (fire and forget)
+        if self.call_id:
+            asyncio.create_task(self.notify_monitors({
+                'type': 'transcript',
+                'call_id': self.call_id,
+                'entry': entry
+            }))
+
+    async def notify_monitors(self, message: dict):
+        """Send message to all monitors listening to this call."""
+        if not self.call_id or self.call_id not in call_monitors:
+            return
+
+        monitors = call_monitors.get(self.call_id, [])
+        for ws in monitors[:]:  # Copy list to avoid modification during iteration
+            try:
+                await ws.send_json(message)
+            except Exception as e:
+                logger.warning(f"Failed to send to monitor: {e}")
+                # Remove disconnected monitors
+                if ws in call_monitors.get(self.call_id, []):
+                    call_monitors[self.call_id].remove(ws)
+
+    async def broadcast_audio_to_monitors(self, audio_data: bytes, is_caller: bool = True):
+        """Broadcast audio to all monitors listening to this call."""
+        if not self.call_id or self.call_id not in call_monitors:
+            return
+
+        # Only send if we have monitors
+        monitors = call_monitors.get(self.call_id, [])
+        if not monitors:
+            return
+
+        # Send audio as base64 for JSON transport
+        import base64
+        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+
+        message = {
+            'type': 'audio',
+            'call_id': self.call_id,
+            'source': 'caller' if is_caller else 'assistant',
+            'audio': audio_b64
+        }
+
+        for ws in monitors[:]:
+            try:
+                await ws.send_json(message)
+            except Exception as e:
+                logger.warning(f"Failed to send audio to monitor: {e}")
+                if ws in call_monitors.get(self.call_id, []):
+                    call_monitors[self.call_id].remove(ws)
 
     def analyze_sentiment_realtime(self, text: str) -> dict:
         """
@@ -4138,6 +4374,8 @@ async def websocket_voice_endpoint(
                     "type": "audio",
                     "data": audio_b64
                 })
+                # Broadcast TTS audio to monitors
+                await session.broadcast_audio_to_monitors(audio_bytes, is_caller=False)
 
             async def on_streaming_state_change(state: PipelineState):
                 is_speaking = state == PipelineState.SPEAKING
@@ -4242,6 +4480,8 @@ async def websocket_voice_endpoint(
                         # Streaming mode: Send raw PCM audio to Deepgram
                         # Pipeline handles STT -> LLM -> TTS automatically via callbacks
                         await streaming_pipeline.send_audio(audio_bytes)
+                        # Broadcast caller audio to monitors
+                        await session.broadcast_audio_to_monitors(audio_bytes, is_caller=True)
                         continue
 
                     # Batch processing mode (Modal STT/TTS) - handles webm/opus audio
@@ -4379,6 +4619,8 @@ async def websocket_voice_endpoint(
                                     "type": "audio",
                                     "data": audio_b64
                                 })
+                                # Broadcast TTS audio to monitors
+                                await session.broadcast_audio_to_monitors(audio_bytes, is_caller=False)
 
                             session.is_speaking = False
                             await websocket.send_json({"type": "speaking", "is_speaking": False})

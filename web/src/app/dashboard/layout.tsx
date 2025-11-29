@@ -110,12 +110,27 @@ const ReferralIcon = () => (
   </svg>
 );
 
+const MonitoringIcon = () => (
+  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+  </svg>
+);
+
+const VoiceCloneIcon = () => (
+  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+  </svg>
+);
+
 const navItems = [
   { name: 'Overview', href: '/dashboard', icon: <HomeIcon /> },
   { name: 'Phone Numbers', href: '/dashboard/phone', icon: <PhoneIcon /> },
   { name: 'Call Logs', href: '/dashboard/calls', icon: <CallsIcon /> },
+  { name: 'Live Monitoring', href: '/dashboard/monitoring', icon: <MonitoringIcon /> },
   { name: 'Contacts', href: '/dashboard/contacts', icon: <ContactsIcon /> },
   { name: 'Assistants', href: '/dashboard/assistants', icon: <AssistantIcon /> },
+  { name: 'Voice Clones', href: '/dashboard/voice-clones', icon: <VoiceCloneIcon /> },
   { name: 'Usage', href: '/dashboard/usage', icon: <UsageIcon /> },
   { name: 'Teams', href: '/dashboard/teams', icon: <TeamIcon /> },
   { name: 'Referrals', href: '/dashboard/referrals', icon: <ReferralIcon /> },
