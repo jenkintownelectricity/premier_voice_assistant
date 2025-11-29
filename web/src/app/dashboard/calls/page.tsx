@@ -46,11 +46,26 @@ interface CallDetail {
   duration_seconds: number;
   cost_cents: number;
   minutes_used: number;
-  transcript: Array<{ role: string; content: string; timestamp?: string }>;
-  summary: string | null;
+  transcript: Array<{ role: string; content: string; timestamp?: string }> | null;
+  summary: string | CallSummary | null;
   recording_url: string | null;
   sentiment: string | null;
   ended_reason: string | null;
+}
+
+interface CallSummary {
+  quality_score?: number;
+  quality_grade?: string;
+  quality_breakdown?: {
+    sentiment: number;
+    flow: number;
+    duration: number;
+    resolution: number;
+    urgency_handling: number;
+  };
+  sentiment_score?: number;
+  urgency_level?: string;
+  exchange_count?: number;
 }
 
 interface ExtractedInfo {
@@ -400,7 +415,7 @@ export default function CallsPage() {
         ['Email', extractedInfo?.email || ''],
         ['Issue', extractedInfo?.issue || ''],
         ['Urgency', extractedInfo?.urgency || ''],
-        ['Summary', selectedCall.summary || ''],
+        ['Summary', typeof selectedCall.summary === 'string' ? selectedCall.summary : (selectedCall.summary ? `Score: ${selectedCall.summary.quality_score || 0}` : '')],
       ];
       content = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
       filename = `call-${selectedCall.id}.csv`;
@@ -655,7 +670,67 @@ export default function CallsPage() {
 
                       {selectedCall.summary ? (
                         <div className="bg-zinc-800 rounded-lg p-4">
-                          <p className="text-white leading-relaxed">{selectedCall.summary}</p>
+                          {typeof selectedCall.summary === 'string' ? (
+                            <p className="text-white leading-relaxed">{selectedCall.summary}</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {/* Quality Score Display */}
+                              {selectedCall.summary.quality_score !== undefined && (
+                                <div className="flex items-center gap-4">
+                                  <div className={`w-16 h-16 rounded-full border-2 flex items-center justify-center ${
+                                    selectedCall.summary.quality_grade === 'A' ? 'border-green-500 text-green-400' :
+                                    selectedCall.summary.quality_grade === 'B' ? 'border-blue-500 text-blue-400' :
+                                    selectedCall.summary.quality_grade === 'C' ? 'border-yellow-500 text-yellow-400' :
+                                    'border-red-500 text-red-400'
+                                  }`}>
+                                    <span className="text-2xl font-bold">{selectedCall.summary.quality_grade}</span>
+                                  </div>
+                                  <div>
+                                    <div className="text-2xl font-bold text-white">{selectedCall.summary.quality_score}/100</div>
+                                    <div className="text-sm text-gray-400">Quality Score</div>
+                                  </div>
+                                </div>
+                              )}
+                              {/* Stats */}
+                              <div className="grid grid-cols-3 gap-4 text-sm">
+                                {selectedCall.summary.exchange_count !== undefined && (
+                                  <div>
+                                    <span className="text-gray-400 block">Exchanges</span>
+                                    <span className="text-white">{selectedCall.summary.exchange_count}</span>
+                                  </div>
+                                )}
+                                {selectedCall.summary.urgency_level && (
+                                  <div>
+                                    <span className="text-gray-400 block">Urgency</span>
+                                    <span className="text-white capitalize">{selectedCall.summary.urgency_level}</span>
+                                  </div>
+                                )}
+                                {selectedCall.summary.sentiment_score !== undefined && (
+                                  <div>
+                                    <span className="text-gray-400 block">Sentiment</span>
+                                    <span className="text-white">{selectedCall.summary.sentiment_score > 0 ? '+' : ''}{selectedCall.summary.sentiment_score}</span>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Quality Breakdown */}
+                              {selectedCall.summary.quality_breakdown && (
+                                <div className="space-y-2 pt-2 border-t border-zinc-700">
+                                  <div className="text-sm text-gray-400 mb-2">Score Breakdown</div>
+                                  {Object.entries(selectedCall.summary.quality_breakdown).map(([key, value]) => (
+                                    <div key={key} className="flex items-center justify-between text-sm">
+                                      <span className="text-gray-400 capitalize">{key.replace('_', ' ')}</span>
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-20 h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                                          <div className="h-full bg-amber-500 rounded-full" style={{ width: `${(value / 30) * 100}%` }} />
+                                        </div>
+                                        <span className="text-white w-6 text-right">{value}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="bg-zinc-800 rounded-lg p-4">
