@@ -4603,7 +4603,10 @@ async def websocket_voice_endpoint(
             logger.info(f"⚡ Lightning pipeline enabled for call {call_id}")
 
             lightning_config = LightningConfig()
-            lightning_config.cartesia_voice_id = assistant.get('voice_id', lightning_config.cartesia_voice_id)
+            # Use assistant's voice_id if valid, otherwise use default Katie voice
+            assistant_voice_id = assistant.get('voice_id')
+            if assistant_voice_id and len(assistant_voice_id) > 10:  # Valid UUID is 36 chars
+                lightning_config.cartesia_voice_id = assistant_voice_id
             lightning_pipeline = LightningPipeline(lightning_config)
 
             # Set up callbacks
@@ -4650,7 +4653,7 @@ async def websocket_voice_endpoint(
 
             await lightning_pipeline.initialize(
                 system_prompt=assistant['system_prompt'],
-                voice_id=assistant.get('voice_id'),
+                voice_id=assistant_voice_id if assistant_voice_id and len(assistant_voice_id) > 10 else None,
             )
 
             await websocket.send_json({
@@ -4661,7 +4664,10 @@ async def websocket_voice_endpoint(
         elif streaming_enabled:
             logger.info(f"Streaming pipeline enabled for call {call_id}")
             streaming_config = StreamingConfig()
-            streaming_config.cartesia_voice_id = assistant.get('voice_id', streaming_config.cartesia_voice_id)
+            # Use assistant's voice_id if valid, otherwise use default Katie voice
+            assistant_voice_id = assistant.get('voice_id')
+            if assistant_voice_id and len(assistant_voice_id) > 10:
+                streaming_config.cartesia_voice_id = assistant_voice_id
             streaming_pipeline = StreamingPipeline(streaming_config)
 
             # Set up callbacks for streaming pipeline
@@ -6582,7 +6588,10 @@ async def websocket_lightning_endpoint(
 
         # Initialize Lightning Pipeline
         config = LightningConfig()
-        config.cartesia_voice_id = assistant.get('voice_id', config.cartesia_voice_id)
+        # Use assistant's voice_id if valid, otherwise use default Katie voice
+        assistant_voice_id = assistant.get('voice_id')
+        if assistant_voice_id and len(assistant_voice_id) > 10:
+            config.cartesia_voice_id = assistant_voice_id
 
         pipeline = LightningPipeline(config)
 
@@ -6629,7 +6638,7 @@ async def websocket_lightning_endpoint(
         # Initialize with assistant's system prompt
         await pipeline.initialize(
             system_prompt=assistant.get('system_prompt', 'You are a helpful assistant.'),
-            voice_id=assistant.get('voice_id'),
+            voice_id=assistant_voice_id if assistant_voice_id and len(assistant_voice_id) > 10 else None,
         )
 
         # Send ready message
