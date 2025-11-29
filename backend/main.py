@@ -2466,6 +2466,7 @@ async def create_assistant(
             "description": request.description,
             "system_prompt": request.system_prompt,
             "voice_id": request.voice_id,
+            "llm_provider": request.llm_provider,
             "model": request.model,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
@@ -2530,7 +2531,7 @@ async def update_assistant(
         # Build update dict
         updates = {}
         for field in ["name", "description", "system_prompt", "voice_id",
-                      "model", "temperature", "max_tokens", "first_message", "is_active",
+                      "llm_provider", "model", "temperature", "max_tokens", "first_message", "is_active",
                       "vad_sensitivity", "endpointing_ms", "enable_bargein",
                       "streaming_chunks", "first_message_latency_ms", "turn_detection_mode",
                       "speech_speed", "response_delay_ms", "punctuation_pause_ms",
