@@ -365,46 +365,45 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
   // Call Summary Screen
   if (callState === 'ended') {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-zinc-900 to-black flex flex-col">
+      <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-zinc-900 border-l border-zinc-800 shadow-2xl flex flex-col z-50">
         {/* Header */}
-        <div className="p-4 flex items-center justify-between">
+        <div className="p-4 flex items-center justify-between border-b border-zinc-800">
+          <span className="text-zinc-400 text-sm">Call Ended</span>
           <button onClick={onClose} className="text-zinc-400 hover:text-white p-2">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
-          <span className="text-zinc-400 text-sm">Call Ended</span>
-          <div className="w-10" />
         </div>
 
         {/* Summary Content */}
         <div className="flex-1 flex flex-col items-center justify-center px-6">
           {qualityScore ? (
             <>
-              <div className={`w-28 h-28 rounded-full border-4 flex items-center justify-center mb-4 ${getGradeColor(qualityScore.grade)}`}>
-                <span className="text-5xl font-bold">{qualityScore.grade}</span>
+              <div className={`w-20 h-20 rounded-full border-4 flex items-center justify-center mb-4 ${getGradeColor(qualityScore.grade)}`}>
+                <span className="text-3xl font-bold">{qualityScore.grade}</span>
               </div>
-              <div className="text-center mb-6">
-                <span className="text-4xl font-bold text-white">{qualityScore.total}</span>
-                <span className="text-zinc-400 text-xl">/100</span>
+              <div className="text-center mb-4">
+                <span className="text-3xl font-bold text-white">{qualityScore.total}</span>
+                <span className="text-zinc-400 text-lg">/100</span>
               </div>
-              <div className="text-zinc-400 mb-8">
+              <div className="text-zinc-400 mb-6 text-sm">
                 {formatDuration(qualityScore.factors.duration_seconds)} • {qualityScore.factors.exchanges} exchanges
               </div>
 
               {/* Score Breakdown */}
-              <div className="w-full max-w-sm space-y-3 mb-8">
+              <div className="w-full space-y-2 mb-6">
                 {Object.entries(qualityScore.breakdown).map(([key, value]) => (
                   <div key={key} className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400 capitalize">{key.replace('_', ' ')}</span>
+                    <span className="text-xs text-zinc-400 capitalize">{key.replace('_', ' ')}</span>
                     <div className="flex items-center gap-2">
-                      <div className="w-32 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                      <div className="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-amber-500 rounded-full"
                           style={{ width: `${(value / 30) * 100}%` }}
                         />
                       </div>
-                      <span className="text-xs text-zinc-500 w-6 text-right">{value}</span>
+                      <span className="text-xs text-zinc-500 w-5 text-right">{value}</span>
                     </div>
                   </div>
                 ))}
@@ -412,22 +411,22 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
             </>
           ) : (
             <>
-              <div className="w-20 h-20 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
-                <svg className="w-10 h-10 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
+                <svg className="w-8 h-8 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h2 className="text-xl text-white mb-2">Call Complete</h2>
+              <h2 className="text-lg text-white mb-2">Call Complete</h2>
               <p className="text-zinc-400">{formatDuration(callDuration)}</p>
             </>
           )}
         </div>
 
         {/* Done Button */}
-        <div className="p-6">
+        <div className="p-4 border-t border-zinc-800">
           <button
             onClick={onClose}
-            className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-black font-semibold rounded-2xl transition-colors"
+            className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-black font-semibold rounded-xl transition-colors"
           >
             Done
           </button>
@@ -436,138 +435,134 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
     );
   }
 
-  // Active Call Screen
+  // Active Call Screen - Side Panel
   return (
-    <div className="min-h-screen bg-gradient-to-b from-zinc-900 to-black flex flex-col">
+    <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-zinc-900 border-l border-zinc-800 shadow-2xl flex flex-col z-50">
       {/* Header */}
-      <div className="p-4 flex items-center justify-between">
-        <button onClick={endCall} className="text-zinc-400 hover:text-white p-2">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
+      <div className="p-4 flex items-center justify-between border-b border-zinc-800">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center ${
+            isAssistantSpeaking ? 'ring-2 ring-amber-400 ring-opacity-60' : ''
+          }`}>
+            <span className="text-lg font-bold text-black">
+              {assistantName.charAt(0).toUpperCase()}
+            </span>
+          </div>
+          <div>
+            <h1 className="text-sm font-semibold text-white">{assistantName}</h1>
+            <p className="text-xs text-zinc-400 font-mono">
+              {callState === 'connecting' ? 'Connecting...' : formatDuration(callDuration)}
+            </p>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
-          {callState === 'connecting' && (
-            <span className="text-zinc-400 text-sm animate-pulse">Connecting...</span>
-          )}
           {callState === 'active' && latency && (
             <span className={`text-xs font-mono ${getLatencyColor(latency.status)}`}>
               {latency.total_ms}ms
             </span>
           )}
+          <button onClick={endCall} className="text-zinc-400 hover:text-white p-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-        <div className="w-10" />
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col items-center pt-8">
-        {/* Avatar with Speaking Indicator */}
-        <div className="relative mb-4">
-          <div className={`w-32 h-32 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center transition-all duration-300 ${
-            isAssistantSpeaking ? 'ring-4 ring-amber-400 ring-opacity-60 scale-105' : ''
-          }`}>
-            <span className="text-5xl font-bold text-black">
-              {assistantName.charAt(0).toUpperCase()}
-            </span>
-          </div>
-          {isAssistantSpeaking && (
-            <div className="absolute -inset-2 rounded-full border-2 border-amber-400 animate-ping opacity-30" />
+      {/* Sentiment & Status Bar */}
+      {callState === 'active' && (
+        <div className="px-4 py-2 border-b border-zinc-800 flex items-center justify-between text-xs">
+          {sentiment ? (
+            <div className="flex items-center gap-2 text-zinc-400">
+              <span>{getSentimentEmoji(sentiment.sentiment)}</span>
+              <span className="capitalize">{sentiment.sentiment}</span>
+              {sentiment.urgency !== 'normal' && (
+                <span className={`px-1.5 py-0.5 rounded text-xs ${
+                  sentiment.urgency === 'urgent' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
+                }`}>
+                  {sentiment.urgency}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="text-zinc-500">Ready</div>
           )}
+          <div className="flex items-center gap-2">
+            {isSpeaking && <span className="text-green-400">● Listening</span>}
+            {isAssistantSpeaking && <span className="text-amber-400">● Speaking</span>}
+          </div>
         </div>
+      )}
 
-        {/* Assistant Name */}
-        <h1 className="text-2xl font-semibold text-white mb-1">{assistantName}</h1>
+      {/* Error Display */}
+      {error && (
+        <div className="mx-4 mt-3 bg-red-500/20 border border-red-500/50 text-red-400 px-3 py-2 rounded-lg text-xs">
+          {error}
+        </div>
+      )}
 
-        {/* Call Duration */}
-        <p className="text-zinc-400 text-lg font-mono mb-2">
-          {callState === 'connecting' ? 'Connecting...' : formatDuration(callDuration)}
-        </p>
-
-        {/* Sentiment Indicator */}
-        {sentiment && (
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
-            <span>{getSentimentEmoji(sentiment.sentiment)}</span>
-            <span className="capitalize">{sentiment.sentiment}</span>
-            {sentiment.urgency !== 'normal' && (
-              <span className={`px-2 py-0.5 rounded text-xs ${
-                sentiment.urgency === 'urgent' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'
-              }`}>
-                {sentiment.urgency}
-              </span>
-            )}
+      {/* Transcript - Main Content Area */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {transcript.length === 0 && callState === 'active' && (
+          <div className="text-center text-zinc-500 text-sm py-8">
+            Start speaking to begin the conversation...
           </div>
         )}
-
-        {/* Error Display */}
-        {error && (
-          <div className="mx-4 mt-4 bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-2 rounded-lg text-sm">
-            {error}
+        {transcript.map((msg, i) => (
+          <div
+            key={i}
+            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div className={`max-w-[85%] px-3 py-2 rounded-2xl text-sm ${
+              msg.role === 'user'
+                ? 'bg-amber-500 text-black rounded-br-sm'
+                : 'bg-zinc-800 text-white rounded-bl-sm'
+            }`}>
+              {msg.content}
+            </div>
           </div>
-        )}
+        ))}
+      </div>
 
-        {/* Audio Level Indicator */}
-        {callState === 'active' && (
-          <div className="mt-6 flex items-center gap-1 h-12">
-            {[...Array(20)].map((_, i) => (
+      {/* Audio Level Indicator */}
+      {callState === 'active' && (
+        <div className="px-4 py-2 border-t border-zinc-800">
+          <div className="flex items-center gap-0.5 h-6 justify-center">
+            {[...Array(30)].map((_, i) => (
               <div
                 key={i}
                 className={`w-1 rounded-full transition-all duration-75 ${
                   isMuted ? 'bg-zinc-700' :
-                  i < audioLevel / 5 ? (isSpeaking ? 'bg-green-400' : 'bg-zinc-500') : 'bg-zinc-800'
+                  i < audioLevel / 3.3 ? (isSpeaking ? 'bg-green-400' : 'bg-zinc-600') : 'bg-zinc-800'
                 }`}
                 style={{
-                  height: `${Math.max(8, Math.sin((i / 20) * Math.PI) * 48)}px`
+                  height: `${Math.max(4, Math.sin((i / 30) * Math.PI) * 24)}px`
                 }}
               />
             ))}
           </div>
-        )}
-
-        {/* Speaking Status */}
-        {callState === 'active' && (
-          <p className="text-sm text-zinc-500 mt-2">
-            {isMuted ? 'Muted' : isSpeaking ? 'Listening...' : 'Speak anytime'}
-          </p>
-        )}
-
-        {/* Transcript - Scrollable */}
-        <div className="flex-1 w-full max-w-lg mt-6 px-4 overflow-y-auto">
-          {transcript.map((msg, i) => (
-            <div
-              key={i}
-              className={`mb-3 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div className={`max-w-[80%] px-4 py-2 rounded-2xl ${
-                msg.role === 'user'
-                  ? 'bg-amber-500 text-black rounded-br-sm'
-                  : 'bg-zinc-800 text-white rounded-bl-sm'
-              }`}>
-                {msg.content}
-              </div>
-            </div>
-          ))}
         </div>
-      </div>
+      )}
 
       {/* Bottom Controls */}
-      <div className="p-6 pb-10">
-        <div className="flex items-center justify-center gap-8">
+      <div className="p-4 border-t border-zinc-800">
+        <div className="flex items-center justify-center gap-4">
           {/* Mute Button */}
           <button
             onClick={toggleMute}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
               isMuted
                 ? 'bg-white text-black'
                 : 'bg-zinc-800 text-white hover:bg-zinc-700'
             }`}
           >
             {isMuted ? (
-              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
               </svg>
             ) : (
-              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
               </svg>
             )}
@@ -576,9 +571,9 @@ export function VoiceCall({ assistantId, assistantName, userId, onClose }: Voice
           {/* End Call Button */}
           <button
             onClick={endCall}
-            className="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
+            className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors"
           >
-            <svg className="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.28 3H5z" />
             </svg>
           </button>

@@ -822,19 +822,17 @@ export default function AssistantsPage() {
         </div>
       )}
 
-      {/* Voice Call - Full Screen */}
+      {/* Voice Call - Side Panel */}
       {activeCall && user && (
-        <div className="fixed inset-0 z-50">
-          <VoiceCall
-            assistantId={activeCall.id}
-            assistantName={activeCall.name}
-            userId={user.id}
-            onClose={() => {
-              setActiveCall(null);
-              loadAssistants(); // Refresh to update call count
-            }}
-          />
-        </div>
+        <VoiceCall
+          assistantId={activeCall.id}
+          assistantName={activeCall.name}
+          userId={user.id}
+          onClose={() => {
+            setActiveCall(null);
+            loadAssistants(); // Refresh to update call count
+          }}
+        />
       )}
     </div>
   );
