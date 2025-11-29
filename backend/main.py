@@ -4462,14 +4462,79 @@ async def websocket_voice_endpoint(
             "assistant_name": assistant['name']
         })
 
-        # Check if streaming pipeline is enabled
+        # Check available pipeline options (priority: Lightning > Streaming > Modal)
+        groq_key = os.getenv("GROQ_API_KEY", "")
         deepgram_key = os.getenv("DEEPGRAM_API_KEY", "")
         cartesia_key = os.getenv("CARTESIA_API_KEY", "")
-        streaming_enabled = bool(deepgram_key and cartesia_key)
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
 
-        # Initialize streaming pipeline if available
+        # Determine which pipeline to use
+        lightning_enabled = bool(groq_key and deepgram_key and cartesia_key)
+        streaming_enabled = bool(deepgram_key and cartesia_key and anthropic_key) and not lightning_enabled
+
+        # Initialize the appropriate pipeline
+        lightning_pipeline: Optional[LightningPipeline] = None
         streaming_pipeline: Optional[StreamingPipeline] = None
-        if streaming_enabled:
+
+        if lightning_enabled:
+            # ⚡ LIGHTNING PIPELINE - Sub-150ms latency (Groq + Deepgram + Cartesia)
+            logger.info(f"⚡ Lightning pipeline enabled for call {call_id}")
+
+            lightning_config = LightningConfig()
+            lightning_config.cartesia_voice_id = assistant.get('voice_id', lightning_config.cartesia_voice_id)
+            lightning_pipeline = LightningPipeline(lightning_config)
+
+            # Set up callbacks
+            async def on_lightning_transcript(role: str, text: str):
+                await websocket.send_json({
+                    "type": "transcript",
+                    "role": role,
+                    "content": text
+                })
+                session.add_to_transcript(role, text)
+
+            async def on_lightning_audio(audio_bytes: bytes):
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                await websocket.send_json({
+                    "type": "audio",
+                    "data": audio_b64
+                })
+                await session.broadcast_audio_to_monitors(audio_bytes, is_caller=False)
+
+            async def on_lightning_state_change(state: LightningState):
+                is_speaking = state == LightningState.SPEAKING
+                await websocket.send_json({"type": "speaking", "is_speaking": is_speaking})
+                session.is_speaking = is_speaking
+
+            async def on_lightning_latency(metrics: LatencyMetrics):
+                await websocket.send_json({
+                    "type": "latency",
+                    "data": {
+                        "stt_ms": metrics.stt_ms,
+                        "llm_ms": metrics.llm_ttft_ms,
+                        "tts_ms": metrics.tts_ttfb_ms,
+                        "total_ms": metrics.total_perceived_ms,
+                        "target_ms": 150,
+                        "status": "lightning" if metrics.total_perceived_ms < 200 else "fast" if metrics.total_perceived_ms < 500 else "normal"
+                    }
+                })
+
+            lightning_pipeline.on_transcript = on_lightning_transcript
+            lightning_pipeline.on_audio_out = on_lightning_audio
+            lightning_pipeline.on_state_change = on_lightning_state_change
+            lightning_pipeline.on_latency = on_lightning_latency
+
+            await lightning_pipeline.initialize(
+                system_prompt=assistant['system_prompt'],
+                voice_id=assistant.get('voice_id'),
+            )
+
+            await websocket.send_json({
+                "type": "info",
+                "message": "⚡ Lightning pipeline active - sub-150ms latency!"
+            })
+
+        elif streaming_enabled:
             logger.info(f"Streaming pipeline enabled for call {call_id}")
             streaming_config = StreamingConfig()
             streaming_config.cartesia_voice_id = assistant.get('voice_id', streaming_config.cartesia_voice_id)
@@ -4572,8 +4637,11 @@ async def websocket_voice_endpoint(
                     session.is_speaking = False
                     await websocket.send_json({"type": "speaking", "is_speaking": False})
 
+                    # Cancel Lightning TTS if active (highest priority)
+                    if lightning_pipeline and lightning_pipeline.tts:
+                        await lightning_pipeline.tts.cancel()
                     # Cancel streaming TTS if active
-                    if streaming_pipeline and streaming_pipeline.tts:
+                    elif streaming_pipeline and streaming_pipeline.tts:
                         await streaming_pipeline.tts.cancel()
 
                 elif msg_type == 'audio':
@@ -4591,7 +4659,20 @@ async def websocket_voice_endpoint(
                     # 'pcm_16000' = raw PCM for streaming, empty = webm/opus for batch
                     audio_format = message.get('format', '')
 
-                    # Route to streaming pipeline if enabled AND frontend sends raw PCM
+                    # ⚡ LIGHTNING PIPELINE (Priority 1) - Sub-150ms latency
+                    if lightning_pipeline and audio_format == 'pcm_16000':
+                        # Check if AI is enabled
+                        if not session.user_settings.get('ai_enabled', True):
+                            logger.debug(f"AI disabled for user {user_id}, lightning audio ignored")
+                            continue
+                        # Lightning mode: Send raw PCM audio to Deepgram → Groq → Cartesia
+                        # Pipeline handles STT -> LLM -> TTS automatically via callbacks
+                        await lightning_pipeline.send_audio(audio_bytes)
+                        # Broadcast caller audio to monitors
+                        await session.broadcast_audio_to_monitors(audio_bytes, is_caller=True)
+                        continue
+
+                    # STREAMING PIPELINE (Priority 2) - Sub-500ms latency
                     if streaming_pipeline and audio_format == 'pcm_16000':
                         # Check if AI is enabled for streaming mode too
                         if not session.user_settings.get('ai_enabled', True):
@@ -4828,6 +4909,14 @@ async def websocket_voice_endpoint(
         except:
             pass
     finally:
+        # Clean up Lightning pipeline (highest priority)
+        if lightning_pipeline:
+            try:
+                await lightning_pipeline.close()
+                logger.info(f"⚡ Lightning pipeline closed for call {call_id if 'call_id' in dir() else 'unknown'}")
+            except Exception as e:
+                logger.error(f"Error closing lightning pipeline: {e}")
+
         # Clean up streaming pipeline
         if streaming_pipeline:
             try:
