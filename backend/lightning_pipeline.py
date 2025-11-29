@@ -34,6 +34,10 @@ from backend.deepgram_client import DeepgramNova3, DeepgramConfig
 from backend.groq_client import HybridLLMClient, GroqConfig
 from backend.cartesia_client import CartesiaSonic3, CartesiaConfig
 from backend.sentence_detector import SentenceDetector
+from backend.turn_taking_model import (
+    TurnTakingModel, TurnTakingConfig, TurnEagerness,
+    TurnState, TurnPrediction, create_turn_taking_model
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,11 @@ class LightningConfig:
 
     # Voice timing controls (for natural conversation flow)
     response_delay_ms: int = 400  # Wait before responding after user stops
+
+    # Turn-taking model settings
+    enable_turn_taking_model: bool = True  # Use advanced turn-taking model
+    turn_eagerness: str = "balanced"  # "low", "balanced", or "high"
+    enable_backchannels: bool = False  # Send "mm-hmm", "I see" during user speech
 
     # Pipeline behavior
     enable_barge_in: bool = True  # Allow user to interrupt
@@ -131,6 +140,7 @@ class LightningPipeline:
         self.llm: Optional[HybridLLMClient] = None
         self.tts: Optional[CartesiaSonic3] = None
         self.sentence_detector: Optional[SentenceDetector] = None
+        self.turn_model: Optional[TurnTakingModel] = None
 
         # State
         self.state = PipelineState.IDLE
@@ -143,6 +153,7 @@ class LightningPipeline:
         self.on_state_change: Optional[Callable[[PipelineState], Any]] = None
         self.on_latency: Optional[Callable[[LatencyMetrics], Any]] = None
         self.on_error: Optional[Callable[[str], Any]] = None
+        self.on_backchannel: Optional[Callable[[str], Any]] = None  # For "mm-hmm" etc.
 
         # Timing for metrics
         self._utterance_start: Optional[float] = None
@@ -235,13 +246,25 @@ class LightningPipeline:
         # Initialize sentence detector
         self.sentence_detector = SentenceDetector()
 
+        # Initialize turn-taking model
+        if self.config.enable_turn_taking_model:
+            self.turn_model = create_turn_taking_model(
+                eagerness=self.config.turn_eagerness,
+                response_delay_ms=self.config.response_delay_ms,
+                enable_backchannels=self.config.enable_backchannels,
+            )
+            # Wire up backchannel callback
+            self.turn_model.on_backchannel = self._on_backchannel
+            logger.info(f"Turn-taking model initialized (eagerness={self.config.turn_eagerness})")
+
         self._set_state(PipelineState.IDLE)
 
         logger.info(
             f"Lightning Pipeline initialized: "
             f"STT={'OK' if self.stt else 'DISABLED'}, "
             f"LLM={'OK' if self.llm else 'DISABLED'}, "
-            f"TTS={'OK' if self.tts else 'DISABLED'}"
+            f"TTS={'OK' if self.tts else 'DISABLED'}, "
+            f"TurnModel={'OK' if self.turn_model else 'DISABLED'}"
         )
 
         return success
@@ -275,6 +298,10 @@ class LightningPipeline:
         Note: We don't send transcript here - _on_utterance_end handles final transcripts
         to avoid duplicates.
         """
+        # Feed transcript to turn-taking model for analysis
+        if self.turn_model and text:
+            self.turn_model.on_transcript(text, is_final)
+
         # Only log interim transcripts for debugging
         if not is_final:
             logger.debug(f"Interim transcript: {text}")
@@ -282,6 +309,10 @@ class LightningPipeline:
     async def _on_speech_start(self):
         """User started speaking."""
         self._utterance_start = time.time()
+
+        # Notify turn-taking model
+        if self.turn_model:
+            self.turn_model.on_speech_start()
 
         # Barge-in: stop TTS if user interrupts
         if self.state == PipelineState.SPEAKING and self.config.enable_barge_in:
@@ -294,10 +325,20 @@ class LightningPipeline:
 
     async def _on_speech_end(self):
         """User stopped speaking."""
-        pass
+        # Notify turn-taking model
+        if self.turn_model:
+            self.turn_model.on_speech_end()
+
+    async def _on_backchannel(self, text: str):
+        """Handle backchannel request from turn-taking model."""
+        logger.debug(f"Backchannel: {text}")
+        if self.on_backchannel:
+            await self._safe_callback(self.on_backchannel, text)
+        # Optionally speak the backchannel through TTS
+        # (disabled by default to avoid interrupting user)
 
     async def _on_utterance_end(self, text: str):
-        """User finished utterance - start processing."""
+        """User finished utterance - use turn-taking model to decide when to respond."""
         if not text.strip():
             return
 
@@ -316,13 +357,47 @@ class LightningPipeline:
         # Add to history
         self._conversation_history.append({"role": "user", "content": text})
 
-        # Apply response delay (gives user time to continue speaking)
-        if self.config.response_delay_ms > 0:
-            await asyncio.sleep(self.config.response_delay_ms / 1000.0)
-            # Check if we were interrupted during the delay
-            if self.state == PipelineState.INTERRUPTED:
-                logger.debug("Response cancelled during delay - user started speaking")
-                return
+        # Use turn-taking model for intelligent turn detection
+        if self.turn_model and self.config.enable_turn_taking_model:
+            # Feed final transcript to model
+            self.turn_model.on_transcript(text, is_final=True)
+
+            # Get turn prediction
+            prediction = await self.turn_model.predict_turn()
+            logger.debug(
+                f"Turn prediction: take={prediction.should_take_turn}, "
+                f"confidence={prediction.confidence:.2f}, "
+                f"delay={prediction.recommended_delay_ms}ms, "
+                f"reason={prediction.reason}"
+            )
+
+            if prediction.should_take_turn:
+                # Apply recommended delay
+                if prediction.recommended_delay_ms > 0:
+                    await asyncio.sleep(prediction.recommended_delay_ms / 1000.0)
+
+                    # Check if user started speaking during delay
+                    if self.state == PipelineState.INTERRUPTED:
+                        logger.debug("Response cancelled during delay - user started speaking")
+                        self.turn_model.reset_for_next_turn()
+                        return
+
+                # Notify turn model we're taking the turn
+                self.turn_model.start_assistant_turn()
+            else:
+                # Model says wait - but we already got utterance_end from Deepgram
+                # Use a minimum delay
+                await asyncio.sleep(self.config.response_delay_ms / 1000.0)
+                if self.state == PipelineState.INTERRUPTED:
+                    self.turn_model.reset_for_next_turn()
+                    return
+        else:
+            # Fallback: simple delay-based approach
+            if self.config.response_delay_ms > 0:
+                await asyncio.sleep(self.config.response_delay_ms / 1000.0)
+                if self.state == PipelineState.INTERRUPTED:
+                    logger.debug("Response cancelled during delay - user started speaking")
+                    return
 
         # Start processing
         self._processing_start = time.time()
@@ -467,6 +542,10 @@ class LightningPipeline:
         """TTS finished speaking."""
         if self.state != PipelineState.INTERRUPTED:
             self._set_state(PipelineState.IDLE)
+
+        # Notify turn model that assistant finished speaking
+        if self.turn_model:
+            self.turn_model.end_assistant_turn()
 
     # =========================================================================
     # PUBLIC METHODS

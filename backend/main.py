@@ -4635,6 +4635,9 @@ async def websocket_voice_endpoint(
                 lightning_config.speech_speed = assistant.get('speech_speed')
             if assistant.get('response_delay_ms'):
                 lightning_config.response_delay_ms = assistant.get('response_delay_ms')
+            # Apply turn-taking model settings
+            if assistant.get('turn_eagerness'):
+                lightning_config.turn_eagerness = assistant.get('turn_eagerness')
             lightning_pipeline = LightningPipeline(lightning_config)
 
             # Set up callbacks
