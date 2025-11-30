@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""
+LiveKit Agent Worker
+
+This is the standalone worker process that runs LiveKit voice agents.
+It connects to the LiveKit server and handles incoming voice sessions.
+
+Usage:
+    # Development mode (auto-reload)
+    python backend/livekit_worker.py dev
+
+    # Production mode
+    python backend/livekit_worker.py start
+
+    # With custom config
+    LIVEKIT_URL=wss://... LIVEKIT_API_KEY=... python backend/livekit_worker.py start
+
+Environment Variables:
+    LIVEKIT_URL         - LiveKit server URL (wss://your-server.livekit.cloud)
+    LIVEKIT_API_KEY     - LiveKit API key
+    LIVEKIT_API_SECRET  - LiveKit API secret
+    DEEPGRAM_API_KEY    - Deepgram API key for STT
+    GROQ_API_KEY        - Groq API key for LLM
+    CARTESIA_API_KEY    - Cartesia API key for TTS
+
+Architecture:
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                       LIVEKIT WORKER                            │
+    │                                                                 │
+    │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐     │
+    │   │   Job Queue  │───▶│  Agent Pool  │───▶│ Voice Agent  │     │
+    │   │  (LiveKit)   │    │  (Workers)   │    │  (Pipeline)  │     │
+    │   └──────────────┘    └──────────────┘    └──────────────┘     │
+    │                                                  │               │
+    │                              ┌───────────────────┼──────────────┤
+    │                              ▼                   ▼              │
+    │                        ┌──────────┐        ┌──────────┐        │
+    │                        │ Deepgram │        │ Cartesia │        │
+    │                        │   STT    │        │   TTS    │        │
+    │                        └──────────┘        └──────────┘        │
+    │                              │                                  │
+    │                              ▼                                  │
+    │                        ┌──────────┐                            │
+    │                        │   Groq   │                            │
+    │                        │   LLM    │                            │
+    │                        └──────────┘                            │
+    └─────────────────────────────────────────────────────────────────┘
+"""
+
+import os
+import sys
+import logging
+from pathlib import Path
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+    ]
+)
+
+logger = logging.getLogger("livekit_worker")
+
+
+def check_configuration():
+    """Check that all required environment variables are set."""
+    required_vars = {
+        "LIVEKIT_URL": "LiveKit server URL",
+        "LIVEKIT_API_KEY": "LiveKit API key",
+        "LIVEKIT_API_SECRET": "LiveKit API secret",
+        "DEEPGRAM_API_KEY": "Deepgram API key for STT",
+        "GROQ_API_KEY": "Groq API key for LLM",
+        "CARTESIA_API_KEY": "Cartesia API key for TTS",
+    }
+
+    missing = []
+    for var, description in required_vars.items():
+        if not os.getenv(var):
+            missing.append(f"  - {var}: {description}")
+
+    if missing:
+        logger.error("Missing required environment variables:")
+        for m in missing:
+            logger.error(m)
+        logger.error("\nSet these variables in your .env file or environment.")
+        return False
+
+    # Log configuration (masked)
+    logger.info("Configuration:")
+    logger.info(f"  LIVEKIT_URL: {os.getenv('LIVEKIT_URL')}")
+    logger.info(f"  LIVEKIT_API_KEY: {os.getenv('LIVEKIT_API_KEY')[:10]}...")
+    logger.info(f"  DEEPGRAM_API_KEY: {os.getenv('DEEPGRAM_API_KEY')[:10]}...")
+    logger.info(f"  GROQ_API_KEY: {os.getenv('GROQ_API_KEY')[:10]}...")
+    logger.info(f"  CARTESIA_API_KEY: {os.getenv('CARTESIA_API_KEY')[:10]}...")
+
+    return True
+
+
+def main():
+    """Main entry point for the worker."""
+    logger.info("=" * 60)
+    logger.info("HIVE215 LiveKit Voice Agent Worker")
+    logger.info("=" * 60)
+
+    # Check configuration
+    if not check_configuration():
+        sys.exit(1)
+
+    # Import and run the agent
+    try:
+        from livekit.agents import cli
+        from backend.livekit_agent import create_worker_options
+
+        logger.info("Starting LiveKit agent worker...")
+        cli.run_app(create_worker_options())
+
+    except ImportError as e:
+        logger.error(f"Failed to import LiveKit SDK: {e}")
+        logger.error("Make sure to install: pip install 'livekit-agents[deepgram,cartesia,openai,silero]'")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Worker error: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    main()

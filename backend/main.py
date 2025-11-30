@@ -43,6 +43,15 @@ from backend.groq_client import HybridLLMClient, GroqConfig
 from backend.cartesia_client import CartesiaSonic3, CartesiaConfig, get_supported_languages as get_tts_languages
 from backend.deepgram_client import DeepgramNova3, DeepgramConfig, get_supported_languages as get_stt_languages
 
+# LiveKit WebRTC Integration
+try:
+    from backend.livekit_api import router as livekit_router
+    LIVEKIT_ROUTER_AVAILABLE = True
+except ImportError:
+    LIVEKIT_ROUTER_AVAILABLE = False
+    logger_livekit = logging.getLogger("livekit")
+    logger_livekit.warning("LiveKit API not available - SDK may not be installed")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -255,6 +264,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include LiveKit router for WebRTC voice sessions
+if LIVEKIT_ROUTER_AVAILABLE:
+    app.include_router(livekit_router, prefix="/livekit", tags=["livekit"])
+    logger.info("LiveKit API endpoints enabled at /livekit/*")
 
 # Pydantic models for request/response validation
 class ChatRequest(BaseModel):
