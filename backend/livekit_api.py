@@ -178,7 +178,7 @@ async def create_room(
 
     try:
         # Verify assistant exists
-        supabase = get_supabase_client()
+        supabase = get_supabase().client
         assistant_result = supabase.table("va_assistants").select(
             "id, name, user_id"
         ).eq("id", request.assistant_id).single().execute()
@@ -393,7 +393,7 @@ async def delete_room(
 
             # Update call log
             if metadata.get("call_id"):
-                supabase = get_supabase_client()
+                supabase = get_supabase().client
                 supabase.table("va_call_logs").update({
                     "status": "completed",
                     "ended_at": datetime.utcnow().isoformat(),
@@ -533,7 +533,7 @@ async def get_livekit_metrics(
     Returns aggregate statistics about LiveKit voice sessions.
     """
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase().client
 
         # Get LiveKit call statistics
         result = supabase.table("va_call_logs").select(
