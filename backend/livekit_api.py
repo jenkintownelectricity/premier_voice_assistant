@@ -32,7 +32,7 @@ except ImportError:
     LIVEKIT_AVAILABLE = False
     logger_warning = "LiveKit SDK not installed. Run: pip install livekit"
 
-from backend.supabase_client import get_supabase_client, SupabaseManager
+from backend.supabase_client import get_supabase, SupabaseManager
 
 logger = logging.getLogger(__name__)
 
