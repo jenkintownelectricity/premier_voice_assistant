@@ -40,7 +40,7 @@ from livekit.agents import (
 from livekit import rtc
 
 # LiveKit Plugins
-from livekit.plugins import silero, deepgram, cartesia, openai
+from livekit.plugins import silero, deepgram, cartesia, openai, anthropic
 
 # For database access (optional - may not be configured for local testing)
 try:
@@ -601,13 +601,13 @@ async def entrypoint(ctx: JobContext):
         )
         logger.info(f"Groq LLM initialized: {config.groq_model}")
 
-    # Fallback to OpenAI
-    if llm is None and config.openai_api_key:
-        llm = openai.LLM(model="gpt-4o-mini")
-        logger.info("OpenAI LLM initialized as fallback")
+    # Fallback to Anthropic Claude
+    if llm is None and config.anthropic_api_key:
+        llm = anthropic.LLM(model="claude-sonnet-4-20250514")
+        logger.info("Anthropic Claude initialized as fallback")
 
     if llm is None:
-        logger.error("No LLM configured (Fast Brain, Groq, or OpenAI)")
+        logger.error("No LLM configured (Fast Brain, Groq, or Anthropic)")
         return
 
     # Initialize TTS (Cartesia)

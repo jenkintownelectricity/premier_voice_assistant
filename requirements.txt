@@ -33,6 +33,7 @@ livekit-agents>=1.0.0  # LiveKit Agents framework (v1.x with AgentSession)
 livekit-plugins-deepgram>=1.0.0  # Deepgram STT plugin
 livekit-plugins-cartesia>=1.0.0  # Cartesia TTS plugin
 livekit-plugins-openai>=1.0.0  # OpenAI/Groq LLM plugin
+livekit-plugins-anthropic>=1.0.0  # Anthropic Claude LLM plugin (fallback)
 livekit-plugins-silero>=1.0.0  # Silero VAD plugin
 
 # Web Framework
