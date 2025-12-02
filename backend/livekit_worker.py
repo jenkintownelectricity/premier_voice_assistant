@@ -73,19 +73,27 @@ logger = logging.getLogger("livekit_worker")
 
 def check_configuration():
     """Check that all required environment variables are set."""
+    # Core required vars
     required_vars = {
         "LIVEKIT_URL": "LiveKit server URL",
         "LIVEKIT_API_KEY": "LiveKit API key",
         "LIVEKIT_API_SECRET": "LiveKit API secret",
         "DEEPGRAM_API_KEY": "Deepgram API key for STT",
-        "GROQ_API_KEY": "Groq API key for LLM",
         "CARTESIA_API_KEY": "Cartesia API key for TTS",
     }
+
+    # LLM: Either Fast Brain OR Groq is required
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    groq_api_key = os.getenv("GROQ_API_KEY", "")
 
     missing = []
     for var, description in required_vars.items():
         if not os.getenv(var):
             missing.append(f"  - {var}: {description}")
+
+    # Check LLM configuration
+    if not fast_brain_url and not groq_api_key:
+        missing.append("  - FAST_BRAIN_URL or GROQ_API_KEY: At least one LLM backend required")
 
     if missing:
         logger.error("Missing required environment variables:")
@@ -99,8 +107,15 @@ def check_configuration():
     logger.info(f"  LIVEKIT_URL: {os.getenv('LIVEKIT_URL')}")
     logger.info(f"  LIVEKIT_API_KEY: {os.getenv('LIVEKIT_API_KEY')[:10]}...")
     logger.info(f"  DEEPGRAM_API_KEY: {os.getenv('DEEPGRAM_API_KEY')[:10]}...")
-    logger.info(f"  GROQ_API_KEY: {os.getenv('GROQ_API_KEY')[:10]}...")
     logger.info(f"  CARTESIA_API_KEY: {os.getenv('CARTESIA_API_KEY')[:10]}...")
+
+    # Log LLM backend
+    if fast_brain_url:
+        logger.info(f"  FAST_BRAIN_URL: {fast_brain_url[:40]}...")
+        default_skill = os.getenv("DEFAULT_SKILL", "default")
+        logger.info(f"  DEFAULT_SKILL: {default_skill}")
+    if groq_api_key:
+        logger.info(f"  GROQ_API_KEY: {groq_api_key[:10]}... (fallback)")
 
     return True
 

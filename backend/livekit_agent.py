@@ -25,7 +25,7 @@ This is the next evolution of the Lightning Pipeline - now with WebRTC!
 import os
 import logging
 import asyncio
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, AsyncGenerator
 from dataclasses import dataclass, field
 
 # LiveKit Agents SDK
@@ -45,6 +45,13 @@ from livekit.plugins import silero, deepgram, cartesia, openai
 
 # For database access
 from backend.supabase_client import get_supabase_client
+
+# Brain client for Fast Brain integration
+try:
+    from backend.brain_client import FastBrainClient, TurnAction
+    BRAIN_CLIENT_AVAILABLE = True
+except ImportError:
+    BRAIN_CLIENT_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +90,71 @@ class LiveKitAgentConfig:
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
 
+    # Fast Brain (optional - use instead of Groq for custom BitNet LPU)
+    fast_brain_url: str = field(default_factory=lambda: os.getenv("FAST_BRAIN_URL", ""))
+    default_skill: str = field(default_factory=lambda: os.getenv("DEFAULT_SKILL", "default"))
+
     # Pipeline settings
     response_delay_ms: int = 100
     enable_barge_in: bool = True
     min_endpointing_delay: float = 0.5  # seconds
+
+
+# ============================================================================
+# BRAIN LLM ADAPTER
+# ============================================================================
+
+class BrainLLM:
+    """
+    Adapter that makes Fast Brain look like a standard LLM to LiveKit.
+
+    LiveKit's VoicePipelineAgent expects an LLM with certain methods.
+    This wraps our Brain client to provide that interface.
+    """
+
+    def __init__(
+        self,
+        brain_client: "FastBrainClient",
+        skill: str = "default",
+    ):
+        self.brain = brain_client
+        self.skill = skill
+        self._conversation_history = []
+
+    async def chat(
+        self,
+        chat_ctx: lk_llm.ChatContext,
+        **kwargs,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Generate a response given conversation context.
+        This is called by VoicePipelineAgent when it's time to respond.
+
+        Yields tokens as they're generated for lowest latency.
+        """
+        # Get the latest user message from chat context
+        user_message = ""
+        for msg in reversed(chat_ctx.messages):
+            if msg.role == "user":
+                user_message = msg.content
+                break
+
+        if not user_message:
+            return
+
+        # Stream response from Brain
+        try:
+            async for token in self.brain.stream(user_message, skill=self.skill):
+                yield token
+        except Exception as e:
+            logger.error(f"Brain streaming error: {e}")
+            # Fallback response
+            yield "I apologize, but I'm having trouble processing that right now. Could you please repeat that?"
+
+    def set_skill(self, skill: str):
+        """Change the skill adapter mid-conversation."""
+        self.skill = skill
+        logger.info(f"Switched to skill: {skill}")
 
 
 # ============================================================================
@@ -220,22 +288,36 @@ class HiveVoiceAgent:
                 logger.error("Deepgram API key not configured")
                 return False
 
-            # Initialize LLM (Groq with OpenAI fallback)
-            if self.config.groq_api_key:
+            # Initialize LLM (Brain > Groq > OpenAI fallback chain)
+            if self.config.fast_brain_url and BRAIN_CLIENT_AVAILABLE:
+                # Use Fast Brain for custom BitNet LPU
+                brain_client = FastBrainClient(
+                    base_url=self.config.fast_brain_url,
+                    default_skill=self.config.default_skill,
+                )
+                # Check if Brain is healthy
+                if await brain_client.is_healthy():
+                    self._llm = BrainLLM(brain_client, skill=self.config.default_skill)
+                    logger.info(f"Fast Brain LLM initialized (url={self.config.fast_brain_url[:30]}..., skill={self.config.default_skill})")
+                else:
+                    logger.warning("Fast Brain not healthy, falling back to Groq/OpenAI")
+                    self._llm = None
+
+            if self._llm is None and self.config.groq_api_key:
                 # Use OpenAI plugin with Groq's OpenAI-compatible API
                 self._llm = openai.LLM.with_groq(
                     model=self.config.groq_model,
                     temperature=self.config.temperature,
                 )
                 logger.info(f"Groq LLM initialized (model={self.config.groq_model})")
-            elif self.config.openai_api_key:
+            elif self._llm is None and self.config.openai_api_key:
                 self._llm = openai.LLM(
                     model="gpt-4o",
                     temperature=self.config.temperature,
                 )
                 logger.info("OpenAI LLM initialized as fallback")
-            else:
-                logger.error("No LLM API key configured (Groq or OpenAI)")
+            elif self._llm is None:
+                logger.error("No LLM configured (Fast Brain, Groq, or OpenAI)")
                 return False
 
             # Initialize TTS (Cartesia)
