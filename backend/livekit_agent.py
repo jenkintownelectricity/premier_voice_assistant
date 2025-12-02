@@ -32,7 +32,6 @@ from dataclasses import dataclass, field
 from livekit.agents import (
     Agent,
     AgentSession,
-    AutoSubscribe,
     JobContext,
     JobProcess,
     WorkerOptions,
@@ -484,8 +483,8 @@ async def entrypoint(ctx: JobContext):
     """
     logger.info(f"Agent job started for room: {ctx.room.name}")
 
-    # Connect to the room (audio only for voice agents)
-    await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+    # Connect to the room - let AgentSession handle audio subscription
+    await ctx.connect()
 
     # Get assistant_id and user_id from room metadata
     room_metadata = ctx.room.metadata or "{}"
