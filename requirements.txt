@@ -27,13 +27,13 @@ twilio>=9.0.0
 aiortc>=1.9.0  # WebRTC support
 aiohttp>=3.10.0
 
-# LiveKit - Voice AI Platform (WebRTC-based)
-livekit>=0.17.0  # LiveKit Python SDK
-livekit-agents>=0.12.0  # LiveKit Agents framework
-livekit-plugins-deepgram>=0.7.0  # Deepgram STT plugin
-livekit-plugins-cartesia>=0.5.0  # Cartesia TTS plugin
-livekit-plugins-openai>=0.10.0  # OpenAI/Groq LLM plugin
-livekit-plugins-silero>=0.7.0  # Silero VAD plugin
+# LiveKit - Voice AI Platform (WebRTC-based) - v1.x API
+livekit>=1.0.0  # LiveKit Python SDK
+livekit-agents>=1.0.0  # LiveKit Agents framework (v1.x with AgentSession)
+livekit-plugins-deepgram>=1.0.0  # Deepgram STT plugin
+livekit-plugins-cartesia>=1.0.0  # Cartesia TTS plugin
+livekit-plugins-openai>=1.0.0  # OpenAI/Groq LLM plugin
+livekit-plugins-silero>=1.0.0  # Silero VAD plugin
 
 # Web Framework
 fastapi>=0.115.0

@@ -105,15 +105,71 @@ class LiveKitAgentConfig:
 
 
 # ============================================================================
-# BRAIN LLM ADAPTER
+# BRAIN LLM ADAPTER (LiveKit v1.x Compatible)
 # ============================================================================
 
-class BrainLLM:
+class BrainLLMStream(lk_llm.LLMStream):
     """
-    Adapter that makes Fast Brain look like a standard LLM to LiveKit.
+    LLM stream that pulls tokens from Fast Brain API.
 
-    LiveKit's AgentSession expects an LLM with certain methods.
-    This wraps our Brain client to provide that interface.
+    Implements the LiveKit v1.x LLMStream interface by streaming
+    tokens from our Brain client and emitting ChatChunks.
+    """
+
+    def __init__(
+        self,
+        llm: "BrainLLM",
+        *,
+        chat_ctx: lk_llm.ChatContext,
+        tools: list,
+        conn_options,
+        user_message: str,
+        skill: str,
+    ):
+        super().__init__(llm, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options)
+        self._user_message = user_message
+        self._skill = skill
+        self._brain = llm.brain
+
+    async def _run(self) -> None:
+        """
+        Stream tokens from Brain and emit as ChatChunks.
+        This is the abstract method required by LLMStream.
+        """
+        request_id = f"brain-{id(self)}"
+
+        try:
+            async for token in self._brain.stream(self._user_message, skill=self._skill):
+                chunk = lk_llm.ChatChunk(
+                    id=request_id,
+                    delta=lk_llm.ChoiceDelta(
+                        role="assistant",
+                        content=token,
+                    ),
+                )
+                self._event_ch.send_nowait(chunk)
+        except Exception as e:
+            logger.error(f"Brain streaming error: {e}")
+            # Emit a fallback response
+            fallback = "I apologize, but I'm having trouble processing that right now."
+            chunk = lk_llm.ChatChunk(
+                id=request_id,
+                delta=lk_llm.ChoiceDelta(
+                    role="assistant",
+                    content=fallback,
+                ),
+            )
+            self._event_ch.send_nowait(chunk)
+
+
+class BrainLLM(lk_llm.LLM):
+    """
+    LiveKit v1.x compatible LLM that connects to Fast Brain API.
+
+    Properly implements the abstract LLM interface with:
+    - chat() method returning an LLMStream
+    - Streaming tokens via BrainLLMStream
+    - Fallback handling on errors
     """
 
     def __init__(
@@ -121,44 +177,67 @@ class BrainLLM:
         brain_client: "FastBrainClient",
         skill: str = "default",
     ):
+        super().__init__()
         self.brain = brain_client
         self.skill = skill
-        self._conversation_history = []
+        self._model_name = "fast-brain"
 
-    async def chat(
+    @property
+    def model(self) -> str:
+        return self._model_name
+
+    @property
+    def provider(self) -> str:
+        return "fast-brain"
+
+    def chat(
         self,
+        *,
         chat_ctx: lk_llm.ChatContext,
-        **kwargs,
-    ) -> AsyncGenerator[str, None]:
+        tools: list = None,
+        conn_options = None,
+        parallel_tool_calls = None,
+        tool_choice = None,
+        extra_kwargs = None,
+    ) -> BrainLLMStream:
         """
         Generate a response given conversation context.
-        This is called by AgentSession when it's time to respond.
-
-        Yields tokens as they're generated for lowest latency.
+        Returns an LLMStream that yields ChatChunks.
         """
+        from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
+
         # Get the latest user message from chat context
         user_message = ""
-        for msg in reversed(chat_ctx.messages):
-            if msg.role == "user":
-                user_message = msg.content
+        for msg in reversed(chat_ctx.items):
+            if hasattr(msg, 'role') and msg.role == "user":
+                # Handle different message formats
+                if hasattr(msg, 'text'):
+                    user_message = msg.text
+                elif hasattr(msg, 'content'):
+                    user_message = str(msg.content)
                 break
 
         if not user_message:
-            return
+            user_message = "Hello"  # Fallback
 
-        # Stream response from Brain
-        try:
-            async for token in self.brain.stream(user_message, skill=self.skill):
-                yield token
-        except Exception as e:
-            logger.error(f"Brain streaming error: {e}")
-            # Fallback response
-            yield "I apologize, but I'm having trouble processing that right now. Could you please repeat that?"
+        return BrainLLMStream(
+            self,
+            chat_ctx=chat_ctx,
+            tools=tools or [],
+            conn_options=conn_options or DEFAULT_API_CONNECT_OPTIONS,
+            user_message=user_message,
+            skill=self.skill,
+        )
 
     def set_skill(self, skill: str):
         """Change the skill adapter mid-conversation."""
         self.skill = skill
         logger.info(f"Switched to skill: {skill}")
+
+    async def aclose(self) -> None:
+        """Cleanup resources."""
+        if self.brain:
+            await self.brain.close()
 
 
 # ============================================================================
@@ -478,6 +557,8 @@ async def entrypoint(ctx: JobContext):
     """
     Main entrypoint for LiveKit Agent jobs.
     Simplified v1.x pattern for reliable audio handling.
+
+    LLM Priority: Fast Brain -> Groq -> OpenAI
     """
     logger.info(f"Agent job started for room: {ctx.room.name}")
 
@@ -494,18 +575,39 @@ async def entrypoint(ctx: JobContext):
     )
     logger.info("Deepgram STT initialized")
 
-    # Initialize LLM (Groq via OpenAI-compatible API)
-    if config.groq_api_key:
+    # Initialize LLM with fallback chain: Fast Brain -> Groq -> OpenAI
+    llm = None
+
+    # Try Fast Brain first (custom BitNet LPU)
+    if config.fast_brain_url and BRAIN_CLIENT_AVAILABLE:
+        try:
+            brain_client = FastBrainClient(
+                base_url=config.fast_brain_url,
+                default_skill=config.default_skill,
+            )
+            if await brain_client.is_healthy():
+                llm = BrainLLM(brain_client, skill=config.default_skill)
+                logger.info(f"Fast Brain LLM initialized: {config.fast_brain_url[:40]}... (skill={config.default_skill})")
+            else:
+                logger.warning("Fast Brain not healthy, trying fallback...")
+        except Exception as e:
+            logger.warning(f"Fast Brain initialization failed: {e}, trying fallback...")
+
+    # Fallback to Groq
+    if llm is None and config.groq_api_key:
         llm = openai.LLM.with_groq(
             model=config.groq_model,
             temperature=config.temperature,
         )
         logger.info(f"Groq LLM initialized: {config.groq_model}")
-    elif config.openai_api_key:
+
+    # Fallback to OpenAI
+    if llm is None and config.openai_api_key:
         llm = openai.LLM(model="gpt-4o-mini")
         logger.info("OpenAI LLM initialized as fallback")
-    else:
-        logger.error("No LLM API key configured")
+
+    if llm is None:
+        logger.error("No LLM configured (Fast Brain, Groq, or OpenAI)")
         return
 
     # Initialize TTS (Cartesia)
@@ -513,7 +615,7 @@ async def entrypoint(ctx: JobContext):
         model="sonic-english",
         voice=config.cartesia_voice_id,
     )
-    logger.info(f"Cartesia TTS initialized")
+    logger.info("Cartesia TTS initialized")
 
     # Create the agent with instructions
     agent = Agent(
