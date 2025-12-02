@@ -477,57 +477,68 @@ Guidelines:
 async def entrypoint(ctx: JobContext):
     """
     Main entrypoint for LiveKit Agent jobs.
-
-    This function is called when a new room is created and an agent
-    needs to join. The assistant_id and user_id are passed via room metadata.
+    Simplified v1.x pattern for reliable audio handling.
     """
     logger.info(f"Agent job started for room: {ctx.room.name}")
 
-    # Connect to the room - let AgentSession handle audio subscription
+    # Connect to the room
     await ctx.connect()
 
-    # Get assistant_id and user_id from room metadata
-    room_metadata = ctx.room.metadata or "{}"
-    import json
-    try:
-        metadata = json.loads(room_metadata)
-    except json.JSONDecodeError:
-        metadata = {}
-
-    assistant_id = metadata.get("assistant_id")
-    user_id = metadata.get("user_id")
-
-    logger.info(f"Room metadata: assistant_id={assistant_id}, user_id={user_id}")
-
-    # Create and initialize the voice agent
+    # Get config
     config = LiveKitAgentConfig()
-    agent = HiveVoiceAgent(
-        config=config,
-        assistant_id=assistant_id,
-        user_id=user_id,
-    )
 
-    if not await agent.initialize():
-        logger.error("Failed to initialize agent")
+    # Initialize STT (Deepgram)
+    stt = deepgram.STT(
+        model="nova-2",
+        language="en-US",
+    )
+    logger.info("Deepgram STT initialized")
+
+    # Initialize LLM (Groq via OpenAI-compatible API)
+    if config.groq_api_key:
+        llm = openai.LLM.with_groq(
+            model=config.groq_model,
+            temperature=config.temperature,
+        )
+        logger.info(f"Groq LLM initialized: {config.groq_model}")
+    elif config.openai_api_key:
+        llm = openai.LLM(model="gpt-4o-mini")
+        logger.info("OpenAI LLM initialized as fallback")
+    else:
+        logger.error("No LLM API key configured")
         return
 
-    # Start the agent
-    await agent.start(ctx)
+    # Initialize TTS (Cartesia)
+    tts = cartesia.TTS(
+        model="sonic-english",
+        voice=config.cartesia_voice_id,
+    )
+    logger.info(f"Cartesia TTS initialized")
 
-    # Wait for the call to end (participant leaves)
-    @ctx.room.on("participant_disconnected")
-    def on_participant_left(participant: rtc.RemoteParticipant):
-        logger.info(f"Participant left: {participant.identity}")
+    # Create the agent with instructions
+    agent = Agent(
+        instructions="""You are a helpful, friendly voice assistant.
+Keep responses concise and conversational (1-2 sentences when possible).
+Be natural and engaging, like talking to a friend."""
+    )
 
-    # Keep agent running until room is closed
-    try:
-        while ctx.room.connection_state == rtc.ConnectionState.CONN_CONNECTED:
-            await asyncio.sleep(1)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        await agent.stop()
-        logger.info("Agent job completed")
+    # Create and start the session (v1.x standard pattern)
+    session = AgentSession(
+        stt=stt,
+        llm=llm,
+        tts=tts,
+    )
+
+    await session.start(
+        agent=agent,
+        room=ctx.room,
+    )
+    logger.info("AgentSession started")
+
+    # Generate initial greeting
+    await session.generate_reply(
+        instructions="Greet the user warmly and ask how you can help them today."
+    )
 
 
 def prewarm(proc: JobProcess):
@@ -536,11 +547,7 @@ def prewarm(proc: JobProcess):
     This runs once when the worker starts.
     """
     logger.info("Prewarming agent worker...")
-
-    # Load Silero VAD model (takes a few seconds)
-    proc.userdata["vad"] = silero.VAD.load()
-
-    logger.info("Prewarm complete - VAD model loaded")
+    logger.info("Prewarm complete")
 
 
 # ============================================================================
