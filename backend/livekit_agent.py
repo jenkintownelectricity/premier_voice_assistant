@@ -28,16 +28,16 @@ import asyncio
 from typing import Optional, Dict, Any, List, AsyncGenerator
 from dataclasses import dataclass, field
 
-# LiveKit Agents SDK
+# LiveKit Agents SDK v1.x
 from livekit.agents import (
+    Agent,
+    AgentSession,
     AutoSubscribe,
     JobContext,
     JobProcess,
     WorkerOptions,
     llm as lk_llm,
 )
-from livekit.agents.pipeline import VoicePipelineAgent
-from livekit.agents.pipeline.pipeline_agent import AgentCallContext
 from livekit import rtc
 
 # LiveKit Plugins
@@ -108,7 +108,7 @@ class BrainLLM:
     """
     Adapter that makes Fast Brain look like a standard LLM to LiveKit.
 
-    LiveKit's VoicePipelineAgent expects an LLM with certain methods.
+    LiveKit's AgentSession expects an LLM with certain methods.
     This wraps our Brain client to provide that interface.
     """
 
@@ -128,7 +128,7 @@ class BrainLLM:
     ) -> AsyncGenerator[str, None]:
         """
         Generate a response given conversation context.
-        This is called by VoicePipelineAgent when it's time to respond.
+        This is called by AgentSession when it's time to respond.
 
         Yields tokens as they're generated for lowest latency.
         """
@@ -212,7 +212,7 @@ async def save_call_log(
 
 class HiveVoiceAgent:
     """
-    HIVE215 Voice Agent using LiveKit's VoicePipelineAgent.
+    HIVE215 Voice Agent using LiveKit's AgentSession (v1.x API).
 
     Integrates with:
     - Deepgram for STT
@@ -243,7 +243,7 @@ class HiveVoiceAgent:
         self._stt: Optional[deepgram.STT] = None
         self._llm: Optional[Any] = None
         self._tts: Optional[cartesia.TTS] = None
-        self._agent: Optional[VoicePipelineAgent] = None
+        self._session: Optional[AgentSession] = None
 
     async def initialize(self) -> bool:
         """Initialize all pipeline components."""
@@ -362,59 +362,59 @@ Guidelines:
             return f"Hello! I'm {name}. How can I help you today?"
         return "Hello! How can I help you today?"
 
-    def create_agent(self, ctx: JobContext) -> VoicePipelineAgent:
-        """Create the VoicePipelineAgent for a job context."""
+    def create_session(self) -> AgentSession:
+        """Create the AgentSession for voice interactions (v1.x API)."""
 
-        # Create chat context with system prompt
-        initial_ctx = lk_llm.ChatContext()
-        initial_ctx.append(
-            role="system",
-            text=self.get_system_prompt(),
-        )
-
-        # Create the voice pipeline agent
-        self._agent = VoicePipelineAgent(
+        # Create the voice session with all pipeline components
+        self._session = AgentSession(
             vad=self._vad,
             stt=self._stt,
             llm=self._llm,
             tts=self._tts,
-            chat_ctx=initial_ctx,
-            allow_interruptions=self.config.enable_barge_in,
-            interrupt_speech_duration=0.5,
-            interrupt_min_words=2,
-            min_endpointing_delay=self.config.min_endpointing_delay,
-            preemptive_synthesis=True,  # Start TTS early
+            # Enable preemptive generation for lower latency
+            preemptive_generation=True,
+            # Handle background noise gracefully
+            resume_false_interruption=True,
+            false_interruption_timeout=1.0,
+            # Make interruption detection responsive
+            min_interruption_duration=0.2,
         )
 
         # Set up event handlers
         self._setup_event_handlers()
 
-        return self._agent
+        return self._session
+
+    def create_agent(self) -> Agent:
+        """Create the Agent with instructions (v1.x API)."""
+        return Agent(instructions=self.get_system_prompt())
 
     def _setup_event_handlers(self):
         """Set up event handlers for transcript tracking."""
-        if not self._agent:
+        if not self._session:
             return
 
-        @self._agent.on("user_speech_committed")
-        def on_user_speech(msg: lk_llm.ChatMessage):
+        @self._session.on("user_message")
+        def on_user_message(msg):
             """Track user speech."""
+            content = str(msg.content) if hasattr(msg, 'content') else str(msg)
             self.transcript.append({
                 "role": "user",
-                "content": msg.content,
+                "content": content,
             })
-            logger.info(f"User: {msg.content[:50]}...")
+            logger.info(f"User: {content[:50]}...")
 
-        @self._agent.on("agent_speech_committed")
-        def on_agent_speech(msg: lk_llm.ChatMessage):
+        @self._session.on("agent_message")
+        def on_agent_message(msg):
             """Track agent speech."""
+            content = str(msg.content) if hasattr(msg, 'content') else str(msg)
             self.transcript.append({
                 "role": "assistant",
-                "content": msg.content,
+                "content": content,
             })
-            logger.info(f"Assistant: {msg.content[:50]}...")
+            logger.info(f"Assistant: {content[:50]}...")
 
-        @self._agent.on("agent_speech_interrupted")
+        @self._session.on("agent_speech_interrupted")
         def on_interrupted():
             """Handle user interruption (barge-in)."""
             logger.info("User interrupted assistant")
@@ -424,13 +424,19 @@ Guidelines:
         import time
         self.call_start_time = time.time()
 
-        # Create and start the agent
-        agent = self.create_agent(ctx)
-        agent.start(ctx.room)
+        # Create session and agent (v1.x API)
+        session = self.create_session()
+        agent = self.create_agent()
 
-        # Say initial greeting
+        # Start the session with the agent (v1.x API)
+        await session.start(
+            agent=agent,
+            room=ctx.room,
+        )
+
+        # Say initial greeting using generate_reply
         first_message = self.get_first_message()
-        await agent.say(first_message, allow_interruptions=True)
+        await session.generate_reply(instructions=f"Say exactly this greeting: {first_message}")
 
         logger.info(f"Agent started for room {ctx.room.name}")
 
@@ -438,7 +444,7 @@ Guidelines:
         """Stop the agent and save call log."""
         import time
 
-        if self._agent:
+        if self._session:
             # Calculate duration
             duration = int(time.time() - self.call_start_time) if self.call_start_time else 0
 
