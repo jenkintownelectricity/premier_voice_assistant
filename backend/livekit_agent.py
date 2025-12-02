@@ -377,18 +377,12 @@ Guidelines:
         """Create the AgentSession for voice interactions (v1.x API)."""
 
         # Create the voice session with all pipeline components
+        # Keep it simple - let defaults handle the rest
         self._session = AgentSession(
             vad=self._vad,
             stt=self._stt,
             llm=self._llm,
             tts=self._tts,
-            # Enable preemptive generation for lower latency
-            preemptive_generation=True,
-            # Handle background noise gracefully
-            resume_false_interruption=True,
-            false_interruption_timeout=1.0,
-            # Make interruption detection responsive
-            min_interruption_duration=0.2,
         )
 
         # Set up event handlers
