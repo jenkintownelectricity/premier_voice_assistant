@@ -43,8 +43,13 @@ from livekit import rtc
 # LiveKit Plugins
 from livekit.plugins import silero, deepgram, cartesia, openai
 
-# For database access
-from backend.supabase_client import get_supabase_client
+# For database access (optional - may not be configured for local testing)
+try:
+    from backend.supabase_client import get_supabase
+    SUPABASE_AVAILABLE = True
+except (ImportError, ValueError) as e:
+    SUPABASE_AVAILABLE = False
+    logging.getLogger(__name__).warning(f"Supabase not available: {e}")
 
 # Brain client for Fast Brain integration
 try:
@@ -163,8 +168,11 @@ class BrainLLM:
 
 async def load_assistant_config(assistant_id: str) -> Dict[str, Any]:
     """Load assistant configuration from Supabase database."""
+    if not SUPABASE_AVAILABLE:
+        logger.warning("Supabase not available, using default assistant config")
+        return {}
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase().client
         result = supabase.table("va_assistants").select("*").eq("id", assistant_id).single().execute()
 
         if result.data:
@@ -186,8 +194,11 @@ async def save_call_log(
     metadata: Dict = None,
 ) -> Optional[str]:
     """Save call log to database."""
+    if not SUPABASE_AVAILABLE:
+        logger.warning("Supabase not available, call log not saved")
+        return None
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase().client
         result = supabase.table("va_call_logs").insert({
             "user_id": user_id,
             "assistant_id": assistant_id,
