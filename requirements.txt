@@ -37,6 +37,11 @@ livekit-plugins-openai>=1.0.0
 livekit-plugins-anthropic>=1.0.0
 livekit-plugins-silero>=1.0.0
 
+# OpenTelemetry - Pin for livekit-agents compatibility (LogData import)
+opentelemetry-api>=1.20.0,<1.28.0
+opentelemetry-sdk>=1.20.0,<1.28.0
+opentelemetry-exporter-otlp-proto-grpc>=1.20.0,<1.28.0
+
 # Web Framework
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
