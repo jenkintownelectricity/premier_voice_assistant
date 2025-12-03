@@ -2,10 +2,8 @@
 builder = "nixpacks"
 
 [deploy]
-# Start command removed - use Procfile instead
-# web: uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}
-# worker: python backend/livekit_worker.py start
-healthcheckPath = "/health"
-healthcheckTimeout = 100
+# Start command and healthcheck removed - configure per-service in Railway UI
+# Web service: healthcheckPath = "/health", start = uvicorn
+# Worker service: no healthcheck needed, start = python backend/livekit_worker.py start
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
