@@ -60,6 +60,32 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def _normalize_livekit_url(url: str) -> str:
+    """
+    Normalize LIVEKIT_URL to ensure it has the wss:// prefix.
+    This handles common configuration mistakes where users forget the prefix.
+    """
+    if not url:
+        return url
+
+    # Remove any trailing slashes
+    url = url.rstrip("/")
+
+    # Handle various formats
+    if url.startswith("wss://") or url.startswith("ws://"):
+        # Already has websocket prefix
+        return url
+    elif url.startswith("https://"):
+        # Convert HTTPS to WSS
+        return "wss://" + url[8:]
+    elif url.startswith("http://"):
+        # Convert HTTP to WS (for local development)
+        return "ws://" + url[7:]
+    else:
+        # No prefix, add wss://
+        return "wss://" + url
+
+
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -69,7 +95,7 @@ class LiveKitAgentConfig:
     """Configuration for LiveKit Voice Agent."""
 
     # LiveKit Server
-    livekit_url: str = field(default_factory=lambda: os.getenv("LIVEKIT_URL", ""))
+    livekit_url: str = field(default_factory=lambda: _normalize_livekit_url(os.getenv("LIVEKIT_URL", "")))
     livekit_api_key: str = field(default_factory=lambda: os.getenv("LIVEKIT_API_KEY", ""))
     livekit_api_secret: str = field(default_factory=lambda: os.getenv("LIVEKIT_API_SECRET", ""))
 

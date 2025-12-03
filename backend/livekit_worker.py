@@ -71,6 +71,45 @@ logging.basicConfig(
 logger = logging.getLogger("livekit_worker")
 
 
+def normalize_livekit_url():
+    """
+    Normalize LIVEKIT_URL to ensure it has the wss:// prefix.
+    This handles common configuration mistakes where users forget the prefix.
+    """
+    url = os.getenv("LIVEKIT_URL", "")
+    if not url:
+        return url
+
+    original_url = url
+
+    # Remove any trailing slashes
+    url = url.rstrip("/")
+
+    # Handle various formats
+    if url.startswith("wss://") or url.startswith("ws://"):
+        # Already has websocket prefix
+        pass
+    elif url.startswith("https://"):
+        # Convert HTTPS to WSS
+        url = "wss://" + url[8:]
+        logger.info(f"Converted LIVEKIT_URL from https:// to wss://")
+    elif url.startswith("http://"):
+        # Convert HTTP to WS (for local development)
+        url = "ws://" + url[7:]
+        logger.info(f"Converted LIVEKIT_URL from http:// to ws://")
+    else:
+        # No prefix, add wss://
+        url = "wss://" + url
+        logger.info(f"Added wss:// prefix to LIVEKIT_URL")
+
+    # Update the environment variable so LiveKit SDK gets the correct value
+    if url != original_url:
+        os.environ["LIVEKIT_URL"] = url
+        logger.info(f"LIVEKIT_URL normalized: {original_url} -> {url}")
+
+    return url
+
+
 def check_configuration():
     """Check that all required environment variables are set."""
     # Core required vars
@@ -125,6 +164,9 @@ def main():
     logger.info("=" * 60)
     logger.info("HIVE215 LiveKit Voice Agent Worker")
     logger.info("=" * 60)
+
+    # Normalize LIVEKIT_URL first (handle missing wss:// prefix)
+    normalize_livekit_url()
 
     # Check configuration
     if not check_configuration():
