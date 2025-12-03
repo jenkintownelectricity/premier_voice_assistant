@@ -1,5 +1,22 @@
 # Premier Voice Assistant - LiveKit Integration Architecture Guide
 
+**Last Updated:** December 3, 2025
+**Status:** Worker service created in Railway, awaiting run command configuration
+
+---
+
+## Current Deployment Status
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| Railway Web Service | ✅ Deployed | FastAPI backend at `web-production-1b085.up.railway.app` |
+| Railway Worker Service | ⏳ **PENDING** | Service created, env vars set, **needs Run Command** |
+| LiveKit Cloud | ✅ Configured | WebRTC gateway ready |
+| Supabase | ✅ Configured | PostgreSQL with all tables |
+| Environment Variables | ✅ Set | All API keys configured in Railway |
+
+---
+
 ## Visual System Architecture
 
 ```
@@ -45,53 +62,13 @@
     | va_user_profiles  |                            | 3. Anthropic Claude |
     | va_usage_metrics  |                            |                     |
     +-------------------+                            +---------------------+
+```
 
+---
 
-================================================================================
-                              CONNECTION FLOW DIAGRAM
-================================================================================
+## Voice Pipeline Architecture
 
-    User Opens Voice Call
-           |
-           v
-    +------+------+
-    | Frontend    |  POST /livekit/rooms
-    | LiveKit-    +------------------------+
-    | VoiceCall   |                        |
-    +------+------+                        |
-           |                               |
-           v                               v
-    +------+------+                 +------+------+
-    | Create Room |                 | Validate    |
-    | (get token) |                 | Assistant   |
-    +------+------+                 +------+------+
-           |                               |
-           v                               v
-    +------+------+                 +------+------+
-    | Connect to  |                 | Create      |
-    | LiveKit     |<================+ Call Log    |
-    | (WebRTC)    |                 | (Supabase)  |
-    +------+------+                 +-------------+
-           |
-           | Room Created Event
-           v
-    +------+------+
-    | Agent Worker|
-    | joins room  |
-    +------+------+
-           |
-           v
-    +------+------+
-    | Voice       |
-    | Pipeline    |
-    | Starts      |
-    +-------------+
-
-
-================================================================================
-                            VOICE PIPELINE ARCHITECTURE
-================================================================================
-
+```
                          +---------------------------+
                          |     LIVEKIT AGENT         |
                          |   (livekit_agent.py)      |
@@ -114,128 +91,162 @@
                          |       LLM CHAIN         |    |
                          +-------------------------+    |
                          |                         |    |
-                         |  +-------------------+  |    |
-                         |  |   FAST BRAIN      |  |----+
-                         |  |  (if configured)  |  |
-                         |  | - BitNet LPU      |  |
-                         |  | - Skill Adapters  |  |
-                         |  | - Turn-Taking     |  |
-                         |  +--------+----------+  |
-                         |           |             |
-                         |  +--------v----------+  |
-                         |  |      GROQ         |  |
-                         |  |  (fallback #1)    |  |
-                         |  | Llama 3.3 70B     |  |
-                         |  | ~40ms TTFT        |  |
-                         |  +--------+----------+  |
-                         |           |             |
-                         |  +--------v----------+  |
-                         |  |   ANTHROPIC       |  |
-                         |  |  (fallback #2)    |  |
-                         |  | Claude Sonnet     |  |
-                         |  +-------------------+  |
+                         |  1. Fast Brain (opt)    |----+
+                         |  2. Groq Llama 3.3      |
+                         |  3. Anthropic Claude    |
                          +-------------------------+
 
-
-================================================================================
-                         LATENCY BREAKDOWN (Target)
-================================================================================
-
-    +----------------+----------+--------+
-    | Component      | Latency  | Status |
-    +----------------+----------+--------+
-    | WebRTC (UDP)   | ~10-20ms |   OK   |
-    | Silero VAD     | ~5ms     |   OK   |
-    | Deepgram STT   | ~30ms    |   OK   |
-    | LLM (Groq)     | ~40ms    |   OK   |
-    | Cartesia TTS   | ~30ms    |   OK   |
-    +----------------+----------+--------+
-    | TOTAL          | ~150ms   |        |
-    +----------------+----------+--------+
-
-    Human conversation threshold: ~500ms
-    Voice-to-Voice target: ~200-300ms
-
-
-================================================================================
-                             FILE STRUCTURE
-================================================================================
-
-    /backend/
-    ├── main.py               # FastAPI app (63 endpoints)
-    ├── livekit_api.py        # LiveKit REST endpoints
-    ├── livekit_agent.py      # Voice agent (STT->LLM->TTS)
-    ├── livekit_worker.py     # Worker process entry
-    ├── brain_client.py       # Fast Brain API client
-    └── supabase_client.py    # Database operations
-
-    /web/src/
-    ├── components/
-    │   └── LiveKitVoiceCall.tsx  # WebRTC voice UI
-    └── lib/
-        └── api.ts               # API client
-
-    /config/
-    ├── railway.toml          # Railway deployment
-    └── Procfile              # Worker configuration
+    Target Latency: ~200-300ms voice-to-voice
 ```
 
-## Connection Status Summary
+---
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| Railway Backend | **DOWN** | Connection timeout - needs restart |
-| Supabase | **CONFIGURED** | Schema ready, migrations applied |
-| LiveKit Cloud | **CONFIGURED** | Credentials in .env.example |
-| Deepgram STT | **CONFIGURED** | API key placeholder ready |
-| Groq LLM | **CONFIGURED** | API key placeholder ready |
-| Cartesia TTS | **CONFIGURED** | API key & voice ID ready |
-| Fast Brain | **OPTIONAL** | URL in .env.example if deployed |
-| Worker Process | **READY** | Procfile configured |
-
-## What's Working
-
-1. **Code Architecture** - All files are properly structured and connected
-2. **LiveKit Integration** - Using v1.x API with AgentSession correctly
-3. **Brain Client** - Full implementation with HTTP & WebSocket support
-4. **Frontend Component** - LiveKitVoiceCall.tsx with full WebRTC handling
-5. **Database Schema** - All tables created via migrations
-6. **Fallback Chain** - Fast Brain -> Groq -> Anthropic
-
-## What Needs Attention
-
-1. **Railway Backend DOWN** - The production API is not responding
-2. **Worker Not Running** - LiveKit worker needs separate Railway service
-3. **Environment Variables** - Need real API keys configured in Railway
-
-## Procfile Worker Configuration
+## File Structure
 
 ```
-web: uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}
-worker: python backend/livekit_worker.py start
+/backend/
+├── main.py               # FastAPI app (63 endpoints)
+├── livekit_api.py        # LiveKit REST endpoints (/livekit/*)
+├── livekit_agent.py      # Voice agent pipeline (STT->LLM->TTS)
+├── livekit_worker.py     # Worker process entry point
+├── brain_client.py       # Fast Brain API client
+└── supabase_client.py    # Database operations
+
+/web/src/components/
+└── LiveKitVoiceCall.tsx  # WebRTC voice call UI component
+
+/root/
+├── railway.toml          # Railway web service config
+└── Procfile              # Process definitions
 ```
 
-## Required Environment Variables for Worker
+---
+
+## Railway Worker Run Command
+
+The worker service needs this **Run Command** in Railway settings:
 
 ```bash
-# LiveKit Server (REQUIRED)
+python backend/livekit_worker.py start
+```
+
+### Alternative (if using Procfile):
+```bash
+worker
+```
+
+---
+
+## Required Environment Variables (Already Set)
+
+```bash
+# LiveKit Server
 LIVEKIT_URL=wss://your-project.livekit.cloud
 LIVEKIT_API_KEY=APIxxxxx
 LIVEKIT_API_SECRET=xxxxx
 
-# Voice Providers (REQUIRED)
+# Voice Providers
 DEEPGRAM_API_KEY=xxxxx
 CARTESIA_API_KEY=xxxxx
 CARTESIA_VOICE_ID=a0e99841-438c-4a64-b679-ae501e7d6091
 
-# LLM - At least one required
-GROQ_API_KEY=gsk_xxxxx        # Primary
-ANTHROPIC_API_KEY=sk-ant-xxx  # Fallback
+# LLM Providers
+GROQ_API_KEY=gsk_xxxxx
+ANTHROPIC_API_KEY=sk-ant-xxx
 
-# Fast Brain (Optional)
+# Database
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=xxxxx
+
+# Optional: Fast Brain
 FAST_BRAIN_URL=https://...modal.run
 DEFAULT_SKILL=default
 ```
 
 ---
-*Generated by Claude Code Architecture Analysis*
+
+## Connection Flow
+
+1. **User clicks "Start Call"** in frontend
+2. **Frontend** calls `POST /livekit/rooms` with assistant_id
+3. **Web Service** validates user, creates call_log in Supabase, creates LiveKit room
+4. **Web Service** returns room token to frontend
+5. **Frontend** connects to LiveKit Cloud via WebRTC
+6. **LiveKit Cloud** notifies Worker of new room
+7. **Worker** joins room and starts voice pipeline
+8. **Voice conversation** flows: User audio → STT → LLM → TTS → Agent audio
+
+---
+
+## What's Complete
+
+- [x] LiveKit Agent code (v1.x API with AgentSession)
+- [x] Brain Client with HTTP + WebSocket streaming
+- [x] Frontend LiveKitVoiceCall component
+- [x] Database schema and migrations
+- [x] LLM fallback chain (Brain → Groq → Claude)
+- [x] Railway web service deployed
+- [x] Railway worker service created
+- [x] Environment variables configured
+
+## What's Pending
+
+- [ ] **Set Run Command for worker service in Railway**
+- [ ] Test end-to-end voice call
+- [ ] Verify agent joins rooms automatically
+
+---
+
+# NEXT SESSION INSTRUCTIONS
+
+## For Claude Code: Configure Railway Worker Run Command
+
+### Context
+The Premier Voice Assistant uses LiveKit for WebRTC-based voice AI. The architecture requires two Railway services:
+1. **Web Service** - FastAPI backend (already running)
+2. **Worker Service** - LiveKit agent that handles voice calls (created, needs run command)
+
+### Current State
+- Worker service is created in Railway
+- All environment variables are set
+- Just needs the **Run Command** to be configured
+
+### Task
+Help the user configure the Railway worker service run command:
+
+**Run Command to set:**
+```bash
+python backend/livekit_worker.py start
+```
+
+### Steps to Complete
+1. Go to Railway dashboard → Worker service → Settings
+2. Find "Deploy" or "Start Command" section
+3. Set the run command to: `python backend/livekit_worker.py start`
+4. Deploy the service
+5. Check logs to verify worker starts and connects to LiveKit
+
+### Verification
+After deployment, the worker logs should show:
+```
+HIVE215 LiveKit Voice Agent Worker
+Configuration:
+  LIVEKIT_URL: wss://...
+  LIVEKIT_API_KEY: APIxxx...
+Starting LiveKit agent worker...
+```
+
+### Test the Integration
+Once worker is running:
+1. Call `GET /livekit/status` - should return `enabled: true`
+2. Create a room via frontend or API
+3. Check worker logs for "Agent job started for room: ..."
+
+### Files Reference
+- `backend/livekit_worker.py` - Worker entry point
+- `backend/livekit_agent.py` - Voice pipeline implementation
+- `Procfile` - Contains `worker: python backend/livekit_worker.py start`
+
+---
+
+*Generated by Claude Code Architecture Analysis - December 3, 2025*
