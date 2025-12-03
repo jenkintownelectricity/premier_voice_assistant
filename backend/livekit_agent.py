@@ -643,6 +643,10 @@ async def entrypoint(ctx: JobContext):
     )
     logger.info("Cartesia TTS initialized")
 
+    # Initialize VAD (Silero) - required for detecting user speech
+    vad = silero.VAD.load()
+    logger.info("Silero VAD initialized")
+
     # Create the agent with instructions
     agent = Agent(
         instructions="""You are a helpful, friendly voice assistant.
@@ -652,6 +656,7 @@ Be natural and engaging, like talking to a friend."""
 
     # Create and start the session (v1.x standard pattern)
     session = AgentSession(
+        vad=vad,
         stt=stt,
         llm=llm,
         tts=tts,
