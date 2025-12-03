@@ -11,45 +11,61 @@ const plans = [
     name: 'free',
     display: 'Free',
     price: 0,
-    minutes: 100,
-    assistants: 1,
+    minutes: 30,
+    assistants: -1,
     voiceClones: 0,
-    customVoices: false,
-    apiAccess: false,
+    platforms: 'Web only',
+    analytics: 'Basic logs',
+    callSharing: false,
+    teamMembers: 1,
+    webhooks: false,
+    crmIntegrations: false,
     support: 'Community',
   },
   {
     name: 'starter',
     display: 'Starter',
-    price: 99,
-    minutes: 2000,
-    assistants: 3,
+    price: 9.99,
+    minutes: 200,
+    assistants: -1,
     voiceClones: 2,
-    customVoices: true,
-    apiAccess: false,
+    platforms: 'All platforms',
+    analytics: 'Basic logs',
+    callSharing: true,
+    teamMembers: 1,
+    webhooks: false,
+    crmIntegrations: false,
     support: 'Email',
   },
   {
     name: 'pro',
     display: 'Pro',
-    price: 299,
-    minutes: 10000,
+    price: 29.99,
+    minutes: 1000,
     assistants: -1,
-    voiceClones: -1,
-    customVoices: true,
-    apiAccess: true,
+    voiceClones: 11,
+    platforms: 'All platforms',
+    analytics: 'Full analytics',
+    callSharing: true,
+    teamMembers: 3,
+    webhooks: true,
+    crmIntegrations: false,
     support: 'Priority',
     popular: true,
   },
   {
-    name: 'enterprise',
-    display: 'Enterprise',
-    price: null,
-    minutes: -1,
+    name: 'business',
+    display: 'Business',
+    price: 79.99,
+    minutes: 5000,
     assistants: -1,
     voiceClones: -1,
-    customVoices: true,
-    apiAccess: true,
+    platforms: 'All platforms',
+    analytics: 'Advanced analytics',
+    callSharing: true,
+    teamMembers: 10,
+    webhooks: true,
+    crmIntegrations: true,
     support: 'Dedicated',
   },
 ];
@@ -182,7 +198,7 @@ export default function SubscriptionPage() {
 
               <div className="mt-4 space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Minutes</span>
+                  <span className="text-gray-400">Minutes/month</span>
                   <span className="text-white">
                     {plan.minutes === -1 ? 'Unlimited' : plan.minutes.toLocaleString()}
                   </span>
@@ -200,16 +216,36 @@ export default function SubscriptionPage() {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Custom Voices</span>
-                  <span className={plan.customVoices ? 'text-green-500' : 'text-gray-500'}>
-                    {plan.customVoices ? '✓' : '—'}
-                  </span>
+                  <span className="text-gray-400">Platforms</span>
+                  <span className="text-white">{plan.platforms}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">API Access</span>
-                  <span className={plan.apiAccess ? 'text-green-500' : 'text-gray-500'}>
-                    {plan.apiAccess ? '✓' : '—'}
+                  <span className="text-gray-400">Call Sharing</span>
+                  <span className={plan.callSharing ? 'text-green-500' : 'text-gray-500'}>
+                    {plan.callSharing ? '✓' : '—'}
                   </span>
+                </div>
+                {plan.teamMembers > 1 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Team Members</span>
+                    <span className="text-white">{plan.teamMembers}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Webhooks</span>
+                  <span className={plan.webhooks ? 'text-green-500' : 'text-gray-500'}>
+                    {plan.webhooks ? '✓' : '—'}
+                  </span>
+                </div>
+                {plan.crmIntegrations && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">CRM Integrations</span>
+                    <span className="text-green-500">✓</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Analytics</span>
+                  <span className="text-white">{plan.analytics}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">Support</span>
@@ -222,14 +258,6 @@ export default function SubscriptionPage() {
                   <div className="text-center py-2 text-gold font-semibold">
                     Current Plan
                   </div>
-                ) : plan.name === 'enterprise' ? (
-                  <HoneycombButton
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => window.open('mailto:sales@premiervoice.ai')}
-                  >
-                    Contact Sales
-                  </HoneycombButton>
                 ) : (
                   <HoneycombButton
                     className="w-full"

@@ -145,6 +145,37 @@ class FeatureGate:
                     "Custom voices not available on your plan. "
                     "Upgrade to Starter or higher to create custom voices."
                 )
+            elif feature_key == "all_platforms":
+                message = (
+                    "Multi-platform access not available on Free plan. "
+                    "Upgrade to Starter or higher to use voice calls on all platforms."
+                )
+            elif feature_key == "call_sharing":
+                message = (
+                    "Call sharing not available on your plan. "
+                    "Upgrade to Starter or higher to share call recordings."
+                )
+            elif feature_key == "team_members":
+                message = (
+                    f"Team member limit reached. "
+                    f"You have {current} of {limit} team members. "
+                    f"Upgrade to Pro or Business for more team members."
+                )
+            elif feature_key == "webhooks":
+                message = (
+                    "Webhooks not available on your plan. "
+                    "Upgrade to Pro or higher to use webhook integrations."
+                )
+            elif feature_key == "crm_integrations":
+                message = (
+                    "CRM integrations not available on your plan. "
+                    "Upgrade to Business plan for CRM integrations."
+                )
+            elif feature_key == "advanced_analytics":
+                message = (
+                    "Advanced analytics not available on your plan. "
+                    "Upgrade to Business plan for advanced analytics."
+                )
             else:
                 message = (
                     f"Feature '{feature_key}' not available on your plan. "

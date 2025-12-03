@@ -32,48 +32,76 @@ def seed_plan_features():
         # -1 means unlimited
         plan_features = {
             "free": {
-                "max_minutes": 100,  # 100 minutes per month
-                "max_assistants": 1,  # 1 assistant
-                "max_voice_clones": 0,  # No custom voices
+                "max_minutes": 30,  # 30 minutes per month
+                "max_assistants": -1,  # Unlimited assistants
+                "max_voice_clones": 0,  # No voice clones
                 "custom_voices": False,  # Cannot create custom voices
                 "api_access": False,  # No API access
                 "priority_support": False,  # Community support only
-                "analytics": False,  # No analytics dashboard
+                "analytics": True,  # Basic logs
+                "advanced_analytics": False,  # No advanced analytics
+                "webrtc_enabled": True,  # Web only
+                "all_platforms": False,  # Web only, not all platforms
+                "call_sharing": False,  # No call sharing
+                "team_members": 1,  # Solo user
+                "webhooks": False,  # No webhooks
+                "crm_integrations": False,  # No CRM integrations
                 "overage_allowed": False,  # Hard limit, no overages
                 "overage_rate_cents": 0,  # No overage billing
             },
             "starter": {
-                "max_minutes": 2000,  # 2,000 minutes per month
-                "max_assistants": 3,  # 3 assistants
-                "max_voice_clones": 2,  # 2 custom voices
+                "max_minutes": 200,  # 200 minutes per month
+                "max_assistants": -1,  # Unlimited assistants
+                "max_voice_clones": 2,  # 2 voice clones
                 "custom_voices": True,  # Can create custom voices
-                "api_access": True,  # Basic API access
+                "api_access": False,  # No API access
                 "priority_support": False,  # Email support
                 "analytics": True,  # Basic analytics
+                "advanced_analytics": False,  # No advanced analytics
+                "webrtc_enabled": True,  # WebRTC enabled
+                "all_platforms": True,  # All platforms (web, mobile, etc.)
+                "call_sharing": True,  # Call sharing enabled
+                "team_members": 1,  # Solo user
+                "webhooks": False,  # No webhooks
+                "crm_integrations": False,  # No CRM integrations
                 "overage_allowed": True,  # Allow overages
-                "overage_rate_cents": 10,  # $0.10 per minute overage
+                "overage_rate_cents": 5,  # $0.05 per minute overage
             },
             "pro": {
-                "max_minutes": 10000,  # 10,000 minutes per month
+                "max_minutes": 1000,  # 1,000 minutes per month
                 "max_assistants": -1,  # Unlimited assistants
-                "max_voice_clones": -1,  # Unlimited custom voices
+                "max_voice_clones": 11,  # 11 voice clones
+                "custom_voices": True,  # Can create custom voices
+                "api_access": True,  # API access with webhooks
+                "priority_support": True,  # Priority support
+                "analytics": True,  # Full analytics
+                "advanced_analytics": False,  # Basic advanced analytics
+                "webrtc_enabled": True,  # WebRTC enabled
+                "all_platforms": True,  # All platforms
+                "call_sharing": True,  # Call sharing enabled
+                "team_members": 3,  # Teams with 3 members
+                "webhooks": True,  # Webhooks enabled
+                "crm_integrations": False,  # No CRM integrations
+                "overage_allowed": True,  # Allow overages
+                "overage_rate_cents": 4,  # $0.04 per minute overage (discounted)
+            },
+            "business": {
+                "max_minutes": 5000,  # 5,000 minutes per month
+                "max_assistants": -1,  # Unlimited assistants
+                "max_voice_clones": -1,  # Unlimited voice clones
                 "custom_voices": True,  # Can create custom voices
                 "api_access": True,  # Full API access
-                "priority_support": True,  # Priority support
-                "analytics": True,  # Advanced analytics
-                "overage_allowed": True,  # Allow overages
-                "overage_rate_cents": 8,  # $0.08 per minute overage (discounted)
-            },
-            "enterprise": {
-                "max_minutes": -1,  # Unlimited minutes
-                "max_assistants": -1,  # Unlimited assistants
-                "max_voice_clones": -1,  # Unlimited custom voices
-                "custom_voices": True,  # Can create custom voices
-                "api_access": True,  # Full API access with higher rate limits
                 "priority_support": True,  # Dedicated support
-                "analytics": True,  # Enterprise analytics
-                "overage_allowed": True,  # Allow overages (shouldn't happen)
-                "overage_rate_cents": 0,  # No overage charges (included)
+                "analytics": True,  # Full analytics
+                "advanced_analytics": True,  # Advanced analytics
+                "webrtc_enabled": True,  # WebRTC enabled
+                "all_platforms": True,  # All platforms
+                "call_sharing": True,  # Call sharing enabled
+                "team_members": 10,  # Teams with 10 members
+                "webhooks": True,  # Webhooks enabled
+                "crm_integrations": True,  # CRM integrations enabled
+                "overage_allowed": True,  # Allow overages
+                "overage_rate_cents": 3,  # $0.03 per minute overage (best rate)
             },
         }
 
@@ -100,7 +128,14 @@ def seed_plan_features():
                     "custom_voices": "Ability to create custom voice clones",
                     "api_access": "Access to REST API",
                     "priority_support": "Priority customer support",
-                    "analytics": "Access to analytics dashboard",
+                    "analytics": "Access to basic analytics/logs",
+                    "advanced_analytics": "Access to advanced analytics dashboard",
+                    "webrtc_enabled": "WebRTC voice calls enabled",
+                    "all_platforms": "Access from all platforms (web, mobile, telephony)",
+                    "call_sharing": "Ability to share call recordings",
+                    "team_members": "Maximum number of team members",
+                    "webhooks": "Webhook integrations for events",
+                    "crm_integrations": "CRM system integrations",
                     "overage_allowed": "Allow usage beyond plan limits",
                     "overage_rate_cents": "Cost per minute for overage usage (in cents)",
                 }
@@ -123,7 +158,7 @@ def seed_plan_features():
         print("PLAN FEATURES SUMMARY")
         print("="*80)
 
-        for plan_name in ["free", "starter", "pro", "enterprise"]:
+        for plan_name in ["free", "starter", "pro", "business"]:
             if plan_name not in plans:
                 continue
 
