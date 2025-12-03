@@ -28,19 +28,18 @@ aiortc>=1.9.0  # WebRTC support
 aiohttp>=3.10.0  # Required by pipecat-ai
 
 # LiveKit - Voice AI Platform (WebRTC-based) - v1.x API
-# Using latest 1.x versions
+# Pin to exact versions to avoid pip backtracking
 livekit>=1.0.0
-livekit-agents>=1.0.0
-livekit-plugins-deepgram>=1.0.0
-livekit-plugins-cartesia>=1.0.0
-livekit-plugins-openai>=1.0.0
-livekit-plugins-anthropic>=1.0.0
-livekit-plugins-silero>=1.0.0
+livekit-agents==1.1.7
+livekit-plugins-deepgram==1.1.7
+livekit-plugins-cartesia==1.1.7
+livekit-plugins-openai==1.1.7
+livekit-plugins-anthropic==1.1.7
+livekit-plugins-silero==1.1.7
 
-# OpenTelemetry - Pin for livekit-agents compatibility (LogData import)
-opentelemetry-api>=1.20.0,<1.28.0
-opentelemetry-sdk>=1.20.0,<1.28.0
-opentelemetry-exporter-otlp-proto-grpc>=1.20.0,<1.28.0
+# OpenTelemetry - Pin exact version for livekit-agents 1.1.7 compatibility
+opentelemetry-api==1.21.0
+opentelemetry-sdk==1.21.0
 
 # Web Framework
 fastapi>=0.115.0
