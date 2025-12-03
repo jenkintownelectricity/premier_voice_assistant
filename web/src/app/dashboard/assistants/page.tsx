@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { Input } from '@/components/Input';
-import { VoiceCall } from '@/components/VoiceCall';
+import { VoiceCallWrapper } from '@/components/VoiceCallWrapper';
 import { useAuth } from '@/lib/auth-context';
 import { api } from '@/lib/api';
 
@@ -1266,10 +1266,11 @@ export default function AssistantsPage() {
 
       {/* Voice Call - Side Panel */}
       {activeCall && user && (
-        <VoiceCall
+        <VoiceCallWrapper
           assistantId={activeCall.id}
           assistantName={activeCall.name}
           userId={user.id}
+          defaultMode="livekit"
           onClose={() => {
             setActiveCall(null);
             loadAssistants(); // Refresh to update call count
