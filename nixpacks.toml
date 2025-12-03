@@ -1,0 +1,6 @@
+# Nixpacks configuration for Railway
+# Specify Python 3.11 for compatibility with all packages
+# (TTS/Coqui requires Python <3.12, pipecat-ai requires >=3.10)
+
+[phases.setup]
+nixPkgs = ["python311", "python311Packages.pip"]
