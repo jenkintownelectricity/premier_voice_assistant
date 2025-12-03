@@ -3084,6 +3084,102 @@ async def get_admin_status(
             "message": "CARTESIA_API_KEY not set - using Modal batch TTS"
         }
 
+    # Check LiveKit (WebRTC Voice Agent)
+    livekit_url = os.getenv("LIVEKIT_URL", "")
+    livekit_api_key = os.getenv("LIVEKIT_API_KEY", "")
+    livekit_api_secret = os.getenv("LIVEKIT_API_SECRET", "")
+    if livekit_url and livekit_api_key and livekit_api_secret:
+        # Parse URL for display
+        display_url = livekit_url.replace("wss://", "").replace("ws://", "")[:30]
+        status["services"]["livekit"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"WebRTC enabled ({display_url}...)"
+        }
+    elif livekit_url or livekit_api_key:
+        missing = []
+        if not livekit_url:
+            missing.append("LIVEKIT_URL")
+        if not livekit_api_key:
+            missing.append("LIVEKIT_API_KEY")
+        if not livekit_api_secret:
+            missing.append("LIVEKIT_API_SECRET")
+        status["services"]["livekit"] = {
+            "status": "partial",
+            "latency_ms": None,
+            "message": f"Missing: {', '.join(missing)}"
+        }
+    else:
+        status["services"]["livekit"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "LiveKit not configured - WebRTC voice disabled"
+        }
+
+    # Check Groq (Fast LLM)
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if groq_key:
+        status["services"]["groq"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"Groq LPU enabled (key ends in ...{groq_key[-4:]})"
+        }
+    else:
+        status["services"]["groq"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "GROQ_API_KEY not set"
+        }
+
+    # Check Fast Brain (Custom BitNet LPU)
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if fast_brain_url:
+        display_brain_url = fast_brain_url[:40]
+        status["services"]["fast_brain"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"Custom LPU ({display_brain_url}...)"
+        }
+    else:
+        status["services"]["fast_brain"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "FAST_BRAIN_URL not set - using Groq fallback"
+        }
+
+    # Voice Agent status - which LLM will be used
+    voice_agent_llm = "none"
+    voice_agent_status = "not_configured"
+    voice_agent_message = "No LLM configured for voice agent"
+
+    if fast_brain_url:
+        voice_agent_llm = "fast_brain"
+        voice_agent_status = "configured"
+        voice_agent_message = "Using Fast Brain (Custom BitNet LPU)"
+    elif groq_key:
+        voice_agent_llm = "groq"
+        voice_agent_status = "fallback"
+        voice_agent_message = "Using Groq LPU (Fast Brain not configured)"
+    elif anthropic_key:
+        voice_agent_llm = "anthropic"
+        voice_agent_status = "fallback"
+        voice_agent_message = "Using Anthropic Claude (Groq not configured)"
+
+    status["voice_agent"] = {
+        "status": voice_agent_status,
+        "active_llm": voice_agent_llm,
+        "message": voice_agent_message,
+        "livekit_enabled": bool(livekit_url and livekit_api_key and livekit_api_secret),
+        "fallback_chain": ["fast_brain", "groq", "anthropic"],
+        "configured_llms": [
+            llm for llm, configured in [
+                ("fast_brain", bool(fast_brain_url)),
+                ("groq", bool(groq_key)),
+                ("anthropic", bool(anthropic_key)),
+            ] if configured
+        ]
+    }
+
     # Streaming pipeline status
     streaming_enabled = bool(deepgram_key and cartesia_key)
     status["streaming"] = {

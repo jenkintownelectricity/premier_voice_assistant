@@ -22,6 +22,15 @@ interface StreamingStatus {
   message: string;
 }
 
+interface VoiceAgentStatus {
+  status: string;
+  active_llm: string;
+  message: string;
+  livekit_enabled: boolean;
+  fallback_chain: string[];
+  configured_llms: string[];
+}
+
 interface SystemStatus {
   status: string;
   timestamp: string;
@@ -33,8 +42,12 @@ interface SystemStatus {
     twilio: ServiceStatus;
     deepgram?: ServiceStatus;
     cartesia?: ServiceStatus;
+    livekit?: ServiceStatus;
+    groq?: ServiceStatus;
+    fast_brain?: ServiceStatus;
   };
   streaming?: StreamingStatus;
+  voice_agent?: VoiceAgentStatus;
   environment: {
     python_version: string;
     env: string;
@@ -76,6 +89,18 @@ const SERVICE_LINKS: Record<string, { url: string; docs: string }> = {
   cartesia: {
     url: 'https://play.cartesia.ai',
     docs: 'https://docs.cartesia.ai'
+  },
+  livekit: {
+    url: 'https://cloud.livekit.io',
+    docs: 'https://docs.livekit.io'
+  },
+  groq: {
+    url: 'https://console.groq.com',
+    docs: 'https://console.groq.com/docs'
+  },
+  fast_brain: {
+    url: 'https://modal.com/apps',
+    docs: 'https://modal.com/docs'
   },
   railway: {
     url: 'https://railway.app/dashboard',
@@ -468,6 +493,184 @@ export default function DeveloperDashboard() {
                 </ol>
               </div>
             )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Voice Agent Status */}
+      <Card className={
+        status?.voice_agent?.status === 'configured'
+          ? 'border-purple-500/30 bg-purple-900/5'
+          : status?.voice_agent?.status === 'fallback'
+            ? 'border-yellow-500/30 bg-yellow-900/5'
+            : 'border-red-500/30 bg-red-900/5'
+      }>
+        <CardTitle>
+          <div className="flex items-center gap-3">
+            <span>Voice Agent LLM</span>
+            {status?.voice_agent?.status === 'configured' ? (
+              <span className="px-2 py-1 bg-purple-500/20 text-purple-400 text-xs rounded-full font-medium">
+                Primary
+              </span>
+            ) : status?.voice_agent?.status === 'fallback' ? (
+              <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded-full font-medium">
+                Fallback Mode
+              </span>
+            ) : (
+              <span className="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded-full font-medium">
+                Not Configured
+              </span>
+            )}
+          </div>
+        </CardTitle>
+        <CardContent>
+          <div className="mt-4">
+            {/* Active LLM Status */}
+            <div className={`p-4 rounded-lg mb-4 ${
+              status?.voice_agent?.status === 'configured'
+                ? 'bg-purple-500/10 border border-purple-500/30'
+                : status?.voice_agent?.status === 'fallback'
+                  ? 'bg-yellow-500/10 border border-yellow-500/30'
+                  : 'bg-red-500/10 border border-red-500/30'
+            }`}>
+              <div className="flex items-center gap-3 mb-2">
+                <div className={`w-3 h-3 rounded-full ${
+                  status?.voice_agent?.status === 'configured'
+                    ? 'bg-purple-500 animate-pulse'
+                    : status?.voice_agent?.status === 'fallback'
+                      ? 'bg-yellow-500'
+                      : 'bg-red-500'
+                }`} />
+                <span className={`font-semibold ${
+                  status?.voice_agent?.status === 'configured'
+                    ? 'text-purple-400'
+                    : status?.voice_agent?.status === 'fallback'
+                      ? 'text-yellow-400'
+                      : 'text-red-400'
+                }`}>
+                  {status?.voice_agent?.message || 'Checking LLM status...'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-400">Active LLM:</span>
+                  <span className="ml-2 text-white font-medium capitalize">
+                    {status?.voice_agent?.active_llm?.replace('_', ' ') || 'None'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">LiveKit:</span>
+                  <span className={`ml-2 font-medium ${status?.voice_agent?.livekit_enabled ? 'text-green-400' : 'text-red-400'}`}>
+                    {status?.voice_agent?.livekit_enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Fallback Chain:</span>
+                  <span className="ml-2 text-gray-300 text-xs">
+                    {status?.voice_agent?.fallback_chain?.join(' → ') || 'N/A'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-400">Configured:</span>
+                  <span className="ml-2 text-green-400 text-xs">
+                    {status?.voice_agent?.configured_llms?.join(', ') || 'None'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* LLM Services Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Fast Brain */}
+              <div className={`p-4 rounded-lg border ${
+                status?.services?.fast_brain?.status === 'configured'
+                  ? 'bg-oled-gray border-purple-500/30'
+                  : 'bg-oled-gray border-gray-800'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">🧠</span>
+                    <span className="text-white font-semibold">Fast Brain</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${status?.services?.fast_brain?.status === 'configured' ? 'text-purple-400' : 'text-gray-400'}`}>
+                      {status?.services?.fast_brain?.status === 'configured' ? 'Primary' : 'Not Set'}
+                    </span>
+                    <div className={`w-3 h-3 rounded-full ${status?.services?.fast_brain?.status === 'configured' ? 'bg-purple-500' : 'bg-gray-500'}`} />
+                  </div>
+                </div>
+                <div className="text-gray-400 text-sm mb-2">{status?.services?.fast_brain?.message || 'Custom BitNet LPU'}</div>
+                <div className="flex gap-2">
+                  <a href={SERVICE_LINKS.fast_brain?.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-shine">
+                    Dashboard
+                  </a>
+                  <span className="text-gray-600">|</span>
+                  <a href={SERVICE_LINKS.fast_brain?.docs} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-white">
+                    Docs
+                  </a>
+                </div>
+              </div>
+
+              {/* Groq */}
+              <div className={`p-4 rounded-lg border ${
+                status?.services?.groq?.status === 'configured'
+                  ? 'bg-oled-gray border-yellow-500/30'
+                  : 'bg-oled-gray border-gray-800'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">⚡</span>
+                    <span className="text-white font-semibold">Groq</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${status?.services?.groq?.status === 'configured' ? 'text-yellow-400' : 'text-gray-400'}`}>
+                      {status?.services?.groq?.status === 'configured' ? 'Fallback 1' : 'Not Set'}
+                    </span>
+                    <div className={`w-3 h-3 rounded-full ${status?.services?.groq?.status === 'configured' ? 'bg-yellow-500' : 'bg-gray-500'}`} />
+                  </div>
+                </div>
+                <div className="text-gray-400 text-sm mb-2">{status?.services?.groq?.message || 'Groq LPU Inference'}</div>
+                <div className="flex gap-2">
+                  <a href={SERVICE_LINKS.groq?.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-shine">
+                    Dashboard
+                  </a>
+                  <span className="text-gray-600">|</span>
+                  <a href={SERVICE_LINKS.groq?.docs} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-white">
+                    Docs
+                  </a>
+                </div>
+              </div>
+
+              {/* LiveKit */}
+              <div className={`p-4 rounded-lg border ${
+                status?.services?.livekit?.status === 'configured'
+                  ? 'bg-oled-gray border-green-500/30'
+                  : 'bg-oled-gray border-gray-800'
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">📡</span>
+                    <span className="text-white font-semibold">LiveKit</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs ${status?.services?.livekit?.status === 'configured' ? 'text-green-400' : 'text-gray-400'}`}>
+                      {status?.services?.livekit?.status === 'configured' ? 'WebRTC' : 'Not Set'}
+                    </span>
+                    <div className={`w-3 h-3 rounded-full ${status?.services?.livekit?.status === 'configured' ? 'bg-green-500' : 'bg-gray-500'}`} />
+                  </div>
+                </div>
+                <div className="text-gray-400 text-sm mb-2">{status?.services?.livekit?.message || 'WebRTC Voice Transport'}</div>
+                <div className="flex gap-2">
+                  <a href={SERVICE_LINKS.livekit?.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-shine">
+                    Dashboard
+                  </a>
+                  <span className="text-gray-600">|</span>
+                  <a href={SERVICE_LINKS.livekit?.docs} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-white">
+                    Docs
+                  </a>
+                </div>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
