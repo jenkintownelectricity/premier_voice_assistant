@@ -1067,6 +1067,251 @@ ENABLE_BARGE_IN=true
 
 ---
 
+### Session: December 4, 2025 - LiveKit WebRTC & Pricing Overhaul
+
+**Objective**: Set up LiveKit voice agent worker and update pricing structure.
+
+#### Issues Fixed
+
+**1. LiveKit Worker Deployment Issues**
+- `aiohttp proxy TypeError` - Resolved with proper dependency pinning
+- `opentelemetry LogData import error` - Pinned to `opentelemetry-api==1.21.0`
+- `pip backtracking (19+ minutes)` - Pinned `livekit-agents==1.1.7` and all plugins
+- Python version compatibility - Configured Python 3.11 via `runtime.txt` and `nixpacks.toml`
+
+**2. LIVEKIT_URL 401 Error**
+- Web service was using placeholder URL
+- Required adding LIVEKIT_URL to Railway web service environment
+
+#### New Pricing Structure
+
+| Plan | Price | Minutes | Voice Clones | Features |
+|------|-------|---------|--------------|----------|
+| Free | $0/mo | 30 | 0 | Web only, basic logs |
+| Starter | $9.99/mo | 200 | 2 | All platforms, call sharing |
+| Pro | $29.99/mo | 1,000 | 11 | Teams (3), webhooks, priority |
+| Business | $79.99/mo | 5,000 | Unlimited | Teams (10), CRM, advanced analytics |
+
+**New Feature Gates Added:**
+- `all_platforms` - Multi-platform access
+- `call_sharing` - Share call recordings
+- `team_members` - Team member limits
+- `webhooks` - Webhook integrations
+- `crm_integrations` - CRM system integrations
+- `advanced_analytics` - Advanced analytics dashboard
+
+#### Developer Dashboard Enhancements
+- Voice Agent LLM status card
+- Shows active LLM (Fast Brain → Groq → Anthropic)
+- LiveKit, Groq, Fast Brain connection status
+- Fallback chain visualization
+
+#### Files Modified
+- `requirements.txt` - Pinned livekit-agents, opentelemetry versions
+- `runtime.txt` - Python 3.11
+- `nixpacks.toml` - Nixpacks config for Railway
+- `scripts/seed_plan_features.py` - New pricing tiers and 16 features per plan
+- `web/src/app/dashboard/subscription/page.tsx` - Updated frontend pricing UI
+- `backend/feature_gates.py` - Error messages for new features
+- `web/src/app/dashboard/developer/page.tsx` - Voice Agent LLM status section
+- `backend/main.py` - Added service status checks for LiveKit, Groq, Fast Brain
+
+**Branch**: `claude/fix-livekit-url-config-012h6fFQv12QCtacVEjWsaZe`
+
+---
+
 *Built with Claude AI, designed for humans.*
 
-**Last Updated**: 2025-11-28
+**Last Updated**: 2025-12-04
+
+---
+
+## Next Claude Code Session Instructions
+
+### Current Branch Status
+All work is on branch: `claude/fix-livekit-url-config-012h6fFQv12QCtacVEjWsaZe`
+
+### Pending Database Updates (REQUIRED)
+Run this SQL in Supabase SQL Editor before deploying:
+
+```sql
+-- Update plan names and prices
+UPDATE va_subscription_plans
+SET plan_name = 'business', display_name = 'Business', price_cents = 7999
+WHERE plan_name = 'enterprise';
+
+UPDATE va_subscription_plans SET price_cents = 0 WHERE plan_name = 'free';
+UPDATE va_subscription_plans SET price_cents = 999 WHERE plan_name = 'starter';
+UPDATE va_subscription_plans SET price_cents = 2999 WHERE plan_name = 'pro';
+```
+
+Then run the seed script:
+```bash
+python scripts/seed_plan_features.py
+```
+
+### Stripe Updates Required
+Create/update products in Stripe Dashboard:
+- Starter: $9.99/month
+- Pro: $29.99/month
+- Business: $79.99/month
+
+Update `stripe_price_id` in `va_subscription_plans` table.
+
+### Railway Environment Variables
+**Web Service** needs:
+- `LIVEKIT_URL` - Your LiveKit cloud URL (wss://your-project.livekit.cloud)
+
+**Worker Service** needs:
+- `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
+- `GROQ_API_KEY` (for LLM fallback if Fast Brain not configured)
+- `DEEPGRAM_API_KEY`, `CARTESIA_API_KEY` (for STT/TTS)
+
+### What's Working
+- Pricing structure updated (Free/Starter/Pro/Business)
+- Developer dashboard shows Voice Agent LLM status
+- LiveKit worker dependencies pinned (livekit-agents==1.1.7)
+- Python 3.11 configured for Railway
+
+---
+
+## Fast Brain Development Guide
+
+### Overview
+Fast Brain is a custom BitNet LPU (Language Processing Unit) designed for ultra-low latency voice AI responses. It serves as the primary LLM in the voice agent fallback chain:
+
+```
+Fast Brain (primary) → Groq (fallback 1) → Anthropic Claude (fallback 2)
+```
+
+### Architecture
+Fast Brain runs on Modal with GPU acceleration for sub-50ms inference latency.
+
+### Key Files to Create/Modify
+```
+fast_brain/
+├── modal_app.py          # Modal deployment entry point
+├── model.py              # BitNet model wrapper
+├── inference.py          # Streaming inference handler
+├── api.py                # HTTP/WebSocket endpoints
+└── config.py             # Model configuration
+```
+
+### Development Steps
+
+#### 1. Set Up Modal Project
+```bash
+cd premier_voice_assistant
+mkdir -p fast_brain
+modal setup  # Authenticate with Modal
+```
+
+#### 2. Create Modal App Structure
+```python
+# fast_brain/modal_app.py
+import modal
+
+app = modal.App("fast-brain")
+
+# GPU image with model dependencies
+image = modal.Image.debian_slim(python_version="3.11").pip_install(
+    "torch",
+    "transformers",
+    "bitnet",  # or your BitNet implementation
+    "fastapi",
+    "uvicorn"
+)
+
+@app.cls(gpu="A10G", image=image, container_idle_timeout=300)
+class FastBrain:
+    @modal.enter()
+    def load_model(self):
+        # Load BitNet model into GPU memory
+        pass
+
+    @modal.method()
+    def generate(self, prompt: str, max_tokens: int = 256) -> str:
+        # Streaming generation
+        pass
+
+    @modal.web_endpoint(method="POST")
+    def chat(self, request: dict):
+        # HTTP endpoint for voice agent
+        pass
+```
+
+#### 3. Implement Streaming Response
+```python
+# fast_brain/inference.py
+async def stream_generate(prompt: str):
+    """Stream tokens for ultra-low TTFB."""
+    for token in model.generate_stream(prompt):
+        yield token
+```
+
+#### 4. Deploy to Modal
+```bash
+modal deploy fast_brain/modal_app.py
+```
+
+#### 5. Get Endpoint URL
+After deployment, Modal provides a URL like:
+```
+https://your-username--fast-brain-fastbrain-chat.modal.run
+```
+
+#### 6. Configure in Railway Worker
+Add to Railway worker environment:
+```
+FAST_BRAIN_URL=https://your-username--fast-brain-fastbrain-chat.modal.run
+```
+
+### Integration with Voice Agent
+
+The LiveKit voice agent (`worker/voice_agent.py`) already checks for Fast Brain:
+
+```python
+# LLM selection priority
+if os.getenv("FAST_BRAIN_URL"):
+    llm = FastBrainLLM(url=os.getenv("FAST_BRAIN_URL"))
+elif os.getenv("GROQ_API_KEY"):
+    llm = GroqLLM(api_key=os.getenv("GROQ_API_KEY"))
+else:
+    llm = AnthropicLLM(api_key=os.getenv("ANTHROPIC_API_KEY"))
+```
+
+### Performance Targets
+| Metric | Target | Notes |
+|--------|--------|-------|
+| TTFB | <50ms | Time to first token |
+| Throughput | >500 tok/s | Tokens per second |
+| Cold start | <5s | Container spinup |
+| Warm latency | <30ms | Already loaded |
+
+### Testing Fast Brain
+```bash
+# Test endpoint directly
+curl -X POST https://your-fast-brain-url/chat \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Hello, how can I help you today?", "max_tokens": 100}'
+
+# Monitor in Modal dashboard
+modal app logs fast-brain
+```
+
+### Claude Code Session Prompt for Fast Brain
+```
+I'm working on the Fast Brain custom BitNet LPU for the Premier Voice Assistant.
+It needs to:
+1. Run on Modal with GPU (A10G or better)
+2. Provide streaming inference with <50ms TTFB
+3. Expose HTTP/WebSocket endpoints for the voice agent
+4. Handle the system prompt for phone answering scenarios
+
+Current files are in fast_brain/ directory.
+The voice agent worker expects FAST_BRAIN_URL environment variable.
+
+Please help me [implement/debug/optimize] the Fast Brain deployment.
+```
+
+---
