@@ -7235,6 +7235,166 @@ async def websocket_lightning_endpoint(
 # =============================================================================
 
 
+# =============================================================================
+# FAST BRAIN SKILLS ENDPOINTS
+# =============================================================================
+
+@app.get("/api/fast-brain/health")
+async def get_fast_brain_health():
+    """
+    Check Fast Brain LPU health and get info.
+    Returns status, available skills, and backend info.
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        return {
+            "status": "not_configured",
+            "message": "FAST_BRAIN_URL not set",
+            "skills_available": [],
+        }
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        health_info = await client.get_health_info()
+        await client.close()
+        return health_info
+    except Exception as e:
+        logger.error(f"Fast Brain health check failed: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "skills_available": [],
+        }
+
+
+@app.get("/api/fast-brain/skills")
+async def get_fast_brain_skills():
+    """
+    Fetch available skills from Fast Brain LPU.
+    Returns list of skills with id, name, and description.
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        return {"skills": [], "error": "Fast Brain not configured"}
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        skills = await client.list_skills()
+        await client.close()
+        return {
+            "skills": [
+                {
+                    "id": s.id,
+                    "name": s.name,
+                    "description": s.description,
+                    "version": s.version,
+                }
+                for s in skills
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch Fast Brain skills: {e}")
+        return {"skills": [], "error": str(e)}
+
+
+class CreateSkillRequest(BaseModel):
+    """Request body for creating a custom skill."""
+    skill_id: str
+    name: str
+    description: str
+    system_prompt: str
+    knowledge: list[str] = []
+
+
+@app.post("/api/fast-brain/skills")
+async def create_fast_brain_skill(
+    request: CreateSkillRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Create a custom skill in Fast Brain LPU.
+    Requires X-User-ID header for authorization.
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        raise HTTPException(status_code=503, detail="Fast Brain not configured")
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        result = await client.create_skill(
+            skill_id=request.skill_id,
+            name=request.name,
+            description=request.description,
+            system_prompt=request.system_prompt,
+            knowledge=request.knowledge,
+        )
+        await client.close()
+
+        if result:
+            return {"success": True, "skill": result}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create skill")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create Fast Brain skill: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class FastBrainChatRequest(BaseModel):
+    """Request body for Fast Brain chat."""
+    message: str
+    skill: str = "receptionist"
+    user_profile: Optional[str] = None
+    max_tokens: int = 256
+
+
+@app.post("/api/fast-brain/chat")
+async def fast_brain_chat(
+    request: FastBrainChatRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Send a chat message to Fast Brain LPU.
+    Uses the specified skill for the conversation.
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        raise HTTPException(status_code=503, detail="Fast Brain not configured")
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        response = await client.think(
+            user_input=request.message,
+            skill=request.skill,
+            user_profile=request.user_profile,
+            max_tokens=request.max_tokens,
+        )
+        await client.close()
+
+        return {
+            "response": response.text,
+            "skill_used": response.skill_used,
+            "latency_ms": response.latency_ms,
+            "tokens_used": response.tokens_used,
+            "tokens_per_sec": response.tokens_per_sec,
+        }
+
+    except Exception as e:
+        logger.error(f"Fast Brain chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# END FAST BRAIN ENDPOINTS
+# =============================================================================
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -7279,6 +7439,11 @@ if __name__ == "__main__":
     print("  POST   /lightning/voice-clone         - Clone voice (3-10s audio)")
     print("  POST   /lightning/localize            - Localize voice to other languages")
     print("  WS     /ws/lightning/{assistant_id}   - Full voice streaming pipeline")
+    print("\n🧠 Fast Brain LPU (Custom Skills Engine):")
+    print("  GET    /api/fast-brain/health         - Fast Brain health check")
+    print("  GET    /api/fast-brain/skills         - List available skills")
+    print("  POST   /api/fast-brain/skills         - Create custom skill")
+    print("  POST   /api/fast-brain/chat           - Chat with skill selection")
     print("\n" + "=" * 60)
 
     uvicorn.run(
