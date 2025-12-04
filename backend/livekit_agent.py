@@ -420,9 +420,11 @@ class HiveVoiceAgent:
 
             if self._llm is None and self.config.groq_api_key:
                 # Use OpenAI plugin with Groq's OpenAI-compatible API
-                self._llm = openai.LLM.with_groq(
+                self._llm = openai.LLM(
                     model=self.config.groq_model,
                     temperature=self.config.temperature,
+                    api_key=self.config.groq_api_key,
+                    base_url="https://api.groq.com/openai/v1",
                 )
                 logger.info(f"Groq LLM initialized (model={self.config.groq_model})")
             elif self._llm is None and self.config.openai_api_key:
@@ -619,11 +621,13 @@ async def entrypoint(ctx: JobContext):
         except Exception as e:
             logger.warning(f"Fast Brain initialization failed: {e}, trying fallback...")
 
-    # Fallback to Groq
+    # Fallback to Groq (using OpenAI-compatible API)
     if llm is None and config.groq_api_key:
-        llm = openai.LLM.with_groq(
+        llm = openai.LLM(
             model=config.groq_model,
             temperature=config.temperature,
+            api_key=config.groq_api_key,
+            base_url="https://api.groq.com/openai/v1",
         )
         logger.info(f"Groq LLM initialized: {config.groq_model}")
 
