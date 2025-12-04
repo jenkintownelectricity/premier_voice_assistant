@@ -3131,15 +3131,38 @@ async def get_admin_status(
             "message": "GROQ_API_KEY not set"
         }
 
-    # Check Fast Brain (Custom BitNet LPU)
+    # Check Fast Brain (Custom Groq-powered LPU)
     fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
     if fast_brain_url:
-        display_brain_url = fast_brain_url[:40]
-        status["services"]["fast_brain"] = {
-            "status": "configured",
-            "latency_ms": 0,
-            "message": f"Custom LPU ({display_brain_url}...)"
-        }
+        try:
+            import httpx
+            start = time.time()
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{fast_brain_url.rstrip('/')}/health")
+                latency = int((time.time() - start) * 1000)
+                if response.status_code == 200:
+                    health_data = response.json()
+                    skills_count = len(health_data.get("skills_available", []))
+                    status["services"]["fast_brain"] = {
+                        "status": "healthy",
+                        "latency_ms": latency,
+                        "message": f"Online - {skills_count} skills available (~80ms TTFB)",
+                        "skills_available": health_data.get("skills_available", []),
+                        "backend": health_data.get("backend", "groq"),
+                    }
+                else:
+                    status["services"]["fast_brain"] = {
+                        "status": "error",
+                        "latency_ms": latency,
+                        "message": f"Health check failed: HTTP {response.status_code}"
+                    }
+        except Exception as e:
+            display_brain_url = fast_brain_url[:40]
+            status["services"]["fast_brain"] = {
+                "status": "configured",
+                "latency_ms": None,
+                "message": f"Configured but unreachable ({display_brain_url}...) - {str(e)[:50]}"
+            }
     else:
         status["services"]["fast_brain"] = {
             "status": "not_configured",
@@ -3152,10 +3175,24 @@ async def get_admin_status(
     voice_agent_status = "not_configured"
     voice_agent_message = "No LLM configured for voice agent"
 
-    if fast_brain_url:
+    # Check Fast Brain health status from the check above
+    fast_brain_healthy = status["services"].get("fast_brain", {}).get("status") == "healthy"
+
+    if fast_brain_url and fast_brain_healthy:
         voice_agent_llm = "fast_brain"
         voice_agent_status = "configured"
-        voice_agent_message = "Using Fast Brain (Custom BitNet LPU)"
+        skills = status["services"]["fast_brain"].get("skills_available", [])
+        voice_agent_message = f"Using Fast Brain (~80ms TTFB, {len(skills)} skills)"
+    elif fast_brain_url:
+        # Fast Brain configured but not healthy - fall back
+        if groq_key:
+            voice_agent_llm = "groq"
+            voice_agent_status = "fallback"
+            voice_agent_message = "Fast Brain unreachable - using Groq fallback"
+        elif anthropic_key:
+            voice_agent_llm = "anthropic"
+            voice_agent_status = "fallback"
+            voice_agent_message = "Fast Brain unreachable - using Anthropic fallback"
     elif groq_key:
         voice_agent_llm = "groq"
         voice_agent_status = "fallback"
@@ -3212,6 +3249,116 @@ async def get_admin_status(
         status["stats"] = {"error": str(e)}
 
     return status
+
+
+# ============================================================================
+# FAST BRAIN SKILLS API
+# ============================================================================
+
+@app.get("/api/skills/fast-brain")
+async def get_fast_brain_skills():
+    """
+    Fetch available skills from Fast Brain LPU.
+
+    Returns:
+        - skills: List of available skill adapters
+        - error: Error message if Fast Brain is unavailable
+
+    Skills include: general, receptionist, electrician, plumber, lawyer
+    """
+    import httpx
+
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        return {
+            "skills": [],
+            "error": "FAST_BRAIN_URL not configured",
+            "message": "Fast Brain not set up - configure FAST_BRAIN_URL environment variable"
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Try /v1/skills endpoint first
+            response = await client.get(f"{fast_brain_url.rstrip('/')}/v1/skills")
+            if response.status_code == 200:
+                return response.json()
+
+            # Fallback to /health endpoint which includes skills_available
+            response = await client.get(f"{fast_brain_url.rstrip('/')}/health")
+            if response.status_code == 200:
+                health_data = response.json()
+                skills = health_data.get("skills_available", [])
+                # Convert simple skill list to full skill objects
+                return {
+                    "skills": [
+                        {
+                            "id": skill if isinstance(skill, str) else skill.get("id", skill),
+                            "name": skill.title() if isinstance(skill, str) else skill.get("name", skill),
+                            "description": f"{skill.title()} skill adapter" if isinstance(skill, str) else skill.get("description", ""),
+                        }
+                        for skill in skills
+                    ]
+                }
+
+            return {"skills": [], "error": f"Fast Brain returned HTTP {response.status_code}"}
+
+    except httpx.TimeoutException:
+        return {"skills": [], "error": "Fast Brain request timed out"}
+    except Exception as e:
+        return {"skills": [], "error": str(e)}
+
+
+class FastBrainSkillCreate(BaseModel):
+    """Request model for creating a custom Fast Brain skill."""
+    name: str
+    description: Optional[str] = None
+    system_prompt: str
+    examples: Optional[List[Dict]] = None
+
+
+@app.post("/api/skills/fast-brain")
+async def create_fast_brain_skill(skill: FastBrainSkillCreate):
+    """
+    Create a custom skill in Fast Brain.
+
+    Body:
+        - name: Skill name (e.g., "my_business")
+        - description: Human-readable description
+        - system_prompt: The system prompt for this skill
+        - examples: Optional list of example conversations
+
+    Returns:
+        - success: Whether the skill was created
+        - skill: The created skill object
+        - error: Error message if creation failed
+    """
+    import httpx
+
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        return {
+            "success": False,
+            "error": "FAST_BRAIN_URL not configured"
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{fast_brain_url.rstrip('/')}/v1/skills",
+                json=skill.model_dump()
+            )
+            if response.status_code in [200, 201]:
+                return {"success": True, "skill": response.json()}
+            else:
+                return {
+                    "success": False,
+                    "error": f"Fast Brain returned HTTP {response.status_code}: {response.text[:200]}"
+                }
+
+    except httpx.TimeoutException:
+        return {"success": False, "error": "Fast Brain request timed out"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @app.post("/admin/upgrade-user")

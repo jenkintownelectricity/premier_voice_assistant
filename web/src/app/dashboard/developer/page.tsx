@@ -12,6 +12,8 @@ interface ServiceStatus {
   status: string;
   latency_ms: number | null;
   message: string;
+  skills_available?: string[];
+  backend?: string;
 }
 
 interface StreamingStatus {
@@ -583,9 +585,11 @@ export default function DeveloperDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Fast Brain */}
               <div className={`p-4 rounded-lg border ${
-                status?.services?.fast_brain?.status === 'configured'
+                status?.services?.fast_brain?.status === 'healthy'
                   ? 'bg-oled-gray border-purple-500/30'
-                  : 'bg-oled-gray border-gray-800'
+                  : status?.services?.fast_brain?.status === 'configured'
+                    ? 'bg-oled-gray border-yellow-500/30'
+                    : 'bg-oled-gray border-gray-800'
               }`}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
@@ -593,13 +597,35 @@ export default function DeveloperDashboard() {
                     <span className="text-white font-semibold">Fast Brain</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-xs ${status?.services?.fast_brain?.status === 'configured' ? 'text-purple-400' : 'text-gray-400'}`}>
-                      {status?.services?.fast_brain?.status === 'configured' ? 'Primary' : 'Not Set'}
+                    <span className={`text-xs ${
+                      status?.services?.fast_brain?.status === 'healthy' ? 'text-purple-400' :
+                      status?.services?.fast_brain?.status === 'configured' ? 'text-yellow-400' : 'text-gray-400'
+                    }`}>
+                      {status?.services?.fast_brain?.status === 'healthy' ? 'Online' :
+                       status?.services?.fast_brain?.status === 'configured' ? 'Configured' : 'Not Set'}
                     </span>
-                    <div className={`w-3 h-3 rounded-full ${status?.services?.fast_brain?.status === 'configured' ? 'bg-purple-500' : 'bg-gray-500'}`} />
+                    <div className={`w-3 h-3 rounded-full ${
+                      status?.services?.fast_brain?.status === 'healthy' ? 'bg-purple-500 animate-pulse' :
+                      status?.services?.fast_brain?.status === 'configured' ? 'bg-yellow-500' : 'bg-gray-500'
+                    }`} />
                   </div>
                 </div>
-                <div className="text-gray-400 text-sm mb-2">{status?.services?.fast_brain?.message || 'Custom BitNet LPU'}</div>
+                <div className="text-gray-400 text-sm mb-2">{status?.services?.fast_brain?.message || 'Groq-powered LPU'}</div>
+                {status?.services?.fast_brain?.latency_ms && (
+                  <div className="text-xs text-gray-500 mb-2">{status.services.fast_brain.latency_ms}ms health check</div>
+                )}
+                {status?.services?.fast_brain?.skills_available && status.services.fast_brain.skills_available.length > 0 && (
+                  <div className="mb-3">
+                    <div className="text-xs text-gray-500 mb-1">Available Skills:</div>
+                    <div className="flex flex-wrap gap-1">
+                      {status.services.fast_brain.skills_available.map((skill: string) => (
+                        <span key={skill} className="px-2 py-0.5 bg-purple-900/30 text-purple-300 text-xs rounded">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <a href={SERVICE_LINKS.fast_brain?.url} target="_blank" rel="noopener noreferrer" className="text-xs text-gold hover:text-gold-shine">
                     Dashboard
