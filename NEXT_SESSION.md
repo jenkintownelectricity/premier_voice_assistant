@@ -1,181 +1,181 @@
 # HIVE215 - Next Session Instructions
 
-**Last Updated:** November 29, 2025
-**Previous Session:** Implemented Lightning Stack Phase 1 (Sub-150ms Voice AI)
+**Last Updated:** December 4, 2025
+**Previous Session:** Fast Brain LPU Integration
 
 ---
 
-## What Was Completed (Phase 1: Lightning Stack)
+## What Was Completed (Fast Brain Integration)
 
-### New Files Created
-```
-backend/
-├── groq_client.py        # Groq LPU streaming LLM (40ms TTFT)
-├── cartesia_client.py    # Cartesia Sonic-3 TTS (42 languages, voice cloning)
-├── deepgram_client.py    # Deepgram Nova-3 STT (36+ languages)
-├── sentence_detector.py  # Real-time sentence boundary detection
-└── lightning_pipeline.py # Unified orchestrator
-```
+### Backend Changes (`backend/main.py`)
+- Enhanced `/admin/status` with actual Fast Brain health check + latency
+- Added `GET /api/skills/fast-brain` - Fetch available skills
+- Added `POST /api/skills/fast-brain` - Create custom skills
+- Updated voice_agent status to check Fast Brain health before selecting
 
-### API Endpoints Added to main.py
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/lightning/status` | GET | Pipeline status & config |
-| `/lightning/languages` | GET | Supported languages |
-| `/lightning/chat` | POST | Fast LLM chat (Groq) |
-| `/lightning/tts` | POST | Ultra-fast TTS (Cartesia) |
-| `/lightning/voice-clone` | POST | Clone voice from audio |
-| `/lightning/localize` | POST | Localize voice to other languages |
-| `/ws/lightning/{assistant_id}` | WS | Full voice streaming pipeline |
+### Frontend Changes (`web/src/app/dashboard/developer/page.tsx`)
+- Fast Brain card shows Online/Configured/Not Set states
+- Displays available skills as purple tags
+- Shows health check latency
 
-### Configuration Updated
-- `requirements.txt` - Added `groq>=0.11.0`
-- `.env.example` - Added Groq, Deepgram, Cartesia settings
-- `config/settings.py` - Updated latency targets to 200ms
-- `README.md` - Added Lightning Stack documentation
+### Already Working
+- `backend/brain_client.py` - Full FastBrainClient (HTTP + WebSocket)
+- `backend/livekit_agent.py` - BrainLLM class integrates with LiveKit
+- Voice agent fallback chain: Fast Brain → Groq → Anthropic
 
 ---
 
-## How to Test
+## Current Status
 
-### 1. Set API Keys
+### What's Working
+- Fast Brain detected and showing as "Primary" LLM
+- Developer dashboard displays Fast Brain status
+- Skills API endpoints ready
+- Fallback chain configured
 
-Get free API keys:
-- **Groq**: https://console.groq.com (FREE tier!)
-- **Deepgram**: https://console.deepgram.com ($200 free credit)
-- **Cartesia**: https://play.cartesia.ai (trial available)
+### Issue to Fix
+**LiveKit 401 Error**: `https://your-project.livekit.cloud` is a placeholder.
 
-Add to `.env`:
+Need actual LiveKit credentials in Railway:
 ```bash
-GROQ_API_KEY=gsk_...
+LIVEKIT_URL=wss://your-actual-project.livekit.cloud
+LIVEKIT_API_KEY=your_api_key
+LIVEKIT_API_SECRET=your_api_secret
+```
+
+Get from: https://cloud.livekit.io → Settings → Keys
+
+---
+
+## Environment Variables (Railway Backend)
+
+### Currently Set
+```bash
+FAST_BRAIN_URL=https://jenkintownelectricity--fast-brain-api-fastapi-app.modal.run
+GROQ_API_KEY=...
+ANTHROPIC_API_KEY=...
 DEEPGRAM_API_KEY=...
 CARTESIA_API_KEY=...
-ANTHROPIC_API_KEY=sk-ant-...  # Fallback
 ```
 
-### 2. Install Dependencies
+### Need to Set
 ```bash
-pip install groq
-```
-
-### 3. Test Lightning Pipeline Directly
-```bash
-python backend/lightning_pipeline.py
-```
-
-### 4. Run Backend
-```bash
-uvicorn backend.main:app --reload
-```
-
-### 5. Test API Endpoints
-```bash
-# Check status
-curl http://localhost:8000/lightning/status
-
-# Test LLM (requires GROQ_API_KEY or ANTHROPIC_API_KEY)
-curl -X POST http://localhost:8000/lightning/chat \
-  -H "Content-Type: application/json" \
-  -H "X-User-ID: test" \
-  -d '{"message": "Hello!"}'
-
-# Test TTS (requires CARTESIA_API_KEY)
-curl -X POST http://localhost:8000/lightning/tts \
-  -H "Content-Type: application/json" \
-  -H "X-User-ID: test" \
-  -d '{"text": "Hello world!"}'
+LIVEKIT_URL=wss://your-project.livekit.cloud
+LIVEKIT_API_KEY=...
+LIVEKIT_API_SECRET=...
 ```
 
 ---
 
-## Architecture Overview
+## Fast Brain Quick Reference
 
+### Deployed URL
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  LIGHTNING STACK - Sub-150ms Voice AI                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Audio In                                                   │
-│      ↓                                                      │
-│  Deepgram Nova-3 (STT)  ─────────────────────> ~30ms       │
-│      ↓                                                      │
-│  Groq Llama 3.3 70B (LLM) ───────────────────> ~40ms TTFT  │
-│      ↓                                                      │
-│  Sentence Detector ──────────────────────────> ~0.1ms      │
-│      ↓                                                      │
-│  Cartesia Sonic-3 (TTS) ─────────────────────> ~30ms TTFB  │
-│      ↓                                                      │
-│  Audio Out                                                  │
-│                                                             │
-│  SECRET: TTS starts on FIRST SENTENCE, not full response!  │
-│                                                             │
-│  Total perceived latency: ~150ms                            │
-│  (Human conversation threshold: 500ms)                      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+https://jenkintownelectricity--fast-brain-api-fastapi-app.modal.run
+```
+
+### Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check with skills list |
+| `/v1/skills` | GET | List all skills |
+| `/v1/skills` | POST | Create custom skill |
+| `/v1/chat/completions` | POST | Chat (OpenAI format) |
+
+### Skills Available
+- `general` - Default assistant
+- `receptionist` - Professional call handling
+- `electrician` - Electrical service intake
+- `plumber` - Plumbing service intake
+- `lawyer` - Legal intake calls
+
+### Test Fast Brain
+```bash
+# Health check
+curl https://jenkintownelectricity--fast-brain-api-fastapi-app.modal.run/health
+
+# Chat completion
+curl -X POST https://jenkintownelectricity--fast-brain-api-fastapi-app.modal.run/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "Hello!"}], "skill": "receptionist"}'
 ```
 
 ---
 
-## Key Files to Know
+## Voice Pipeline Architecture
 
-| File | Purpose |
-|------|---------|
-| `backend/main.py` | FastAPI app with all endpoints |
-| `backend/lightning_pipeline.py` | Main orchestrator |
-| `backend/groq_client.py` | Groq LLM with Claude fallback |
-| `backend/cartesia_client.py` | TTS + voice cloning |
-| `backend/deepgram_client.py` | STT + multi-language |
-| `backend/sentence_detector.py` | Sentence boundary detection |
-| `.env.example` | All environment variables |
-| `config/settings.py` | Configuration settings |
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    HIVE215 VOICE PIPELINE                         │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│   Caller → Twilio → LiveKit Worker → Fast Brain LPU → Response   │
+│                          │                  │                     │
+│                    [Deepgram STT]    ┌──────┴──────┐              │
+│                       ~100ms         │   Groq      │              │
+│                          │           │ Llama 3.3   │              │
+│                    [Cartesia TTS]    │   70B       │              │
+│                       ~40ms          └─────────────┘              │
+│                          │                  │                     │
+│                   [Audio Response]   [Skills Database]            │
+│                                                                   │
+│   Latency: Deepgram ~100ms + Fast Brain ~80ms + Cartesia ~40ms   │
+│   Total: ~220ms (target <500ms ✓)                                │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## Next Steps (Priority Order)
 
-### Phase 2: Edge Network (Optional)
-Add LiveKit or Daily.co for:
-- WebRTC (better than WebSocket for audio)
-- Global edge POPs (lower latency worldwide)
-- VAD/AEC at edge (noise suppression, echo cancellation)
+### 1. Fix LiveKit Connection
+Set actual LiveKit credentials in Railway to enable voice calls.
 
-### Phase 3: Bilingual Translation
-- Real-time translation with voice cloning
-- User A speaks English → User B hears Spanish (in User A's voice!)
-- Uses Cartesia Localize for cross-lingual voice
+### 2. Test Full Voice Flow
+1. Call Twilio number
+2. Verify Fast Brain responds (~80ms TTFB)
+3. Check fallback works if Fast Brain down
 
-### Phase 4: Global Deployment
-- Configure all 42 TTS languages
-- Set up regional voices
-- Multi-language pricing tiers
+### 3. Add Skill Selection UI
+Allow users to select which skill their assistant uses from dashboard.
 
-### Phase 5: Frontend Integration
-- Update web frontend to use `/ws/lightning/{assistant_id}`
-- Add latency metrics display
-- Add voice cloning UI
+### 4. Custom Skills
+Enable creating business-specific skills through the dashboard.
 
 ---
 
-## Cost Estimates
+## Key Files Reference
 
-At 10,000 calls/month (2 min avg):
-```
-Deepgram STT:  $86/mo
-Groq LLM:      $12/mo  (mostly free tier!)
-Cartesia TTS:  $120/mo
-─────────────────────
-Total:         ~$220/mo ($0.022/call)
-```
-
-At $99/customer × 100 customers = $9,900 revenue
-**Gross margin: ~97%**
+| File | Purpose |
+|------|---------|
+| `backend/main.py` | API endpoints including `/api/skills/fast-brain` |
+| `backend/brain_client.py` | FastBrainClient for HTTP/WebSocket |
+| `backend/livekit_agent.py` | Voice agent with BrainLLM integration |
+| `web/src/app/dashboard/developer/page.tsx` | Fast Brain status display |
+| `screenshots/HIVE215_INTEGRATION.md` | Full integration guide |
 
 ---
 
-## Questions for Next Session
+## Branch Information
 
-1. Do you want to add LiveKit/Daily.co edge network?
-2. Should we implement bilingual translation?
-3. Any specific languages to prioritize?
-4. Do you want to update the web frontend to use `/ws/lightning/`?
+**Current Branch:** `claude/integrate-fast-brain-lpu-01UtorJFkpFmGieoY5J2yCFZ`
+
+All Fast Brain integration changes are committed and pushed.
+
+---
+
+## Claude Code Session Prompt
+
+```
+I'm continuing work on HIVE215 voice assistant. Last session we integrated Fast Brain LPU.
+
+Current status:
+- Fast Brain is configured and detected as primary LLM
+- Need to fix LiveKit credentials (currently shows 401 error)
+- Skills API is ready at /api/skills/fast-brain
+
+Fast Brain URL: https://jenkintownelectricity--fast-brain-api-fastapi-app.modal.run
+
+Please help me [fix LiveKit / add skill selection UI / test voice flow].
+```
