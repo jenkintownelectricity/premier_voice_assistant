@@ -38,6 +38,7 @@ from livekit.agents import (
     JobProcess,
     WorkerOptions,
     llm as lk_llm,
+    room_io,
 )
 from livekit import rtc
 
@@ -949,20 +950,8 @@ Be natural and engaging, like talking to a friend."""
         except Exception as e:
             logger.warning(f"Could not load turn detector: {e}")
 
-    # Initialize noise cancellation if available
-    # BVCTelephony: Optimized for telephony audio (8kHz, narrowband)
-    # Cleans up phone audio for better STT accuracy
-    nc = None
-    if NOISE_CANCELLATION_AVAILABLE and noise_cancellation:
-        try:
-            nc = noise_cancellation.BVCTelephony()
-            logger.info("Noise Cancellation (BVCTelephony) initialized - phone audio cleanup enabled")
-        except Exception as e:
-            logger.warning(f"Could not load noise cancellation: {e}")
-
-    # Create and start the session with turn detection and noise cancellation
+    # Create the session with turn detection settings
     session = AgentSession(
-        noise_cancellation=nc,  # Layer 1: Clean up phone audio
         vad=vad,
         stt=stt,
         llm=llm,
@@ -1105,9 +1094,23 @@ Be natural and engaging, like talking to a friend."""
         except Exception as e:
             logger.warning(f"Failed to process settings update: {e}")
 
+    # Initialize noise cancellation if available (for room_input_options)
+    # BVCTelephony: Optimized for telephony audio (8kHz, narrowband)
+    nc = None
+    if NOISE_CANCELLATION_AVAILABLE and noise_cancellation:
+        try:
+            nc = noise_cancellation.BVCTelephony()
+            logger.info("Noise Cancellation (BVCTelephony) initialized - phone audio cleanup enabled")
+        except Exception as e:
+            logger.warning(f"Could not load noise cancellation: {e}")
+
+    # Start session with noise cancellation via room_input_options
     await session.start(
         agent=agent,
         room=ctx.room,
+        room_input_options=room_io.RoomInputOptions(
+            noise_cancellation=nc,
+        ) if nc else None,
     )
     logger.info("AgentSession started")
 
