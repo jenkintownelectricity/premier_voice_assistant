@@ -930,13 +930,11 @@ Be natural and engaging, like talking to a friend."""
 
     # Track transcript for call log
     transcript: List[Dict[str, str]] = []
-    import time
     call_start_time = time.time()
 
     # Get room metadata for call log
     room_metadata = {}
     try:
-        import json
         if ctx.room.metadata:
             room_metadata = json.loads(ctx.room.metadata)
     except Exception as e:
