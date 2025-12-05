@@ -931,53 +931,97 @@ Be natural and engaging, like talking to a friend."""
     # are already initialized above (lines 831-854). No re-initialization needed here.
 
     # Set up session event handlers for transcript and latency tracking
-    @session.on("user_speech_started")
-    def on_user_speech_started():
-        """Track when user starts speaking (for STT timing)."""
-        latency.start_stt()
-        logger.debug("User speech started")
+    # Using current LiveKit SDK event names
 
-    @session.on("user_speech_committed")
-    def on_user_speech_committed(msg):
-        """User finished speaking, STT complete."""
-        latency.end_stt()
-        latency.start_llm()  # LLM processing starts
-        content = str(msg.content) if hasattr(msg, 'content') else str(msg)
-        transcript.append({"role": "user", "content": content, "timestamp": time.time()})
-        logger.info(f"User: {content[:50]}...")
-        # Publish transcript update
-        asyncio.create_task(_publish_transcript(ctx.room, "user", content))
-        # Analyze and publish sentiment
-        asyncio.create_task(sentiment.publish(content))
+    @session.on("user_state_changed")
+    def on_user_state_changed(event):
+        """Track user state changes for latency."""
+        state = event.state if hasattr(event, 'state') else str(event)
+        if state == "speaking":
+            latency.start_stt()
+            logger.debug("User started speaking")
+        elif state == "listening":
+            latency.end_stt()
+            logger.debug("User stopped speaking")
 
-    @session.on("agent_speech_started")
-    def on_agent_speech_started():
-        """Agent started speaking (TTS first byte reached)."""
-        latency.end_llm_first_token()
-        latency.start_tts()
-        latency.end_tts_first_byte()
-        # Publish latency metrics
-        asyncio.create_task(latency.publish_metrics())
-        logger.debug("Agent speech started")
+    @session.on("user_input_transcribed")
+    def on_user_input_transcribed(event):
+        """User speech transcribed - capture for transcript."""
+        try:
+            # Get transcript text from event
+            text = ""
+            if hasattr(event, 'transcript'):
+                text = event.transcript
+            elif hasattr(event, 'text'):
+                text = event.text
+            else:
+                text = str(event)
 
-    @session.on("agent_speech_committed")
-    def on_agent_speech_committed(msg):
-        """Agent finished speaking."""
-        latency.end_tts()
-        latency.end_llm()
-        content = str(msg.content) if hasattr(msg, 'content') else str(msg)
-        transcript.append({"role": "assistant", "content": content, "timestamp": time.time()})
-        logger.info(f"Assistant: {content[:50]}...")
-        # Publish transcript update
-        asyncio.create_task(_publish_transcript(ctx.room, "assistant", content))
-        # Finalize turn metrics
-        latency.finalize_turn()
+            # Only capture final transcripts, not interim
+            is_final = getattr(event, 'is_final', True)
+            if is_final and text.strip():
+                transcript.append({
+                    "role": "user",
+                    "content": text,
+                    "timestamp": time.strftime("%H:%M:%S")
+                })
+                logger.info(f"User: {text[:50]}...")
+                # Publish transcript update
+                asyncio.create_task(_publish_transcript(ctx.room, "user", text))
+                # Analyze and publish sentiment
+                asyncio.create_task(sentiment.publish(text))
+                latency.start_llm()  # LLM processing starts
+        except Exception as e:
+            logger.warning(f"Error processing user transcript: {e}")
 
-    @session.on("agent_speech_interrupted")
-    def on_interrupted():
-        """Handle barge-in."""
-        latency.finalize_turn()
-        logger.info("User interrupted assistant")
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(event):
+        """Track agent state changes."""
+        state = event.state if hasattr(event, 'state') else str(event)
+        if state == "speaking":
+            latency.end_llm_first_token()
+            latency.start_tts()
+            latency.end_tts_first_byte()
+            asyncio.create_task(latency.publish_metrics())
+            logger.debug("Agent started speaking")
+        elif state == "listening":
+            latency.end_tts()
+            latency.end_llm()
+            latency.finalize_turn()
+            logger.debug("Agent stopped speaking")
+
+    @session.on("conversation_item_added")
+    def on_conversation_item_added(event):
+        """Capture conversation items for transcript."""
+        try:
+            # Get the item from the event
+            item = getattr(event, 'item', event)
+            role = getattr(item, 'role', None)
+
+            # Only capture assistant messages (user messages handled by user_input_transcribed)
+            if role == "assistant":
+                content = ""
+                if hasattr(item, 'content'):
+                    # Content might be a list of parts or a string
+                    if isinstance(item.content, list):
+                        content = " ".join(str(p) for p in item.content)
+                    else:
+                        content = str(item.content)
+                elif hasattr(item, 'text'):
+                    content = item.text
+                else:
+                    content = str(item)
+
+                if content.strip():
+                    transcript.append({
+                        "role": "assistant",
+                        "content": content,
+                        "timestamp": time.strftime("%H:%M:%S")
+                    })
+                    logger.info(f"Assistant: {content[:50]}...")
+                    asyncio.create_task(_publish_transcript(ctx.room, "assistant", content))
+        except Exception as e:
+            logger.warning(f"Error processing conversation item: {e}")
 
     # Handle settings updates from frontend
     @ctx.room.on("data_received")
