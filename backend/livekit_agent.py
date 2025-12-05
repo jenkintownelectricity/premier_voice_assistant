@@ -945,8 +945,10 @@ Be natural and engaging, like talking to a friend."""
     assistant_id = room_metadata.get("assistant_id")
 
     # Initialize latency tracker and sentiment analyzer
-    latency = LatencyTracker(ctx.room)
-    sentiment = SentimentAnalyzer(ctx.room)
+    latency = LatencyTracker()
+    latency.set_room(ctx.room)
+    sentiment = SentimentAnalyzer()
+    sentiment.set_room(ctx.room)
 
     # Set up session event handlers for transcript and latency tracking
     @session.on("user_speech_started")
