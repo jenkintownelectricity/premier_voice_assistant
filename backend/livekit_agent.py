@@ -927,10 +927,11 @@ Be natural and engaging, like talking to a friend."""
         tts=tts,
     )
 
-<<<<<<< HEAD
+
     # Track transcript for call log
     transcript: List[Dict[str, str]] = []
-    call_start_time = None
+    import time
+    call_start_time = time.time()
 
     # Get room metadata for call log
     room_metadata = {}
@@ -945,19 +946,10 @@ Be natural and engaging, like talking to a friend."""
     user_id = room_metadata.get("user_id")
     assistant_id = room_metadata.get("assistant_id")
 
-    # Set up transcript tracking
-    @session.on("user_message")
-    def on_user_message(msg):
-        content = str(msg.content) if hasattr(msg, 'content') else str(msg)
-        transcript.append({"role": "user", "content": content})
-        logger.debug(f"User: {content[:50]}...")
+    # Initialize latency tracker and sentiment analyzer
+    latency = LatencyTracker(ctx.room)
+    sentiment = SentimentAnalyzer(ctx.room)
 
-    @session.on("agent_message")
-    def on_agent_message(msg):
-        content = str(msg.content) if hasattr(msg, 'content') else str(msg)
-        transcript.append({"role": "assistant", "content": content})
-        logger.debug(f"Assistant: {content[:50]}...")
-=======
     # Set up session event handlers for transcript and latency tracking
     @session.on("user_speech_started")
     def on_user_speech_started():
@@ -1024,7 +1016,6 @@ Be natural and engaging, like talking to a friend."""
                     # which isn't easily done mid-call. These settings are logged for future use.
         except Exception as e:
             logger.warning(f"Failed to process settings update: {e}")
->>>>>>> origin/claude/resume-brain-integration-01GXUgLZPtGML2Xe3pZGhbLz
 
     await session.start(
         agent=agent,
@@ -1032,10 +1023,6 @@ Be natural and engaging, like talking to a friend."""
     )
     logger.info("AgentSession started")
 
-<<<<<<< HEAD
-    import time
-    call_start_time = time.time()
-=======
     # Send initial config to frontend
     try:
         config_data = json.dumps({
@@ -1048,33 +1035,12 @@ Be natural and engaging, like talking to a friend."""
         await ctx.room.local_participant.publish_data(config_data, topic="config", reliable=True)
     except Exception as e:
         logger.warning(f"Failed to publish config: {e}")
->>>>>>> origin/claude/resume-brain-integration-01GXUgLZPtGML2Xe3pZGhbLz
 
     # Generate initial greeting
     await session.generate_reply(
         instructions="Greet the user warmly and ask how you can help them today."
     )
 
-<<<<<<< HEAD
-    # Wait for session to end (room disconnect)
-    # The session will end when the user disconnects
-    try:
-        # Keep the session alive until disconnected
-        disconnected = asyncio.Event()
-
-        @ctx.room.on("disconnected")
-        def on_disconnected():
-            disconnected.set()
-
-        await disconnected.wait()
-    except Exception as e:
-        logger.info(f"Session ended: {e}")
-    finally:
-        # Save transcript to call log
-        if call_id and SUPABASE_AVAILABLE:
-            try:
-                duration = int(time.time() - call_start_time) if call_start_time else 0
-=======
     # Wait for the session to end (room closes)
     try:
         # Keep running until room is closed
@@ -1099,19 +1065,11 @@ Be natural and engaging, like talking to a friend."""
                 duration = int(time.time() - call_start_time)
                 avg_metrics = latency.get_average_metrics()
                 sentiment_data = sentiment.get_overall()
->>>>>>> origin/claude/resume-brain-integration-01GXUgLZPtGML2Xe3pZGhbLz
                 supabase = get_supabase().client
                 supabase.table("va_call_logs").update({
                     "transcript": transcript,
                     "duration_seconds": duration,
                     "status": "completed",
-<<<<<<< HEAD
-                }).eq("id", call_id).execute()
-                logger.info(f"Call log updated: {call_id}, duration={duration}s, messages={len(transcript)}")
-            except Exception as e:
-                logger.error(f"Failed to update call log: {e}")
-
-=======
                     "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "metadata": {
                         "llm": llm_name,
@@ -1245,7 +1203,6 @@ async def _publish_transcript(room, role: str, content: str):
     except Exception as e:
         logger.warning(f"Failed to publish transcript: {e}")
 
->>>>>>> origin/claude/resume-brain-integration-01GXUgLZPtGML2Xe3pZGhbLz
 
 def prewarm(proc: JobProcess):
     """
