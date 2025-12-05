@@ -187,11 +187,20 @@ export default function DashboardLayout({
   useEffect(() => {
     const fetchSettings = async () => {
       if (!user?.id) return;
+
+      // Check localStorage first for instant updates
+      const cached = localStorage.getItem('dashboardSettings');
+      if (cached) {
+        try {
+          setDashSettings(JSON.parse(cached));
+        } catch {}
+      }
+
       try {
         const response = await profileApi.getSettings(user.id);
         // Extract only dashboard visibility settings
         const settings = response.settings || {};
-        setDashSettings({
+        const newSettings = {
           show_phone_numbers: settings.show_phone_numbers,
           show_call_logs: settings.show_call_logs,
           show_live_monitoring: settings.show_live_monitoring,
@@ -202,7 +211,9 @@ export default function DashboardLayout({
           show_teams: settings.show_teams,
           show_referrals: settings.show_referrals,
           show_developer: settings.show_developer,
-        });
+        };
+        setDashSettings(newSettings);
+        localStorage.setItem('dashboardSettings', JSON.stringify(newSettings));
       } catch {
         // Use defaults if settings fetch fails
       }
@@ -211,6 +222,20 @@ export default function DashboardLayout({
       fetchSettings();
     }
   }, [user?.id]);
+
+  // Listen for settings changes from Settings page (same-tab updates)
+  useEffect(() => {
+    const handleSettingsUpdate = (e: CustomEvent) => {
+      if (e.detail) {
+        setDashSettings(e.detail);
+      }
+    };
+
+    window.addEventListener('dashboardSettingsUpdated', handleSettingsUpdate as EventListener);
+    return () => {
+      window.removeEventListener('dashboardSettingsUpdated', handleSettingsUpdate as EventListener);
+    };
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();

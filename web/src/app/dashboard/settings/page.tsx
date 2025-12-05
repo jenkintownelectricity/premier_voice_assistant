@@ -202,6 +202,22 @@ export default function SettingsPage() {
       await profileApi.updateSettings(user.id, settings);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
+
+      // Dispatch event for instant sidebar update (no refresh needed)
+      const dashboardSettings = {
+        show_phone_numbers: settings.show_phone_numbers,
+        show_call_logs: settings.show_call_logs,
+        show_live_monitoring: settings.show_live_monitoring,
+        show_contacts: settings.show_contacts,
+        show_assistants: settings.show_assistants,
+        show_voice_clones: settings.show_voice_clones,
+        show_usage: settings.show_usage,
+        show_teams: settings.show_teams,
+        show_referrals: settings.show_referrals,
+        show_developer: settings.show_developer,
+      };
+      localStorage.setItem('dashboardSettings', JSON.stringify(dashboardSettings));
+      window.dispatchEvent(new CustomEvent('dashboardSettingsUpdated', { detail: dashboardSettings }));
     } catch (error) {
       console.error('Failed to save settings:', error);
     } finally {
