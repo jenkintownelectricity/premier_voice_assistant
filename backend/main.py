@@ -6247,6 +6247,17 @@ class UpdateSettingsRequest(BaseModel):
     language: Optional[str] = None
     webhook_enabled: Optional[bool] = None
     webhook_url: Optional[str] = None
+    # Dashboard visibility settings
+    show_phone_numbers: Optional[bool] = None
+    show_call_logs: Optional[bool] = None
+    show_live_monitoring: Optional[bool] = None
+    show_contacts: Optional[bool] = None
+    show_assistants: Optional[bool] = None
+    show_voice_clones: Optional[bool] = None
+    show_usage: Optional[bool] = None
+    show_teams: Optional[bool] = None
+    show_referrals: Optional[bool] = None
+    show_developer: Optional[bool] = None
 
 @app.get("/profile/extended")
 async def get_extended_profile(

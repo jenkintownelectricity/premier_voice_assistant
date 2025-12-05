@@ -262,16 +262,57 @@ class FeatureGate:
             Usage details or None
         """
         try:
-            # Get current period usage
-            result = self.supabase.client.from_("va_current_usage_summary") \
-                .select("*") \
-                .eq("user_id", user_id) \
-                .execute()
+            # Calculate usage from actual tables
+            client = self.supabase.client
 
-            if result.data and len(result.data) > 0:
-                return result.data[0]
+            # Count assistants
+            assistants_result = client.table("va_assistants").select(
+                "id", count="exact"
+            ).eq("user_id", user_id).execute()
+            assistants_count = assistants_result.count or 0
 
-            return None
+            # Count voice clones
+            voice_clones_result = client.table("va_voice_clones").select(
+                "id", count="exact"
+            ).eq("user_id", user_id).execute()
+            voice_clones_count = voice_clones_result.count or 0
+
+            # Get call logs for minutes used (current month)
+            from datetime import datetime
+            now = datetime.utcnow()
+            start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+            calls_result = client.table("va_call_logs").select(
+                "duration_seconds"
+            ).eq("user_id", user_id).gte(
+                "started_at", start_of_month.isoformat()
+            ).execute()
+
+            total_seconds = sum(
+                (c.get("duration_seconds") or 0) for c in (calls_result.data or [])
+            )
+            minutes_used = round(total_seconds / 60, 2)
+            conversations_count = len(calls_result.data or [])
+
+            # Get bonus minutes from user profile or referrals
+            bonus_minutes = 0
+            try:
+                profile_result = client.table("va_user_profiles").select(
+                    "bonus_minutes"
+                ).eq("user_id", user_id).single().execute()
+                if profile_result.data:
+                    bonus_minutes = profile_result.data.get("bonus_minutes", 0)
+            except Exception:
+                pass
+
+            return {
+                "user_id": user_id,
+                "minutes_used": minutes_used,
+                "bonus_minutes": bonus_minutes,
+                "conversations_count": conversations_count,
+                "voice_clones_count": voice_clones_count,
+                "assistants_count": assistants_count,
+            }
 
         except Exception as e:
             logger.error(f"Error getting user usage: {e}")

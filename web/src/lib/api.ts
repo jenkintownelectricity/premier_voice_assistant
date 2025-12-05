@@ -654,6 +654,17 @@ export const profileApi = {
         language: string;
         webhook_enabled: boolean;
         webhook_url?: string;
+        // Dashboard visibility settings
+        show_phone_numbers?: boolean;
+        show_call_logs?: boolean;
+        show_live_monitoring?: boolean;
+        show_contacts?: boolean;
+        show_assistants?: boolean;
+        show_voice_clones?: boolean;
+        show_usage?: boolean;
+        show_teams?: boolean;
+        show_referrals?: boolean;
+        show_developer?: boolean;
       };
     }>('/settings', {}, userId),
 
@@ -680,6 +691,17 @@ export const profileApi = {
     language: string;
     webhook_enabled: boolean;
     webhook_url: string;
+    // Dashboard visibility settings
+    show_phone_numbers: boolean;
+    show_call_logs: boolean;
+    show_live_monitoring: boolean;
+    show_contacts: boolean;
+    show_assistants: boolean;
+    show_voice_clones: boolean;
+    show_usage: boolean;
+    show_teams: boolean;
+    show_referrals: boolean;
+    show_developer: boolean;
   }>) =>
     fetchAPI<{ success: boolean; settings: any }>(
       '/settings',

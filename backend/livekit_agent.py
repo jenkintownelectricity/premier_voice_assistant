@@ -1046,16 +1046,31 @@ Be natural and engaging, like talking to a friend."""
                 avg_metrics = latency.get_average_metrics()
                 sentiment_data = sentiment.get_overall()
                 supabase = get_supabase().client
+                # Determine overall sentiment
+                overall_sentiment = "neutral"
+                if sentiment_data.get("average", 0) > 0.2:
+                    overall_sentiment = "positive"
+                elif sentiment_data.get("average", 0) < -0.2:
+                    overall_sentiment = "negative"
+
                 supabase.table("va_call_logs").update({
                     "transcript": transcript,
                     "duration_seconds": duration,
                     "status": "completed",
                     "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "sentiment": overall_sentiment,
+                    "summary": {
+                        "quality_score": quality_score.get("score", 0),
+                        "quality_grade": quality_score.get("grade", "C"),
+                        "quality_breakdown": quality_score.get("breakdown", {}),
+                        "sentiment_score": round(sentiment_data.get("average", 0) * 100),
+                        "urgency_level": "normal",
+                        "exchange_count": len(transcript) // 2,
+                    },
                     "metadata": {
                         "llm": llm_name,
                         "latency": avg_metrics,
-                        "sentiment": sentiment_data,
-                        "quality_score": quality_score,
+                        "sentiment_data": sentiment_data,
                         "transport": "webrtc",
                     }
                 }).eq("id", call_id).execute()
