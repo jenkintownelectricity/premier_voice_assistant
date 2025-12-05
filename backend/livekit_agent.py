@@ -44,6 +44,16 @@ from livekit import rtc
 # LiveKit Plugins
 from livekit.plugins import silero, deepgram, cartesia, openai, anthropic
 
+# Turn Detector - Uses language model to predict when user is done speaking
+# Much smarter than VAD alone - understands pauses mid-thought vs. end of turn
+# EnglishModel: 66 MB, ~15-45ms latency, 98.8% accuracy
+try:
+    from livekit.plugins.turn_detector.english import EnglishModel
+    TURN_DETECTOR_AVAILABLE = True
+except ImportError:
+    TURN_DETECTOR_AVAILABLE = False
+    EnglishModel = None
+
 # For database access (optional - may not be configured for local testing)
 try:
     from backend.supabase_client import get_supabase
@@ -919,16 +929,26 @@ Keep responses concise and conversational (1-2 sentences when possible).
 Be natural and engaging, like talking to a friend."""
     )
 
+    # Initialize Turn Detector if available
+    # Uses a language model to predict when user is done speaking
+    # Much smarter than VAD alone - understands "I need to think about that..." pauses
+    turn_detection = None
+    if TURN_DETECTOR_AVAILABLE and EnglishModel:
+        try:
+            turn_detection = EnglishModel()
+            logger.info("Turn Detector (EnglishModel) initialized - 98.8% accuracy, ~15-45ms latency")
+        except Exception as e:
+            logger.warning(f"Could not load turn detector: {e}")
+
     # Create and start the session with turn detection settings
-    # min_endpointing_delay: Wait longer before considering turn complete (reduces choppy responses)
-    # This helps prevent the agent from interrupting during natural speech pauses
     session = AgentSession(
         vad=vad,
         stt=stt,
         llm=llm,
         tts=tts,
-        min_endpointing_delay=0.8,  # Wait 0.8s of silence before responding (default is 0.5)
-        max_endpointing_delay=6.0,  # Max wait time
+        turn_detection=turn_detection,  # Smart turn detection (if available)
+        min_endpointing_delay=0.5,  # Wait 0.5s of silence before responding
+        max_endpointing_delay=6.0,  # Max wait if turn detector thinks user will continue
         allow_interruptions=True,   # Allow user to interrupt agent
     )
 

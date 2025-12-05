@@ -36,6 +36,7 @@ livekit-plugins-cartesia==1.1.7
 livekit-plugins-openai==1.1.7
 livekit-plugins-anthropic==1.1.7
 livekit-plugins-silero==1.1.7
+livekit-plugins-turn-detector==1.1.7  # Turn detector for smarter turn-taking
 
 # OpenTelemetry - Pin exact version for livekit-agents 1.1.7 compatibility
 opentelemetry-api==1.21.0
