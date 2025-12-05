@@ -54,6 +54,15 @@ except ImportError:
     TURN_DETECTOR_AVAILABLE = False
     EnglishModel = None
 
+# Noise Cancellation - Cleans up phone audio for better STT accuracy
+# BVCTelephony: Optimized for telephony audio (8kHz, narrowband)
+try:
+    from livekit.plugins import noise_cancellation
+    NOISE_CANCELLATION_AVAILABLE = True
+except ImportError:
+    NOISE_CANCELLATION_AVAILABLE = False
+    noise_cancellation = None
+
 # For database access (optional - may not be configured for local testing)
 try:
     from backend.supabase_client import get_supabase
@@ -940,8 +949,20 @@ Be natural and engaging, like talking to a friend."""
         except Exception as e:
             logger.warning(f"Could not load turn detector: {e}")
 
-    # Create and start the session with turn detection settings
+    # Initialize noise cancellation if available
+    # BVCTelephony: Optimized for telephony audio (8kHz, narrowband)
+    # Cleans up phone audio for better STT accuracy
+    nc = None
+    if NOISE_CANCELLATION_AVAILABLE and noise_cancellation:
+        try:
+            nc = noise_cancellation.BVCTelephony()
+            logger.info("Noise Cancellation (BVCTelephony) initialized - phone audio cleanup enabled")
+        except Exception as e:
+            logger.warning(f"Could not load noise cancellation: {e}")
+
+    # Create and start the session with turn detection and noise cancellation
     session = AgentSession(
+        noise_cancellation=nc,  # Layer 1: Clean up phone audio
         vad=vad,
         stt=stt,
         llm=llm,
