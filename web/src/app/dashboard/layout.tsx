@@ -189,7 +189,20 @@ export default function DashboardLayout({
       if (!user?.id) return;
       try {
         const response = await profileApi.getSettings(user.id);
-        setDashSettings(response.settings || {});
+        // Extract only dashboard visibility settings
+        const settings = response.settings || {};
+        setDashSettings({
+          show_phone_numbers: settings.show_phone_numbers,
+          show_call_logs: settings.show_call_logs,
+          show_live_monitoring: settings.show_live_monitoring,
+          show_contacts: settings.show_contacts,
+          show_assistants: settings.show_assistants,
+          show_voice_clones: settings.show_voice_clones,
+          show_usage: settings.show_usage,
+          show_teams: settings.show_teams,
+          show_referrals: settings.show_referrals,
+          show_developer: settings.show_developer,
+        });
       } catch {
         // Use defaults if settings fetch fails
       }
