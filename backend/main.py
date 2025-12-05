@@ -1292,6 +1292,77 @@ async def get_subscription(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/subscription/trial")
+async def start_trial(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Start a 30-day free trial with Pro plan features.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        # Check if user already had a trial
+        existing_trial = db.client.table("va_user_subscriptions").select("id").eq(
+            "user_id", user_id
+        ).eq("is_trial", True).execute()
+
+        if existing_trial.data:
+            raise HTTPException(
+                status_code=400,
+                detail="You have already used your free trial"
+            )
+
+        # Check if user already has an active paid subscription
+        existing_sub = db.client.table("va_user_subscriptions").select("id").eq(
+            "user_id", user_id
+        ).eq("status", "active").neq("plan_id", None).execute()
+
+        if existing_sub.data:
+            raise HTTPException(
+                status_code=400,
+                detail="You already have an active subscription"
+            )
+
+        # Get the Pro plan ID
+        pro_plan = db.client.table("va_subscription_plans").select("id").eq(
+            "plan_name", "pro"
+        ).execute()
+
+        if not pro_plan.data:
+            raise HTTPException(status_code=500, detail="Pro plan not found")
+
+        plan_id = pro_plan.data[0]["id"]
+
+        # Create trial subscription
+        trial_end = datetime.utcnow() + timedelta(days=30)
+
+        db.client.table("va_user_subscriptions").insert({
+            "user_id": user_id,
+            "plan_id": plan_id,
+            "status": "trialing",
+            "is_trial": True,
+            "trial_end": trial_end.isoformat(),
+            "current_period_start": datetime.utcnow().isoformat(),
+            "current_period_end": trial_end.isoformat()
+        }).execute()
+
+        return {
+            "success": True,
+            "message": "30-day free trial started! Enjoy Pro features.",
+            "trial_end": trial_end.isoformat(),
+            "plan": "pro"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting trial: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/usage")
 async def get_usage(
     user_id: str = Header(..., alias="X-User-ID"),

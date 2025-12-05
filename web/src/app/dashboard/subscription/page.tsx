@@ -75,6 +75,9 @@ export default function SubscriptionPage() {
   const [currentPlan, setCurrentPlan] = useState('free');
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isTrial, setIsTrial] = useState(false);
+  const [trialEnd, setTrialEnd] = useState<string | null>(null);
+  const [trialLoading, setTrialLoading] = useState(false);
 
   useEffect(() => {
     const fetchSubscription = async () => {
@@ -83,6 +86,8 @@ export default function SubscriptionPage() {
         const response = await api.getSubscription(user.id);
         if (response.subscription?.plan_name) {
           setCurrentPlan(response.subscription.plan_name);
+          setIsTrial(response.subscription.is_trial || false);
+          setTrialEnd(response.subscription.trial_end || null);
         }
       } catch (err) {
         console.error('Failed to fetch subscription:', err);
@@ -90,6 +95,25 @@ export default function SubscriptionPage() {
     };
     fetchSubscription();
   }, [user?.id]);
+
+  const handleStartTrial = async () => {
+    if (!user?.id) return;
+    setTrialLoading(true);
+    setError(null);
+    try {
+      const response = await api.startTrial(user.id);
+      if (response.success) {
+        setCurrentPlan('pro');
+        setIsTrial(true);
+        setTrialEnd(response.trial_end);
+        alert('30-day trial started! Enjoy Pro features.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start trial');
+    } finally {
+      setTrialLoading(false);
+    }
+  };
 
   const handleUpgrade = async (planName: string) => {
     if (!user?.id) return;
@@ -156,9 +180,14 @@ export default function SubscriptionPage() {
               <div className="text-sm text-gray-400">Current Plan</div>
               <div className="text-2xl font-bold text-gold">
                 {plans.find(p => p.name === currentPlan)?.display}
+                {isTrial && <span className="ml-2 text-sm font-normal text-yellow-400">(Trial)</span>}
               </div>
               <div className="text-gray-300">
-                ${plans.find(p => p.name === currentPlan)?.price}/month
+                {isTrial && trialEnd ? (
+                  <span>Trial ends {new Date(trialEnd).toLocaleDateString()}</span>
+                ) : (
+                  <span>${plans.find(p => p.name === currentPlan)?.price}/month</span>
+                )}
               </div>
             </div>
             <HoneycombButton variant="outline" onClick={handleManageBilling}>
@@ -167,6 +196,28 @@ export default function SubscriptionPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 30-Day Trial Card */}
+      {currentPlan === 'free' && !isTrial && (
+        <Card className="border-yellow-500/30 bg-gradient-to-r from-yellow-500/10 to-gold/10">
+          <CardContent>
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="text-xl font-bold text-yellow-400">Try Pro Free for 30 Days!</div>
+                <p className="text-gray-300 mt-1">
+                  Get full access to Pro features: 1000 minutes, 11 voice clones, webhooks, team collaboration & more.
+                </p>
+                <p className="text-sm text-gray-400 mt-2">
+                  No credit card required. Cancel anytime.
+                </p>
+              </div>
+              <HoneycombButton onClick={handleStartTrial} disabled={trialLoading}>
+                {trialLoading ? 'Starting...' : 'Start Free Trial'}
+              </HoneycombButton>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Plan Comparison */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

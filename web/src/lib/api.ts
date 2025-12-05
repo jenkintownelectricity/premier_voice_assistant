@@ -83,7 +83,16 @@ export const api = {
       status: string;
       current_period_start: string;
       current_period_end: string;
+      is_trial?: boolean;
+      trial_end?: string;
     } | null }>('/subscription', {}, userId),
+
+  startTrial: (userId: string) =>
+    fetchAPI<{ success: boolean; message: string; trial_end: string; plan: string }>(
+      '/subscription/trial',
+      { method: 'POST' },
+      userId
+    ),
 
   getUsage: (userId: string) =>
     fetchAPI<{ usage: {
