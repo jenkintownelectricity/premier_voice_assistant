@@ -518,6 +518,17 @@ export const api = {
       userId
     ),
 
+  inviteMember: (userId: string, teamId: string, email: string, role: string = 'member') =>
+    fetchAPI<{ invite_url: string; token: string; message: string }>(
+      `/teams/${teamId}/invite`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role }),
+      },
+      userId
+    ),
+
   getTeamAnalytics: (userId: string, teamId: string, days: number = 30) =>
     fetchAPI<any>(
       `/teams/${teamId}/analytics?days=${days}`,
