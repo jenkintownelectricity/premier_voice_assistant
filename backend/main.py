@@ -52,6 +52,13 @@ except ImportError:
     logger_livekit = logging.getLogger("livekit")
     logger_livekit.warning("LiveKit API not available - SDK may not be installed")
 
+# Twilio Phone/SMS Integration with LiveKit SIP
+try:
+    from backend.twilio_integration import router as twilio_router
+    TWILIO_ROUTER_AVAILABLE = True
+except ImportError:
+    TWILIO_ROUTER_AVAILABLE = False
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -269,6 +276,11 @@ app.add_middleware(
 if LIVEKIT_ROUTER_AVAILABLE:
     app.include_router(livekit_router, prefix="/livekit", tags=["livekit"])
     logger.info("LiveKit API endpoints enabled at /livekit/*")
+
+# Include Twilio router for phone/SMS with LiveKit SIP integration
+if TWILIO_ROUTER_AVAILABLE:
+    app.include_router(twilio_router, prefix="/twilio", tags=["twilio"])
+    logger.info("Twilio API endpoints enabled at /twilio/*")
 
 # Pydantic models for request/response validation
 class ChatRequest(BaseModel):
