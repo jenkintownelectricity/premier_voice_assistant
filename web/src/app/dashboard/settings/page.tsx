@@ -29,6 +29,17 @@ interface SettingsState {
   theme: string;
   webhook_enabled: boolean;
   webhook_url: string;
+  // Dashboard visibility settings
+  show_phone_numbers: boolean;
+  show_call_logs: boolean;
+  show_live_monitoring: boolean;
+  show_contacts: boolean;
+  show_assistants: boolean;
+  show_voice_clones: boolean;
+  show_usage: boolean;
+  show_teams: boolean;
+  show_referrals: boolean;
+  show_developer: boolean;
 }
 
 // LLM Providers for API key configuration
@@ -72,6 +83,17 @@ const defaultSettings: SettingsState = {
   theme: 'dark',
   webhook_enabled: false,
   webhook_url: '',
+  // Dashboard visibility - all enabled by default
+  show_phone_numbers: true,
+  show_call_logs: true,
+  show_live_monitoring: true,
+  show_contacts: true,
+  show_assistants: true,
+  show_voice_clones: true,
+  show_usage: true,
+  show_teams: true,
+  show_referrals: true,
+  show_developer: true,
 };
 
 function Toggle({ enabled, onChange, label, description }: {
@@ -458,6 +480,78 @@ export default function SettingsPage() {
                 />
               </div>
             )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Dashboard Visibility */}
+      <Card>
+        <CardTitle>Dashboard Visibility</CardTitle>
+        <CardContent>
+          <p className="text-gray-400 text-sm mb-4">
+            Customize which sections appear in your dashboard sidebar. Hidden sections are still accessible via direct URL.
+          </p>
+          <div className="divide-y divide-gray-800">
+            <Toggle
+              enabled={settings.show_phone_numbers}
+              onChange={(v) => updateSetting('show_phone_numbers', v)}
+              label="Phone Numbers"
+              description="Manage your business phone lines"
+            />
+            <Toggle
+              enabled={settings.show_call_logs}
+              onChange={(v) => updateSetting('show_call_logs', v)}
+              label="Call Logs"
+              description="View call history and transcripts"
+            />
+            <Toggle
+              enabled={settings.show_live_monitoring}
+              onChange={(v) => updateSetting('show_live_monitoring', v)}
+              label="Live Monitoring"
+              description="Real-time call monitoring dashboard"
+            />
+            <Toggle
+              enabled={settings.show_contacts}
+              onChange={(v) => updateSetting('show_contacts', v)}
+              label="Contacts"
+              description="Manage your contacts and callers"
+            />
+            <Toggle
+              enabled={settings.show_assistants}
+              onChange={(v) => updateSetting('show_assistants', v)}
+              label="Assistants"
+              description="Configure AI assistants"
+            />
+            <Toggle
+              enabled={settings.show_voice_clones}
+              onChange={(v) => updateSetting('show_voice_clones', v)}
+              label="Voice Clones"
+              description="Custom voice cloning feature"
+            />
+            <Toggle
+              enabled={settings.show_usage}
+              onChange={(v) => updateSetting('show_usage', v)}
+              label="Usage"
+              description="Track minutes and usage stats"
+            />
+            <Toggle
+              enabled={settings.show_teams}
+              onChange={(v) => updateSetting('show_teams', v)}
+              label="Teams"
+              description="Team collaboration features"
+            />
+            <Toggle
+              enabled={settings.show_referrals}
+              onChange={(v) => updateSetting('show_referrals', v)}
+              label="Referrals"
+              description="Referral program and rewards"
+            />
+            <Toggle
+              enabled={settings.show_developer}
+              onChange={(v) => updateSetting('show_developer', v)}
+              label="Developer"
+              description="API keys and developer tools"
+            />
           </div>
         </CardContent>
       </Card>

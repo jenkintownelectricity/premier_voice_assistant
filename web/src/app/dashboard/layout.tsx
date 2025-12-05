@@ -1,10 +1,24 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useAuth } from '@/lib/auth-context';
 import { Sidebar } from '@/components/Sidebar';
+import { profileApi } from '@/lib/api';
+
+interface DashboardSettings {
+  show_phone_numbers?: boolean;
+  show_call_logs?: boolean;
+  show_live_monitoring?: boolean;
+  show_contacts?: boolean;
+  show_assistants?: boolean;
+  show_voice_clones?: boolean;
+  show_usage?: boolean;
+  show_teams?: boolean;
+  show_referrals?: boolean;
+  show_developer?: boolean;
+}
 
 // SVG icons for navigation
 const HomeIcon = () => (
@@ -140,6 +154,20 @@ const navItems = [
   { name: 'Subscription', href: '/dashboard/subscription', icon: <SubscriptionIcon /> },
 ];
 
+// Map nav item names to settings keys
+const visibilityMap: Record<string, keyof DashboardSettings> = {
+  'Phone Numbers': 'show_phone_numbers',
+  'Call Logs': 'show_call_logs',
+  'Live Monitoring': 'show_live_monitoring',
+  'Contacts': 'show_contacts',
+  'Assistants': 'show_assistants',
+  'Voice Clones': 'show_voice_clones',
+  'Usage': 'show_usage',
+  'Teams': 'show_teams',
+  'Referrals': 'show_referrals',
+  'Developer': 'show_developer',
+};
+
 export default function DashboardLayout({
   children,
 }: {
@@ -147,6 +175,7 @@ export default function DashboardLayout({
 }) {
   const { user, loading, signOut } = useAuth();
   const router = useRouter();
+  const [dashSettings, setDashSettings] = useState<DashboardSettings>({});
 
   useEffect(() => {
     if (!loading && !user) {
@@ -154,10 +183,34 @@ export default function DashboardLayout({
     }
   }, [user, loading, router]);
 
+  // Fetch dashboard visibility settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      if (!user?.id) return;
+      try {
+        const response = await profileApi.getSettings(user.id);
+        setDashSettings(response.settings || {});
+      } catch {
+        // Use defaults if settings fetch fails
+      }
+    };
+    if (user?.id) {
+      fetchSettings();
+    }
+  }, [user?.id]);
+
   const handleSignOut = async () => {
     await signOut();
     router.push('/login');
   };
+
+  // Filter nav items based on visibility settings
+  const filteredNavItems = navItems.filter((item) => {
+    const settingKey = visibilityMap[item.name];
+    // If no setting key or setting is true/undefined, show item
+    if (!settingKey) return true;
+    return dashSettings[settingKey] !== false;
+  });
 
   if (loading) {
     return (
@@ -174,7 +227,7 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-screen bg-oled-black bg-honeycomb">
       <Sidebar
-        items={navItems}
+        items={filteredNavItems}
         title="Premier Voice"
         bottomItems={[
           {
