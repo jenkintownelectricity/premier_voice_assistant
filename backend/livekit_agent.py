@@ -927,28 +927,8 @@ Be natural and engaging, like talking to a friend."""
         tts=tts,
     )
 
-
-    # Track transcript for call log
-    transcript: List[Dict[str, str]] = []
-    call_start_time = time.time()
-
-    # Get room metadata for call log
-    room_metadata = {}
-    try:
-        if ctx.room.metadata:
-            room_metadata = json.loads(ctx.room.metadata)
-    except Exception as e:
-        logger.warning(f"Could not parse room metadata: {e}")
-
-    call_id = room_metadata.get("call_id")
-    user_id = room_metadata.get("user_id")
-    assistant_id = room_metadata.get("assistant_id")
-
-    # Initialize latency tracker and sentiment analyzer
-    latency = LatencyTracker()
-    latency.set_room(ctx.room)
-    sentiment = SentimentAnalyzer()
-    sentiment.set_room(ctx.room)
+    # Note: transcript, call_start_time, call_id, user_id, assistant_id, latency, sentiment
+    # are already initialized above (lines 831-854). No re-initialization needed here.
 
     # Set up session event handlers for transcript and latency tracking
     @session.on("user_speech_started")
@@ -963,7 +943,7 @@ Be natural and engaging, like talking to a friend."""
         latency.end_stt()
         latency.start_llm()  # LLM processing starts
         content = str(msg.content) if hasattr(msg, 'content') else str(msg)
-        transcript.append({"role": "user", "content": content})
+        transcript.append({"role": "user", "content": content, "timestamp": time.time()})
         logger.info(f"User: {content[:50]}...")
         # Publish transcript update
         asyncio.create_task(_publish_transcript(ctx.room, "user", content))
@@ -986,7 +966,7 @@ Be natural and engaging, like talking to a friend."""
         latency.end_tts()
         latency.end_llm()
         content = str(msg.content) if hasattr(msg, 'content') else str(msg)
-        transcript.append({"role": "assistant", "content": content})
+        transcript.append({"role": "assistant", "content": content, "timestamp": time.time()})
         logger.info(f"Assistant: {content[:50]}...")
         # Publish transcript update
         asyncio.create_task(_publish_transcript(ctx.room, "assistant", content))

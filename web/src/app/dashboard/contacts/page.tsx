@@ -38,6 +38,38 @@ export default function ContactsPage() {
     notes: '',
   });
 
+  const [errors, setErrors] = useState<{ phone?: string; email?: string }>({});
+
+  // Phone validation - E.164 format or common formats
+  const validatePhone = (phone: string): boolean => {
+    if (!phone) return true; // Optional field
+    // Accept: +1XXXXXXXXXX, (XXX) XXX-XXXX, XXX-XXX-XXXX, XXXXXXXXXX
+    const phoneRegex = /^(\+?1?\d{10,14}|\(\d{3}\)\s?\d{3}-?\d{4}|\d{3}-\d{3}-\d{4})$/;
+    return phoneRegex.test(phone.replace(/\s/g, ''));
+  };
+
+  // Email validation
+  const validateEmail = (email: string): boolean => {
+    if (!email) return true; // Optional field
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  // Format phone number to E.164
+  const formatPhone = (phone: string): string => {
+    if (!phone) return '';
+    // Strip all non-digits
+    const digits = phone.replace(/\D/g, '');
+    // If starts without country code, add +1
+    if (digits.length === 10) {
+      return `+1${digits}`;
+    }
+    if (digits.length === 11 && digits.startsWith('1')) {
+      return `+${digits}`;
+    }
+    return phone.startsWith('+') ? phone : `+${digits}`;
+  };
+
   const fetchContacts = async () => {
     if (!user?.id) return;
     try {
@@ -76,11 +108,36 @@ export default function ContactsPage() {
 
   const handleSave = async () => {
     if (!user?.id || !form.name) return;
+
+    // Validate inputs
+    const newErrors: { phone?: string; email?: string } = {};
+
+    if (form.phone && !validatePhone(form.phone)) {
+      newErrors.phone = 'Invalid phone format. Use: +1XXXXXXXXXX, (XXX) XXX-XXXX, or XXX-XXX-XXXX';
+    }
+
+    if (form.email && !validateEmail(form.email)) {
+      newErrors.email = 'Invalid email format. Use: name@example.com';
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    setErrors({});
+
+    // Format phone before saving
+    const formattedForm = {
+      ...form,
+      phone: form.phone ? formatPhone(form.phone) : '',
+    };
+
     try {
       if (editingContact) {
-        await contactsApi.updateContact(user.id, editingContact.id, form);
+        await contactsApi.updateContact(user.id, editingContact.id, formattedForm);
       } else {
-        await contactsApi.createContact(user.id, form);
+        await contactsApi.createContact(user.id, formattedForm);
       }
       setShowModal(false);
       fetchContacts();
@@ -236,18 +293,30 @@ export default function ContactsPage() {
                   <input
                     type="tel"
                     value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    className="w-full bg-oled-gray border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-gold focus:outline-none"
+                    onChange={(e) => { setForm({ ...form, phone: e.target.value }); setErrors({ ...errors, phone: undefined }); }}
+                    placeholder="+1 (555) 123-4567"
+                    className={`w-full bg-oled-gray border rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none ${
+                      errors.phone ? 'border-red-500 focus:border-red-500' : 'border-gray-700 focus:border-gold'
+                    }`}
                   />
+                  {errors.phone && (
+                    <p className="mt-1 text-xs text-red-500">{errors.phone}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm text-gray-400 mb-2">Email</label>
                   <input
                     type="email"
                     value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    className="w-full bg-oled-gray border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:border-gold focus:outline-none"
+                    onChange={(e) => { setForm({ ...form, email: e.target.value }); setErrors({ ...errors, email: undefined }); }}
+                    placeholder="name@example.com"
+                    className={`w-full bg-oled-gray border rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none ${
+                      errors.email ? 'border-red-500 focus:border-red-500' : 'border-gray-700 focus:border-gold'
+                    }`}
                   />
+                  {errors.email && (
+                    <p className="mt-1 text-xs text-red-500">{errors.email}</p>
+                  )}
                 </div>
               </div>
 

@@ -1111,7 +1111,7 @@ async def clone_voice(
 
         # Upload to Supabase Storage
         file_path = f"{user_id}/{voice_name}.wav"
-        audio_url = db.upload_audio("voice-clones", file_path, audio_bytes)
+        audio_url = db.upload_audio("va-voice-clones", file_path, audio_bytes)
 
         # Clone voice on Modal via HTTP
         assistant.initialize_modal()
@@ -5809,13 +5809,20 @@ async def add_phone_number(
             "expires_at": expires_at.isoformat()
         }).execute()
 
-        # TODO: Send SMS via Twilio
-        # For now, return code in dev mode
+        # Send SMS via Twilio
+        twilio_service = get_twilio_service()
+        sms_result = twilio_service.send_verification_code(request.phone_number, code)
+
+        if not sms_result.get("success"):
+            logger.warning(f"Failed to send SMS: {sms_result.get('error')}")
+
+        # In dev mode, also return the code for testing
+        is_dev = os.getenv("DEBUG", "false").lower() == "true"
         return {
             "success": True,
-            "message": "Verification code sent",
+            "message": "Verification code sent" if sms_result.get("success") else "Code generated (SMS failed - check logs)",
             "phone_number": request.phone_number,
-            "dev_code": code if os.getenv("DEBUG", "true").lower() == "true" else None
+            "dev_code": code if is_dev else None
         }
     except Exception as e:
         logger.error(f"Error adding phone number: {e}")

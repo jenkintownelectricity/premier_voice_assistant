@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
+import { TelephonySettings } from '@/components/TelephonySettings';
 import { useAuth } from '@/lib/auth-context';
 import { profileApi } from '@/lib/api';
 
@@ -460,6 +461,11 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Telephony Providers */}
+      <TelephonySettings
+        apiBaseUrl={process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app'}
+      />
     </div>
   );
 }

@@ -651,7 +651,7 @@ async def clone_voice(
 
         # Upload to Supabase Storage
         file_path = f"{user_id}/{voice_name}.wav"
-        audio_url = db.upload_audio("voice-clones", file_path, audio_bytes)
+        audio_url = db.upload_audio("va-voice-clones", file_path, audio_bytes)
 
         # Clone voice on Modal
         assistant.initialize_modal()

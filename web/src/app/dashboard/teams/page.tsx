@@ -56,6 +56,11 @@ export default function TeamsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamDescription, setNewTeamDescription] = useState('');
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -124,6 +129,30 @@ export default function TeamsPage() {
     } catch (err: any) {
       console.error('Error creating team:', err);
       alert('Failed to create team: ' + err.message);
+    }
+  };
+
+  const handleInviteMember = async () => {
+    if (!user?.id || !selectedTeam || !inviteEmail) return;
+
+    setInviting(true);
+    try {
+      const result = await api.inviteMember(user.id, selectedTeam, inviteEmail, inviteRole);
+      setInviteUrl(result.invite_url);
+      setInviteEmail('');
+      setInviteRole('member');
+    } catch (err: any) {
+      console.error('Error inviting member:', err);
+      alert('Failed to invite member: ' + err.message);
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const copyInviteUrl = () => {
+    if (inviteUrl) {
+      navigator.clipboard.writeText(inviteUrl);
+      alert('Invite link copied to clipboard!');
     }
   };
 
@@ -312,9 +341,12 @@ export default function TeamsPage() {
 
                       {(teamDetails.user_role === 'owner' || teamDetails.user_role === 'admin') && (
                         <div className="mt-6 pt-6 border-t border-gray-800">
-                          <p className="text-sm text-gray-400 mb-2">
-                            Add new members using the team management API
-                          </p>
+                          <button
+                            onClick={() => { setShowInviteModal(true); setInviteUrl(null); }}
+                            className="px-4 py-2 bg-[#D4AF37] text-black rounded hover:bg-[#B8941F] font-semibold"
+                          >
+                            Invite Member
+                          </button>
                         </div>
                       )}
                     </CardContent>
@@ -374,6 +406,90 @@ export default function TeamsPage() {
                   Cancel
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Invite Member Modal */}
+        {showInviteModal && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 rounded-lg p-6 max-w-md w-full">
+              <h2 className="text-2xl font-bold mb-4 text-[#D4AF37]">Invite Team Member</h2>
+
+              {inviteUrl ? (
+                <div className="space-y-4">
+                  <div className="bg-green-900/30 border border-green-700 rounded p-4">
+                    <p className="text-green-400 text-sm mb-2">Invitation created!</p>
+                    <p className="text-xs text-gray-400 mb-3">Share this link with the team member:</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={inviteUrl}
+                        readOnly
+                        className="flex-1 px-3 py-2 bg-black border border-gray-700 rounded text-sm font-mono"
+                      />
+                      <button
+                        onClick={copyInviteUrl}
+                        className="px-3 py-2 bg-[#D4AF37] text-black rounded hover:bg-[#B8941F] text-sm"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setShowInviteModal(false); setInviteUrl(null); }}
+                    className="w-full px-4 py-2 bg-gray-800 rounded hover:bg-gray-700"
+                  >
+                    Done
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Email Address</label>
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      className="w-full px-4 py-2 bg-black border border-gray-700 rounded focus:outline-none focus:border-[#D4AF37]"
+                      placeholder="colleague@example.com"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Role</label>
+                    <select
+                      value={inviteRole}
+                      onChange={(e) => setInviteRole(e.target.value)}
+                      className="w-full px-4 py-2 bg-black border border-gray-700 rounded focus:outline-none focus:border-[#D4AF37]"
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                      <option value="viewer">Viewer (Read Only)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex gap-3 mt-6">
+                    <button
+                      onClick={handleInviteMember}
+                      disabled={!inviteEmail || inviting}
+                      className="flex-1 px-4 py-2 bg-[#D4AF37] text-black rounded hover:bg-[#B8941F] font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {inviting ? 'Sending...' : 'Send Invite'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowInviteModal(false);
+                        setInviteEmail('');
+                        setInviteRole('member');
+                      }}
+                      className="px-4 py-2 bg-gray-800 rounded hover:bg-gray-700"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
