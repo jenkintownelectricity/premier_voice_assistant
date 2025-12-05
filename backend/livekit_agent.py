@@ -666,16 +666,77 @@ Be natural and engaging, like talking to a friend."""
         tts=tts,
     )
 
+    # Track transcript for call log
+    transcript: List[Dict[str, str]] = []
+    call_start_time = None
+
+    # Get room metadata for call log
+    room_metadata = {}
+    try:
+        import json
+        if ctx.room.metadata:
+            room_metadata = json.loads(ctx.room.metadata)
+    except Exception as e:
+        logger.warning(f"Could not parse room metadata: {e}")
+
+    call_id = room_metadata.get("call_id")
+    user_id = room_metadata.get("user_id")
+    assistant_id = room_metadata.get("assistant_id")
+
+    # Set up transcript tracking
+    @session.on("user_message")
+    def on_user_message(msg):
+        content = str(msg.content) if hasattr(msg, 'content') else str(msg)
+        transcript.append({"role": "user", "content": content})
+        logger.debug(f"User: {content[:50]}...")
+
+    @session.on("agent_message")
+    def on_agent_message(msg):
+        content = str(msg.content) if hasattr(msg, 'content') else str(msg)
+        transcript.append({"role": "assistant", "content": content})
+        logger.debug(f"Assistant: {content[:50]}...")
+
     await session.start(
         agent=agent,
         room=ctx.room,
     )
     logger.info("AgentSession started")
 
+    import time
+    call_start_time = time.time()
+
     # Generate initial greeting
     await session.generate_reply(
         instructions="Greet the user warmly and ask how you can help them today."
     )
+
+    # Wait for session to end (room disconnect)
+    # The session will end when the user disconnects
+    try:
+        # Keep the session alive until disconnected
+        disconnected = asyncio.Event()
+
+        @ctx.room.on("disconnected")
+        def on_disconnected():
+            disconnected.set()
+
+        await disconnected.wait()
+    except Exception as e:
+        logger.info(f"Session ended: {e}")
+    finally:
+        # Save transcript to call log
+        if call_id and SUPABASE_AVAILABLE:
+            try:
+                duration = int(time.time() - call_start_time) if call_start_time else 0
+                supabase = get_supabase().client
+                supabase.table("va_call_logs").update({
+                    "transcript": transcript,
+                    "duration_seconds": duration,
+                    "status": "completed",
+                }).eq("id", call_id).execute()
+                logger.info(f"Call log updated: {call_id}, duration={duration}s, messages={len(transcript)}")
+            except Exception as e:
+                logger.error(f"Failed to update call log: {e}")
 
 
 def prewarm(proc: JobProcess):
