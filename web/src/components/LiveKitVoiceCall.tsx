@@ -357,7 +357,7 @@ function ActiveCall({
     }
   }, [sentimentMessage]);
 
-  // Process quality score (end of call)
+  // Process quality score (end of call) - only show after meaningful call
   useEffect(() => {
     if (qualityMessage) {
       try {
@@ -370,13 +370,16 @@ function ActiveCall({
             message_count: data.message_count,
             duration_seconds: data.duration_seconds,
           });
-          setShowQualityModal(true);
+          // Only show modal if call lasted > 10 seconds (prevents early/stale scores)
+          if (data.duration_seconds > 10 && connectionState !== ConnectionState.Connected) {
+            setShowQualityModal(true);
+          }
         }
       } catch (e) {
         console.error('Failed to parse quality message:', e);
       }
     }
-  }, [qualityMessage]);
+  }, [qualityMessage, connectionState]);
 
   // Listen for room events
   useEffect(() => {
