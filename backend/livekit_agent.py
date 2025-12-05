@@ -936,41 +936,54 @@ Be natural and engaging, like talking to a friend."""
     # are already initialized above (lines 831-854). No re-initialization needed here.
 
     # Set up session event handlers for transcript and latency tracking
-    # Using current LiveKit SDK event names
+    # Using current LiveKit SDK event names (v1.1.7)
+
+    # Log all events for debugging
+    @session.on("*")
+    def on_any_event(event_name, *args):
+        """Debug: Log all session events to understand what's being fired."""
+        logger.info(f"[SESSION EVENT] {event_name}: {args[:1] if args else 'no args'}")
 
     @session.on("user_state_changed")
     def on_user_state_changed(event):
         """Track user state changes for latency."""
         state = event.state if hasattr(event, 'state') else str(event)
+        logger.info(f"[USER STATE] Changed to: {state}")
         if state == "speaking":
             latency.start_stt()
-            logger.debug("User started speaking")
         elif state == "listening":
             latency.end_stt()
-            logger.debug("User stopped speaking")
 
     @session.on("user_input_transcribed")
     def on_user_input_transcribed(event):
         """User speech transcribed - capture for transcript."""
+        logger.info(f"[USER TRANSCRIPT EVENT] Received: {event}")
         try:
-            # Get transcript text from event
+            # Get transcript text from event - try all possible property names
             text = ""
             if hasattr(event, 'transcript'):
                 text = event.transcript
             elif hasattr(event, 'text'):
                 text = event.text
+            elif hasattr(event, 'content'):
+                text = event.content
+            elif hasattr(event, 'message'):
+                text = str(event.message)
             else:
                 text = str(event)
+                logger.warning(f"[USER TRANSCRIPT] Unknown event format: {dir(event)}")
 
             # Only capture final transcripts, not interim
             is_final = getattr(event, 'is_final', True)
+            logger.info(f"[USER TRANSCRIPT] text='{text[:50]}...', is_final={is_final}")
+
             if is_final and text.strip():
                 transcript.append({
                     "role": "user",
                     "content": text,
                     "timestamp": time.strftime("%H:%M:%S")
                 })
-                logger.info(f"User: {text[:50]}...")
+                logger.info(f"[TRANSCRIPT SAVED] User: {text[:50]}...")
                 # Publish transcript update
                 asyncio.create_task(_publish_transcript(ctx.room, "user", text))
                 # Analyze and publish sentiment
@@ -983,25 +996,27 @@ Be natural and engaging, like talking to a friend."""
     def on_agent_state_changed(event):
         """Track agent state changes."""
         state = event.state if hasattr(event, 'state') else str(event)
+        logger.info(f"[AGENT STATE] Changed to: {state}")
         if state == "speaking":
             latency.end_llm_first_token()
             latency.start_tts()
             latency.end_tts_first_byte()
             asyncio.create_task(latency.publish_metrics())
-            logger.debug("Agent started speaking")
+            logger.info("[LATENCY] Publishing metrics")
         elif state == "listening":
             latency.end_tts()
             latency.end_llm()
             latency.finalize_turn()
-            logger.debug("Agent stopped speaking")
 
     @session.on("conversation_item_added")
     def on_conversation_item_added(event):
         """Capture conversation items for transcript."""
+        logger.info(f"[CONVERSATION ITEM] Received: {type(event).__name__}")
         try:
             # Get the item from the event
             item = getattr(event, 'item', event)
             role = getattr(item, 'role', None)
+            logger.info(f"[CONVERSATION ITEM] role={role}, item type={type(item).__name__}")
 
             # Only capture assistant messages (user messages handled by user_input_transcribed)
             if role == "assistant":
@@ -1014,8 +1029,11 @@ Be natural and engaging, like talking to a friend."""
                         content = str(item.content)
                 elif hasattr(item, 'text'):
                     content = item.text
+                elif hasattr(item, 'message'):
+                    content = str(item.message)
                 else:
                     content = str(item)
+                    logger.warning(f"[CONVERSATION ITEM] Unknown format: {dir(item)}")
 
                 if content.strip():
                     transcript.append({
@@ -1023,10 +1041,10 @@ Be natural and engaging, like talking to a friend."""
                         "content": content,
                         "timestamp": time.strftime("%H:%M:%S")
                     })
-                    logger.info(f"Assistant: {content[:50]}...")
+                    logger.info(f"[TRANSCRIPT SAVED] Assistant: {content[:50]}...")
                     asyncio.create_task(_publish_transcript(ctx.room, "assistant", content))
         except Exception as e:
-            logger.warning(f"Error processing conversation item: {e}")
+            logger.warning(f"[CONVERSATION ITEM ERROR] {e}")
 
     # Handle settings updates from frontend
     @ctx.room.on("data_received")
