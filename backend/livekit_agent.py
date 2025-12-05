@@ -919,12 +919,17 @@ Keep responses concise and conversational (1-2 sentences when possible).
 Be natural and engaging, like talking to a friend."""
     )
 
-    # Create and start the session (v1.x standard pattern)
+    # Create and start the session with turn detection settings
+    # min_endpointing_delay: Wait longer before considering turn complete (reduces choppy responses)
+    # This helps prevent the agent from interrupting during natural speech pauses
     session = AgentSession(
         vad=vad,
         stt=stt,
         llm=llm,
         tts=tts,
+        min_endpointing_delay=0.8,  # Wait 0.8s of silence before responding (default is 0.5)
+        max_endpointing_delay=6.0,  # Max wait time
+        allow_interruptions=True,   # Allow user to interrupt agent
     )
 
     # Note: transcript, call_start_time, call_id, user_id, assistant_id, latency, sentiment
