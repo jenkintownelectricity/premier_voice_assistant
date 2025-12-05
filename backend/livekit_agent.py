@@ -25,6 +25,8 @@ This is the next evolution of the Lightning Pipeline - now with WebRTC!
 import os
 import logging
 import asyncio
+import time
+import json
 from typing import Optional, Dict, Any, List, AsyncGenerator
 from dataclasses import dataclass, field
 
@@ -84,6 +86,235 @@ def _normalize_livekit_url(url: str) -> str:
     else:
         # No prefix, add wss://
         return "wss://" + url
+
+
+# ============================================================================
+# SENTIMENT ANALYSIS
+# ============================================================================
+
+class SentimentAnalyzer:
+    """
+    Simple sentiment analysis for voice conversations.
+    Tracks user mood throughout the call.
+    """
+
+    POSITIVE_WORDS = {
+        'great', 'good', 'awesome', 'excellent', 'love', 'thanks', 'thank', 'perfect',
+        'amazing', 'wonderful', 'fantastic', 'happy', 'pleased', 'helpful', 'nice',
+        'appreciate', 'brilliant', 'best', 'super', 'cool', 'yes', 'yeah', 'absolutely'
+    }
+
+    NEGATIVE_WORDS = {
+        'bad', 'terrible', 'awful', 'hate', 'angry', 'frustrated', 'annoying',
+        'stupid', 'wrong', 'confused', 'disappointed', 'problem', 'issue', 'broken',
+        'fail', 'failed', 'useless', 'worst', 'no', 'not', 'never', 'cant', "can't"
+    }
+
+    def __init__(self):
+        self.scores: List[Dict[str, Any]] = []
+        self._room = None
+
+    def set_room(self, room):
+        self._room = room
+
+    def analyze(self, text: str) -> Dict[str, Any]:
+        """Analyze sentiment of text."""
+        text_lower = text.lower()
+        words = set(text_lower.split())
+
+        positive_count = len(words & self.POSITIVE_WORDS)
+        negative_count = len(words & self.NEGATIVE_WORDS)
+
+        total = positive_count + negative_count
+        if total == 0:
+            score = 0.0
+            sentiment = "neutral"
+        else:
+            score = (positive_count - negative_count) / total
+            if score > 0.3:
+                sentiment = "positive"
+            elif score < -0.3:
+                sentiment = "negative"
+            else:
+                sentiment = "neutral"
+
+        result = {
+            "score": round(score, 2),
+            "sentiment": sentiment,
+            "positive_count": positive_count,
+            "negative_count": negative_count,
+            "timestamp": time.time(),
+        }
+        self.scores.append(result)
+        return result
+
+    def get_overall(self) -> Dict[str, Any]:
+        """Get overall sentiment for the call."""
+        if not self.scores:
+            return {"overall": "neutral", "avg_score": 0.0, "trend": "stable"}
+
+        avg_score = sum(s["score"] for s in self.scores) / len(self.scores)
+
+        if avg_score > 0.2:
+            overall = "positive"
+        elif avg_score < -0.2:
+            overall = "negative"
+        else:
+            overall = "neutral"
+
+        # Calculate trend
+        if len(self.scores) >= 3:
+            recent_avg = sum(s["score"] for s in self.scores[-3:]) / 3
+            older_avg = sum(s["score"] for s in self.scores[:-3]) / max(1, len(self.scores) - 3)
+            if recent_avg > older_avg + 0.2:
+                trend = "improving"
+            elif recent_avg < older_avg - 0.2:
+                trend = "declining"
+            else:
+                trend = "stable"
+        else:
+            trend = "stable"
+
+        return {"overall": overall, "avg_score": round(avg_score, 2), "trend": trend}
+
+    async def publish(self, text: str):
+        """Analyze and publish sentiment update."""
+        if not self._room:
+            return
+
+        result = self.analyze(text)
+        overall = self.get_overall()
+
+        try:
+            data = json.dumps({
+                "type": "sentiment",
+                "current": result,
+                "overall": overall,
+            }).encode()
+            await self._room.local_participant.publish_data(data, topic="sentiment", reliable=True)
+        except Exception as e:
+            logger.warning(f"Failed to publish sentiment: {e}")
+
+
+# ============================================================================
+# LATENCY TRACKING
+# ============================================================================
+
+class LatencyTracker:
+    """
+    Tracks latency metrics for each phase of the voice pipeline.
+    Sends real-time updates to the frontend via data channel.
+    """
+
+    def __init__(self):
+        self.current_turn: Dict[str, float] = {}
+        self.metrics_history: List[Dict[str, Any]] = []
+        self._data_publisher = None
+        self._room = None
+
+    def set_room(self, room):
+        """Set the LiveKit room for publishing metrics."""
+        self._room = room
+
+    def start_stt(self):
+        """Mark the start of speech-to-text processing."""
+        self.current_turn = {"stt_start": time.time()}
+
+    def end_stt(self):
+        """Mark the end of STT, calculate latency."""
+        if "stt_start" in self.current_turn:
+            self.current_turn["stt_end"] = time.time()
+            self.current_turn["stt_ms"] = int((self.current_turn["stt_end"] - self.current_turn["stt_start"]) * 1000)
+
+    def start_llm(self):
+        """Mark the start of LLM processing."""
+        self.current_turn["llm_start"] = time.time()
+
+    def end_llm_first_token(self):
+        """Mark when first token arrives (TTFT)."""
+        if "llm_start" in self.current_turn:
+            self.current_turn["llm_ttft"] = time.time()
+            self.current_turn["llm_ttft_ms"] = int((self.current_turn["llm_ttft"] - self.current_turn["llm_start"]) * 1000)
+
+    def end_llm(self):
+        """Mark the end of LLM processing."""
+        if "llm_start" in self.current_turn:
+            self.current_turn["llm_end"] = time.time()
+            self.current_turn["llm_total_ms"] = int((self.current_turn["llm_end"] - self.current_turn["llm_start"]) * 1000)
+
+    def start_tts(self):
+        """Mark the start of text-to-speech."""
+        self.current_turn["tts_start"] = time.time()
+
+    def end_tts_first_byte(self):
+        """Mark when first audio byte is ready (TTFB)."""
+        if "tts_start" in self.current_turn:
+            self.current_turn["tts_ttfb"] = time.time()
+            self.current_turn["tts_ttfb_ms"] = int((self.current_turn["tts_ttfb"] - self.current_turn["tts_start"]) * 1000)
+
+    def end_tts(self):
+        """Mark the end of TTS."""
+        if "tts_start" in self.current_turn:
+            self.current_turn["tts_end"] = time.time()
+            self.current_turn["tts_total_ms"] = int((self.current_turn["tts_end"] - self.current_turn["tts_start"]) * 1000)
+
+    def get_current_metrics(self) -> Dict[str, Any]:
+        """Get the current turn's metrics."""
+        # Calculate total perceived latency (user done speaking to first audio)
+        total_ms = 0
+        if self.current_turn.get("stt_ms"):
+            total_ms += self.current_turn["stt_ms"]
+        if self.current_turn.get("llm_ttft_ms"):
+            total_ms += self.current_turn["llm_ttft_ms"]
+        if self.current_turn.get("tts_ttfb_ms"):
+            total_ms += self.current_turn["tts_ttfb_ms"]
+
+        return {
+            "type": "latency",
+            "stt_ms": self.current_turn.get("stt_ms", 0),
+            "llm_ttft_ms": self.current_turn.get("llm_ttft_ms", 0),
+            "llm_total_ms": self.current_turn.get("llm_total_ms", 0),
+            "tts_ttfb_ms": self.current_turn.get("tts_ttfb_ms", 0),
+            "tts_total_ms": self.current_turn.get("tts_total_ms", 0),
+            "total_ms": total_ms,
+            "timestamp": time.time(),
+        }
+
+    async def publish_metrics(self):
+        """Publish current metrics to the frontend via data channel."""
+        if not self._room:
+            return
+
+        try:
+            metrics = self.get_current_metrics()
+            data = json.dumps(metrics).encode()
+            await self._room.local_participant.publish_data(
+                data,
+                topic="latency",
+                reliable=True,
+            )
+            logger.debug(f"Published latency metrics: {metrics}")
+        except Exception as e:
+            logger.warning(f"Failed to publish latency metrics: {e}")
+
+    def finalize_turn(self):
+        """Store current turn metrics and reset."""
+        if self.current_turn:
+            self.metrics_history.append(self.get_current_metrics())
+        self.current_turn = {}
+
+    def get_average_metrics(self) -> Dict[str, float]:
+        """Get average metrics across all turns."""
+        if not self.metrics_history:
+            return {}
+
+        avg = {}
+        for key in ["stt_ms", "llm_ttft_ms", "tts_ttfb_ms", "total_ms"]:
+            values = [m.get(key, 0) for m in self.metrics_history if m.get(key)]
+            if values:
+                avg[f"avg_{key}"] = sum(values) / len(values)
+
+        return avg
 
 
 # ============================================================================
@@ -596,6 +827,32 @@ async def entrypoint(ctx: JobContext):
     # Get config
     config = LiveKitAgentConfig()
 
+    # Initialize latency tracker
+    latency = LatencyTracker()
+    latency.set_room(ctx.room)
+
+    # Initialize sentiment analyzer
+    sentiment = SentimentAnalyzer()
+    sentiment.set_room(ctx.room)
+
+    # Parse room metadata for call info
+    call_id = None
+    user_id = None
+    assistant_id = None
+    try:
+        if ctx.room.metadata:
+            room_meta = json.loads(ctx.room.metadata)
+            call_id = room_meta.get("call_id")
+            user_id = room_meta.get("user_id")
+            assistant_id = room_meta.get("assistant_id")
+            logger.info(f"Room metadata: call_id={call_id}, user_id={user_id}, assistant_id={assistant_id}")
+    except Exception as e:
+        logger.warning(f"Could not parse room metadata: {e}")
+
+    # Track transcript
+    transcript: List[Dict[str, str]] = []
+    call_start_time = time.time()
+
     # Initialize STT (Deepgram)
     stt = deepgram.STT(
         model="nova-2",
@@ -605,6 +862,7 @@ async def entrypoint(ctx: JobContext):
 
     # Initialize LLM with fallback chain: Fast Brain -> Groq -> OpenAI
     llm = None
+    llm_name = "unknown"
 
     # Try Fast Brain first (custom BitNet LPU)
     if config.fast_brain_url and BRAIN_CLIENT_AVAILABLE:
@@ -615,6 +873,7 @@ async def entrypoint(ctx: JobContext):
             )
             if await brain_client.is_healthy():
                 llm = BrainLLM(brain_client, skill=config.default_skill)
+                llm_name = "fast-brain"
                 logger.info(f"Fast Brain LLM initialized: {config.fast_brain_url[:40]}... (skill={config.default_skill})")
             else:
                 logger.warning("Fast Brain not healthy, trying fallback...")
@@ -629,11 +888,13 @@ async def entrypoint(ctx: JobContext):
             api_key=config.groq_api_key,
             base_url="https://api.groq.com/openai/v1",
         )
+        llm_name = config.groq_model
         logger.info(f"Groq LLM initialized: {config.groq_model}")
 
     # Fallback to Anthropic Claude
     if llm is None and config.anthropic_api_key:
         llm = anthropic.LLM(model="claude-sonnet-4-20250514")
+        llm_name = "claude-sonnet-4"
         logger.info("Anthropic Claude initialized as fallback")
 
     if llm is None:
@@ -666,6 +927,7 @@ Be natural and engaging, like talking to a friend."""
         tts=tts,
     )
 
+<<<<<<< HEAD
     # Track transcript for call log
     transcript: List[Dict[str, str]] = []
     call_start_time = None
@@ -695,6 +957,74 @@ Be natural and engaging, like talking to a friend."""
         content = str(msg.content) if hasattr(msg, 'content') else str(msg)
         transcript.append({"role": "assistant", "content": content})
         logger.debug(f"Assistant: {content[:50]}...")
+=======
+    # Set up session event handlers for transcript and latency tracking
+    @session.on("user_speech_started")
+    def on_user_speech_started():
+        """Track when user starts speaking (for STT timing)."""
+        latency.start_stt()
+        logger.debug("User speech started")
+
+    @session.on("user_speech_committed")
+    def on_user_speech_committed(msg):
+        """User finished speaking, STT complete."""
+        latency.end_stt()
+        latency.start_llm()  # LLM processing starts
+        content = str(msg.content) if hasattr(msg, 'content') else str(msg)
+        transcript.append({"role": "user", "content": content})
+        logger.info(f"User: {content[:50]}...")
+        # Publish transcript update
+        asyncio.create_task(_publish_transcript(ctx.room, "user", content))
+        # Analyze and publish sentiment
+        asyncio.create_task(sentiment.publish(content))
+
+    @session.on("agent_speech_started")
+    def on_agent_speech_started():
+        """Agent started speaking (TTS first byte reached)."""
+        latency.end_llm_first_token()
+        latency.start_tts()
+        latency.end_tts_first_byte()
+        # Publish latency metrics
+        asyncio.create_task(latency.publish_metrics())
+        logger.debug("Agent speech started")
+
+    @session.on("agent_speech_committed")
+    def on_agent_speech_committed(msg):
+        """Agent finished speaking."""
+        latency.end_tts()
+        latency.end_llm()
+        content = str(msg.content) if hasattr(msg, 'content') else str(msg)
+        transcript.append({"role": "assistant", "content": content})
+        logger.info(f"Assistant: {content[:50]}...")
+        # Publish transcript update
+        asyncio.create_task(_publish_transcript(ctx.room, "assistant", content))
+        # Finalize turn metrics
+        latency.finalize_turn()
+
+    @session.on("agent_speech_interrupted")
+    def on_interrupted():
+        """Handle barge-in."""
+        latency.finalize_turn()
+        logger.info("User interrupted assistant")
+
+    # Handle settings updates from frontend
+    @ctx.room.on("data_received")
+    def on_data_received(data_packet):
+        """Process settings updates from the user."""
+        try:
+            if hasattr(data_packet, 'topic') and data_packet.topic == 'settings':
+                payload = data_packet.data.decode() if hasattr(data_packet, 'data') else str(data_packet)
+                settings_data = json.loads(payload)
+                if settings_data.get('type') == 'settings':
+                    logger.info(f"Received settings update: {settings_data}")
+                    # Apply temperature if LLM supports it
+                    if hasattr(llm, 'temperature'):
+                        llm.temperature = settings_data.get('temperature', 0.7)
+                    # Note: Speech speed and barge-in would require TTS/session reconfiguration
+                    # which isn't easily done mid-call. These settings are logged for future use.
+        except Exception as e:
+            logger.warning(f"Failed to process settings update: {e}")
+>>>>>>> origin/claude/resume-brain-integration-01GXUgLZPtGML2Xe3pZGhbLz
 
     await session.start(
         agent=agent,
@@ -702,14 +1032,30 @@ Be natural and engaging, like talking to a friend."""
     )
     logger.info("AgentSession started")
 
+<<<<<<< HEAD
     import time
     call_start_time = time.time()
+=======
+    # Send initial config to frontend
+    try:
+        config_data = json.dumps({
+            "type": "config",
+            "llm": llm_name,
+            "stt": "deepgram-nova-2",
+            "tts": "cartesia-sonic",
+            "voice_id": config.cartesia_voice_id[:8] + "...",
+        }).encode()
+        await ctx.room.local_participant.publish_data(config_data, topic="config", reliable=True)
+    except Exception as e:
+        logger.warning(f"Failed to publish config: {e}")
+>>>>>>> origin/claude/resume-brain-integration-01GXUgLZPtGML2Xe3pZGhbLz
 
     # Generate initial greeting
     await session.generate_reply(
         instructions="Greet the user warmly and ask how you can help them today."
     )
 
+<<<<<<< HEAD
     # Wait for session to end (room disconnect)
     # The session will end when the user disconnects
     try:
@@ -728,16 +1074,178 @@ Be natural and engaging, like talking to a friend."""
         if call_id and SUPABASE_AVAILABLE:
             try:
                 duration = int(time.time() - call_start_time) if call_start_time else 0
+=======
+    # Wait for the session to end (room closes)
+    try:
+        # Keep running until room is closed
+        while True:
+            await asyncio.sleep(1)
+            if not ctx.room.connection_state.name == "CONNECTED":
+                break
+    except asyncio.CancelledError:
+        pass
+    finally:
+        # Calculate quality score
+        quality_score = _calculate_quality_score(
+            latency.get_average_metrics(),
+            sentiment.get_overall(),
+            len(transcript),
+            int(time.time() - call_start_time),
+        )
+
+        # Save call log on disconnect
+        if call_id and SUPABASE_AVAILABLE:
+            try:
+                duration = int(time.time() - call_start_time)
+                avg_metrics = latency.get_average_metrics()
+                sentiment_data = sentiment.get_overall()
+>>>>>>> origin/claude/resume-brain-integration-01GXUgLZPtGML2Xe3pZGhbLz
                 supabase = get_supabase().client
                 supabase.table("va_call_logs").update({
                     "transcript": transcript,
                     "duration_seconds": duration,
                     "status": "completed",
+<<<<<<< HEAD
                 }).eq("id", call_id).execute()
                 logger.info(f"Call log updated: {call_id}, duration={duration}s, messages={len(transcript)}")
             except Exception as e:
                 logger.error(f"Failed to update call log: {e}")
 
+=======
+                    "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "metadata": {
+                        "llm": llm_name,
+                        "latency": avg_metrics,
+                        "sentiment": sentiment_data,
+                        "quality_score": quality_score,
+                        "transport": "webrtc",
+                    }
+                }).eq("id", call_id).execute()
+                logger.info(f"Call log updated: {call_id}, duration={duration}s, quality={quality_score['grade']}")
+            except Exception as e:
+                logger.error(f"Failed to update call log: {e}")
+
+        # Publish final quality score to frontend
+        try:
+            quality_data = json.dumps({
+                "type": "quality_score",
+                **quality_score,
+            }).encode()
+            await ctx.room.local_participant.publish_data(
+                quality_data, topic="quality", reliable=True
+            )
+        except Exception as e:
+            logger.warning(f"Failed to publish quality score: {e}")
+
+
+def _calculate_quality_score(
+    latency_metrics: Dict[str, Any],
+    sentiment_data: Dict[str, Any],
+    message_count: int,
+    duration_seconds: int,
+) -> Dict[str, Any]:
+    """
+    Calculate an A-F quality grade for the call.
+
+    Factors:
+    - Latency (lower is better)
+    - Sentiment (positive is better)
+    - Engagement (more messages = better interaction)
+    - Duration (not too short, not too long)
+    """
+    score = 100  # Start with perfect score
+
+    # Latency scoring (0-30 points)
+    avg_latency = latency_metrics.get("avg_total_ms", 300)
+    if avg_latency < 200:
+        latency_score = 30
+    elif avg_latency < 300:
+        latency_score = 25
+    elif avg_latency < 400:
+        latency_score = 20
+    elif avg_latency < 500:
+        latency_score = 15
+    else:
+        latency_score = 10
+
+    # Sentiment scoring (0-30 points)
+    sentiment_score_val = sentiment_data.get("avg_score", 0)
+    if sentiment_score_val > 0.5:
+        sentiment_score = 30
+    elif sentiment_score_val > 0.2:
+        sentiment_score = 25
+    elif sentiment_score_val > 0:
+        sentiment_score = 20
+    elif sentiment_score_val > -0.2:
+        sentiment_score = 15
+    else:
+        sentiment_score = 10
+
+    # Engagement scoring (0-20 points)
+    if message_count >= 10:
+        engagement_score = 20
+    elif message_count >= 6:
+        engagement_score = 15
+    elif message_count >= 3:
+        engagement_score = 10
+    else:
+        engagement_score = 5
+
+    # Duration scoring (0-20 points)
+    if 60 <= duration_seconds <= 300:  # 1-5 minutes is ideal
+        duration_score = 20
+    elif 30 <= duration_seconds < 60:
+        duration_score = 15
+    elif 300 < duration_seconds <= 600:
+        duration_score = 15
+    elif duration_seconds < 30:
+        duration_score = 10  # Too short
+    else:
+        duration_score = 10  # Too long
+
+    # Calculate total
+    total_score = latency_score + sentiment_score + engagement_score + duration_score
+
+    # Convert to letter grade
+    if total_score >= 90:
+        grade = "A"
+    elif total_score >= 80:
+        grade = "B"
+    elif total_score >= 70:
+        grade = "C"
+    elif total_score >= 60:
+        grade = "D"
+    else:
+        grade = "F"
+
+    return {
+        "grade": grade,
+        "score": total_score,
+        "breakdown": {
+            "latency": latency_score,
+            "sentiment": sentiment_score,
+            "engagement": engagement_score,
+            "duration": duration_score,
+        },
+        "message_count": message_count,
+        "duration_seconds": duration_seconds,
+    }
+
+
+async def _publish_transcript(room, role: str, content: str):
+    """Helper to publish transcript updates to frontend."""
+    try:
+        data = json.dumps({
+            "type": "transcript",
+            "role": role,
+            "content": content,
+            "timestamp": time.time(),
+        }).encode()
+        await room.local_participant.publish_data(data, topic="transcript", reliable=True)
+    except Exception as e:
+        logger.warning(f"Failed to publish transcript: {e}")
+
+>>>>>>> origin/claude/resume-brain-integration-01GXUgLZPtGML2Xe3pZGhbLz
 
 def prewarm(proc: JobProcess):
     """

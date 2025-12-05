@@ -565,3 +565,229 @@ async def get_livekit_metrics(
     except Exception as e:
         logger.error(f"Failed to get metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# CALL RECORDING (via LiveKit Egress)
+# ============================================================================
+
+class StartRecordingRequest(BaseModel):
+    """Request to start recording a room."""
+    room_name: str
+    output_prefix: Optional[str] = None  # S3 prefix for output
+
+
+class RecordingStatus(BaseModel):
+    """Recording status response."""
+    egress_id: str
+    room_name: str
+    status: str
+    started_at: Optional[str] = None
+    output_url: Optional[str] = None
+
+
+@router.post("/recordings/start", response_model=RecordingStatus)
+async def start_recording(
+    request: StartRecordingRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Start recording a LiveKit room.
+
+    Uses LiveKit Egress to record audio/video.
+    Recordings are stored in the configured S3 bucket.
+
+    Note: Requires LiveKit Cloud with Egress enabled.
+    """
+    if not is_livekit_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="LiveKit is not configured"
+        )
+
+    config = get_livekit_config()
+
+    try:
+        room_api = livekit_api.LiveKitAPI(
+            url=config["url"],
+            api_key=config["api_key"],
+            api_secret=config["api_secret"],
+        )
+
+        try:
+            # Verify room exists and user has access
+            rooms = await room_api.room.list_rooms(
+                livekit_api.ListRoomsRequest(names=[request.room_name])
+            )
+
+            if not rooms.rooms:
+                raise HTTPException(status_code=404, detail="Room not found")
+
+            room = rooms.rooms[0]
+            metadata = json.loads(room.metadata) if room.metadata else {}
+
+            if metadata.get("user_id") != user_id:
+                raise HTTPException(status_code=403, detail="Access denied")
+
+            # Check if egress API is available
+            if not hasattr(room_api, 'egress'):
+                raise HTTPException(
+                    status_code=501,
+                    detail="Recording requires LiveKit Cloud with Egress enabled"
+                )
+
+            # Start room composite egress (records all audio/video)
+            # This requires configured S3/GCS output in LiveKit Cloud
+            s3_bucket = os.getenv("LIVEKIT_RECORDING_BUCKET", "")
+            s3_prefix = request.output_prefix or f"recordings/{user_id}/{request.room_name}"
+
+            if not s3_bucket:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Recording storage not configured (LIVEKIT_RECORDING_BUCKET)"
+                )
+
+            # Start recording
+            egress = await room_api.egress.start_room_composite_egress(
+                livekit_api.RoomCompositeEgressRequest(
+                    room_name=request.room_name,
+                    file_outputs=[
+                        livekit_api.EncodedFileOutput(
+                            file_type=livekit_api.EncodedFileType.MP4,
+                            filepath=f"s3://{s3_bucket}/{s3_prefix}/recording.mp4",
+                        )
+                    ],
+                    audio_only=True,  # For voice calls, audio only
+                )
+            )
+
+            logger.info(f"Started recording for room {request.room_name}: {egress.egress_id}")
+
+            # Update call log with recording info
+            call_id = metadata.get("call_id")
+            if call_id:
+                supabase = get_supabase().client
+                supabase.table("va_call_logs").update({
+                    "metadata": {
+                        **metadata,
+                        "recording_egress_id": egress.egress_id,
+                        "recording_started": datetime.utcnow().isoformat(),
+                    }
+                }).eq("id", call_id).execute()
+
+            return RecordingStatus(
+                egress_id=egress.egress_id,
+                room_name=request.room_name,
+                status="recording",
+                started_at=datetime.utcnow().isoformat(),
+            )
+
+        finally:
+            await room_api.aclose()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start recording: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/recordings/{egress_id}/stop")
+async def stop_recording(
+    egress_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Stop an active recording.
+    """
+    if not is_livekit_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="LiveKit is not configured"
+        )
+
+    config = get_livekit_config()
+
+    try:
+        room_api = livekit_api.LiveKitAPI(
+            url=config["url"],
+            api_key=config["api_key"],
+            api_secret=config["api_secret"],
+        )
+
+        try:
+            # Stop the egress
+            result = await room_api.egress.stop_egress(
+                livekit_api.StopEgressRequest(egress_id=egress_id)
+            )
+
+            logger.info(f"Stopped recording: {egress_id}")
+
+            return {
+                "success": True,
+                "egress_id": egress_id,
+                "status": "stopped",
+            }
+
+        finally:
+            await room_api.aclose()
+
+    except Exception as e:
+        logger.error(f"Failed to stop recording: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recordings/{egress_id}")
+async def get_recording_status(
+    egress_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Get status of a recording.
+    """
+    if not is_livekit_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="LiveKit is not configured"
+        )
+
+    config = get_livekit_config()
+
+    try:
+        room_api = livekit_api.LiveKitAPI(
+            url=config["url"],
+            api_key=config["api_key"],
+            api_secret=config["api_secret"],
+        )
+
+        try:
+            # List egress to find this one
+            egresses = await room_api.egress.list_egress(
+                livekit_api.ListEgressRequest(egress_id=egress_id)
+            )
+
+            if not egresses.items:
+                raise HTTPException(status_code=404, detail="Recording not found")
+
+            egress = egresses.items[0]
+
+            # Get output URL if completed
+            output_url = None
+            if egress.file_results:
+                output_url = egress.file_results[0].download_url
+
+            return RecordingStatus(
+                egress_id=egress_id,
+                room_name=egress.room_name,
+                status=egress.status.name if hasattr(egress.status, 'name') else str(egress.status),
+                output_url=output_url,
+            )
+
+        finally:
+            await room_api.aclose()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get recording status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

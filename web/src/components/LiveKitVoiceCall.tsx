@@ -20,6 +20,29 @@ interface TranscriptMessage {
   timestamp?: number;
 }
 
+interface LatencyMetrics {
+  stt_ms: number;
+  llm_ttft_ms: number;
+  llm_total_ms: number;
+  tts_ttfb_ms: number;
+  tts_total_ms: number;
+  total_ms: number;
+}
+
+interface PipelineConfig {
+  llm: string;
+  stt: string;
+  tts: string;
+  voice_id: string;
+}
+
+interface CallSettings {
+  temperature: number;
+  speechSpeed: number;
+  bargeInEnabled: boolean;
+  bargeInSensitivity: 'low' | 'medium' | 'high';
+}
+
 interface LiveKitVoiceCallProps {
   assistantId: string;
   assistantName: string;
@@ -198,6 +221,18 @@ function ActiveCall({
   const [callDuration, setCallDuration] = useState(0);
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [latencyMetrics, setLatencyMetrics] = useState<LatencyMetrics | null>(null);
+  const [pipelineConfig, setPipelineConfig] = useState<PipelineConfig | null>(null);
+  const [showLatencyPanel, setShowLatencyPanel] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState<CallSettings>({
+    temperature: 0.7,
+    speechSpeed: 1.0,
+    bargeInEnabled: true,
+    bargeInSensitivity: 'medium',
+  });
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingId, setRecordingId] = useState<string | null>(null);
 
   const callTimerRef = useRef<NodeJS.Timeout | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
@@ -212,13 +247,16 @@ function ActiveCall({
     onlySubscribed: true,
   }).filter(track => track.participant !== localParticipant);
 
-  // Handle data messages (transcripts) from agent
-  const { message: dataMessage } = useDataChannel('transcript');
+  // Handle data messages from agent
+  const { message: transcriptMessage } = useDataChannel('transcript');
+  const { message: latencyMessage } = useDataChannel('latency');
+  const { message: configMessage } = useDataChannel('config');
 
+  // Process transcript messages
   useEffect(() => {
-    if (dataMessage) {
+    if (transcriptMessage) {
       try {
-        const data = JSON.parse(new TextDecoder().decode(dataMessage.payload));
+        const data = JSON.parse(new TextDecoder().decode(transcriptMessage.payload));
         if (data.type === 'transcript' && data.content) {
           setTranscript(prev => [...prev, {
             role: data.role || 'assistant',
@@ -227,10 +265,50 @@ function ActiveCall({
           }]);
         }
       } catch (e) {
-        console.error('Failed to parse data message:', e);
+        console.error('Failed to parse transcript message:', e);
       }
     }
-  }, [dataMessage]);
+  }, [transcriptMessage]);
+
+  // Process latency metrics
+  useEffect(() => {
+    if (latencyMessage) {
+      try {
+        const data = JSON.parse(new TextDecoder().decode(latencyMessage.payload));
+        if (data.type === 'latency') {
+          setLatencyMetrics({
+            stt_ms: data.stt_ms || 0,
+            llm_ttft_ms: data.llm_ttft_ms || 0,
+            llm_total_ms: data.llm_total_ms || 0,
+            tts_ttfb_ms: data.tts_ttfb_ms || 0,
+            tts_total_ms: data.tts_total_ms || 0,
+            total_ms: data.total_ms || 0,
+          });
+        }
+      } catch (e) {
+        console.error('Failed to parse latency message:', e);
+      }
+    }
+  }, [latencyMessage]);
+
+  // Process pipeline config
+  useEffect(() => {
+    if (configMessage) {
+      try {
+        const data = JSON.parse(new TextDecoder().decode(configMessage.payload));
+        if (data.type === 'config') {
+          setPipelineConfig({
+            llm: data.llm || 'unknown',
+            stt: data.stt || 'unknown',
+            tts: data.tts || 'unknown',
+            voice_id: data.voice_id || '',
+          });
+        }
+      } catch (e) {
+        console.error('Failed to parse config message:', e);
+      }
+    }
+  }, [configMessage]);
 
   // Listen for room events
   useEffect(() => {
@@ -304,6 +382,72 @@ function ActiveCall({
     onClose();
   }, [room, onClose]);
 
+  // Send settings update to agent
+  const updateSettings = useCallback(async (newSettings: Partial<CallSettings>) => {
+    const updated = { ...settings, ...newSettings };
+    setSettings(updated);
+
+    if (room && localParticipant) {
+      try {
+        const data = JSON.stringify({
+          type: 'settings',
+          ...updated,
+        });
+        await localParticipant.publishData(
+          new TextEncoder().encode(data),
+          { topic: 'settings', reliable: true }
+        );
+        console.log('Settings sent to agent:', updated);
+      } catch (e) {
+        console.error('Failed to send settings:', e);
+      }
+    }
+  }, [room, localParticipant, settings]);
+
+  // Toggle recording
+  const toggleRecording = useCallback(async () => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+    const roomName = room?.name;
+
+    if (!roomName) return;
+
+    try {
+      if (isRecording && recordingId) {
+        // Stop recording
+        const response = await fetch(`${apiUrl}/livekit/recordings/${recordingId}/stop`, {
+          method: 'POST',
+          headers: { 'X-User-ID': 'user' },
+        });
+        if (response.ok) {
+          setIsRecording(false);
+          setRecordingId(null);
+          console.log('Recording stopped');
+        }
+      } else {
+        // Start recording
+        const response = await fetch(`${apiUrl}/livekit/recordings/start`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': 'user',
+          },
+          body: JSON.stringify({ room_name: roomName }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setIsRecording(true);
+          setRecordingId(data.egress_id);
+          console.log('Recording started:', data.egress_id);
+        } else {
+          const error = await response.json();
+          console.error('Failed to start recording:', error.detail);
+        }
+      }
+    } catch (e) {
+      console.error('Recording toggle failed:', e);
+    }
+  }, [room, isRecording, recordingId]);
+
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -356,6 +500,16 @@ function ActiveCall({
               {status.icon} {status.label}
             </span>
           </div>
+          {/* Settings Button */}
+          <button
+            onClick={() => setShowSettings(!showSettings)}
+            className={`p-2 rounded-lg transition-colors ${showSettings ? 'bg-cyan-500/20 text-cyan-400' : 'text-zinc-400 hover:text-white hover:bg-zinc-800'}`}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
           <button onClick={endCall} className="text-zinc-400 hover:text-white p-2">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -363,6 +517,111 @@ function ActiveCall({
           </button>
         </div>
       </div>
+
+      {/* Settings Panel (Overlay) */}
+      {showSettings && (
+        <div className="absolute top-16 right-4 w-72 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl z-10">
+          <div className="p-3 border-b border-zinc-700 flex items-center justify-between">
+            <h3 className="text-white font-semibold text-sm">Call Settings</h3>
+            <button onClick={() => setShowSettings(false)} className="text-zinc-400 hover:text-white">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="p-4 space-y-4">
+            {/* Temperature Slider */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-zinc-400">Temperature</label>
+                <span className="text-xs font-mono text-cyan-400">{settings.temperature.toFixed(1)}</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={settings.temperature}
+                onChange={(e) => updateSettings({ temperature: parseFloat(e.target.value) })}
+                className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+              />
+              <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                <span>Precise</span>
+                <span>Creative</span>
+              </div>
+            </div>
+
+            {/* Speech Speed Slider */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-zinc-400">Speech Speed</label>
+                <span className="text-xs font-mono text-cyan-400">{settings.speechSpeed.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="2.0"
+                step="0.1"
+                value={settings.speechSpeed}
+                onChange={(e) => updateSettings({ speechSpeed: parseFloat(e.target.value) })}
+                className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+              />
+              <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                <span>0.5x</span>
+                <span>1x</span>
+                <span>2x</span>
+              </div>
+            </div>
+
+            {/* Barge-In Toggle */}
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs text-zinc-400 block">Allow Interruptions</label>
+                <span className="text-xs text-zinc-500">Speak over the assistant</span>
+              </div>
+              <button
+                onClick={() => updateSettings({ bargeInEnabled: !settings.bargeInEnabled })}
+                className={`w-11 h-6 rounded-full transition-colors relative ${
+                  settings.bargeInEnabled ? 'bg-cyan-500' : 'bg-zinc-600'
+                }`}
+              >
+                <div
+                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
+                    settings.bargeInEnabled ? 'left-6' : 'left-1'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Barge-In Sensitivity */}
+            {settings.bargeInEnabled && (
+              <div>
+                <label className="text-xs text-zinc-400 block mb-2">Interruption Sensitivity</label>
+                <div className="flex gap-2">
+                  {(['low', 'medium', 'high'] as const).map((level) => (
+                    <button
+                      key={level}
+                      onClick={() => updateSettings({ bargeInSensitivity: level })}
+                      className={`flex-1 py-1.5 text-xs rounded-lg capitalize transition-colors ${
+                        settings.bargeInSensitivity === level
+                          ? 'bg-cyan-500 text-black font-medium'
+                          : 'bg-zinc-700 text-zinc-400 hover:bg-zinc-600'
+                      }`}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="p-3 border-t border-zinc-700 text-xs text-zinc-500">
+            Settings apply in real-time
+          </div>
+        </div>
+      )}
 
       {/* Status Bar */}
       <div className="px-4 py-2 border-b border-zinc-800 flex items-center justify-between text-xs">
@@ -377,14 +636,101 @@ function ActiveCall({
         </div>
       </div>
 
-      {/* Latency Info Banner */}
-      <div className="mx-4 mt-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg px-3 py-2">
-        <div className="flex items-center gap-2 text-cyan-400 text-xs">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+      {/* Latency Metrics Panel */}
+      <div className="mx-4 mt-3">
+        <button
+          onClick={() => setShowLatencyPanel(!showLatencyPanel)}
+          className="w-full bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2 flex items-center justify-between hover:bg-zinc-800 transition-colors"
+        >
+          <div className="flex items-center gap-2 text-cyan-400 text-xs">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span>
+              {latencyMetrics ? `${latencyMetrics.total_ms}ms total latency` : 'Awaiting metrics...'}
+            </span>
+          </div>
+          <svg
+            className={`w-4 h-4 text-zinc-400 transition-transform ${showLatencyPanel ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
-          <span>~50-100ms faster than WebSocket</span>
-        </div>
+        </button>
+
+        {showLatencyPanel && (
+          <div className="mt-2 bg-zinc-800/30 border border-zinc-700/50 rounded-lg p-3 space-y-2">
+            {/* Pipeline Config */}
+            {pipelineConfig && (
+              <div className="text-xs text-zinc-500 pb-2 border-b border-zinc-700/50">
+                <span className="text-zinc-400">LLM:</span> {pipelineConfig.llm} •{' '}
+                <span className="text-zinc-400">STT:</span> {pipelineConfig.stt} •{' '}
+                <span className="text-zinc-400">TTS:</span> {pipelineConfig.tts}
+              </div>
+            )}
+
+            {/* Latency Breakdown */}
+            {latencyMetrics ? (
+              <div className="space-y-1.5">
+                {/* STT */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-400">STT (Deepgram)</span>
+                  <span className={`font-mono ${latencyMetrics.stt_ms < 100 ? 'text-green-400' : latencyMetrics.stt_ms < 200 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {latencyMetrics.stt_ms}ms
+                  </span>
+                </div>
+                <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${latencyMetrics.stt_ms < 100 ? 'bg-green-500' : latencyMetrics.stt_ms < 200 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(100, latencyMetrics.stt_ms / 3)}%` }}
+                  />
+                </div>
+
+                {/* LLM */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-400">LLM (TTFT)</span>
+                  <span className={`font-mono ${latencyMetrics.llm_ttft_ms < 100 ? 'text-green-400' : latencyMetrics.llm_ttft_ms < 200 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {latencyMetrics.llm_ttft_ms}ms
+                  </span>
+                </div>
+                <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${latencyMetrics.llm_ttft_ms < 100 ? 'bg-green-500' : latencyMetrics.llm_ttft_ms < 200 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(100, latencyMetrics.llm_ttft_ms / 3)}%` }}
+                  />
+                </div>
+
+                {/* TTS */}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-400">TTS (TTFB)</span>
+                  <span className={`font-mono ${latencyMetrics.tts_ttfb_ms < 100 ? 'text-green-400' : latencyMetrics.tts_ttfb_ms < 200 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {latencyMetrics.tts_ttfb_ms}ms
+                  </span>
+                </div>
+                <div className="h-1.5 bg-zinc-700 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${latencyMetrics.tts_ttfb_ms < 100 ? 'bg-green-500' : latencyMetrics.tts_ttfb_ms < 200 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(100, latencyMetrics.tts_ttfb_ms / 3)}%` }}
+                  />
+                </div>
+
+                {/* Total */}
+                <div className="flex items-center justify-between text-xs pt-2 border-t border-zinc-700/50">
+                  <span className="text-white font-medium">Total Perceived</span>
+                  <span className={`font-mono font-bold ${latencyMetrics.total_ms < 250 ? 'text-green-400' : latencyMetrics.total_ms < 400 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {latencyMetrics.total_ms}ms
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-zinc-500 text-xs py-2">
+                Latency metrics will appear after first response
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Transcript */}
@@ -451,6 +797,28 @@ function ActiveCall({
             ) : (
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            )}
+          </button>
+
+          {/* Recording Button */}
+          <button
+            onClick={toggleRecording}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+              isRecording
+                ? 'bg-red-500 text-white animate-pulse'
+                : 'bg-zinc-800 text-white hover:bg-zinc-700'
+            }`}
+            title={isRecording ? 'Stop Recording' : 'Start Recording'}
+          >
+            {isRecording ? (
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="8" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" strokeWidth={2} />
+                <circle cx="12" cy="12" r="4" fill="currentColor" />
               </svg>
             )}
           </button>
