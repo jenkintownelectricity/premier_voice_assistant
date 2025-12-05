@@ -36,6 +36,31 @@ interface PipelineConfig {
   voice_id: string;
 }
 
+interface SentimentData {
+  current: {
+    score: number;
+    sentiment: 'positive' | 'neutral' | 'negative';
+  };
+  overall: {
+    overall: 'positive' | 'neutral' | 'negative';
+    avg_score: number;
+    trend: 'improving' | 'stable' | 'declining';
+  };
+}
+
+interface QualityScore {
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  score: number;
+  breakdown: {
+    latency: number;
+    sentiment: number;
+    engagement: number;
+    duration: number;
+  };
+  message_count: number;
+  duration_seconds: number;
+}
+
 interface CallSettings {
   temperature: number;
   speechSpeed: number;
@@ -233,6 +258,9 @@ function ActiveCall({
   });
   const [isRecording, setIsRecording] = useState(false);
   const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [sentiment, setSentiment] = useState<SentimentData | null>(null);
+  const [qualityScore, setQualityScore] = useState<QualityScore | null>(null);
+  const [showQualityModal, setShowQualityModal] = useState(false);
 
   const callTimerRef = useRef<NodeJS.Timeout | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
@@ -251,6 +279,8 @@ function ActiveCall({
   const { message: transcriptMessage } = useDataChannel('transcript');
   const { message: latencyMessage } = useDataChannel('latency');
   const { message: configMessage } = useDataChannel('config');
+  const { message: sentimentMessage } = useDataChannel('sentiment');
+  const { message: qualityMessage } = useDataChannel('quality');
 
   // Process transcript messages
   useEffect(() => {
@@ -309,6 +339,44 @@ function ActiveCall({
       }
     }
   }, [configMessage]);
+
+  // Process sentiment updates
+  useEffect(() => {
+    if (sentimentMessage) {
+      try {
+        const data = JSON.parse(new TextDecoder().decode(sentimentMessage.payload));
+        if (data.type === 'sentiment') {
+          setSentiment({
+            current: data.current,
+            overall: data.overall,
+          });
+        }
+      } catch (e) {
+        console.error('Failed to parse sentiment message:', e);
+      }
+    }
+  }, [sentimentMessage]);
+
+  // Process quality score (end of call)
+  useEffect(() => {
+    if (qualityMessage) {
+      try {
+        const data = JSON.parse(new TextDecoder().decode(qualityMessage.payload));
+        if (data.type === 'quality_score') {
+          setQualityScore({
+            grade: data.grade,
+            score: data.score,
+            breakdown: data.breakdown,
+            message_count: data.message_count,
+            duration_seconds: data.duration_seconds,
+          });
+          setShowQualityModal(true);
+        }
+      } catch (e) {
+        console.error('Failed to parse quality message:', e);
+      }
+    }
+  }, [qualityMessage]);
 
   // Listen for room events
   useEffect(() => {
@@ -467,7 +535,28 @@ function ActiveCall({
     }
   };
 
+  const getSentimentInfo = () => {
+    if (!sentiment) return null;
+    const { current, overall } = sentiment;
+    const emoji = current.sentiment === 'positive' ? '😊' : current.sentiment === 'negative' ? '😟' : '😐';
+    const color = current.sentiment === 'positive' ? 'text-green-400' : current.sentiment === 'negative' ? 'text-red-400' : 'text-zinc-400';
+    const trendArrow = overall.trend === 'improving' ? '↗' : overall.trend === 'declining' ? '↘' : '→';
+    return { emoji, color, trend: trendArrow };
+  };
+
+  const getGradeColor = (grade: string) => {
+    switch (grade) {
+      case 'A': return 'text-green-400 bg-green-500/20';
+      case 'B': return 'text-cyan-400 bg-cyan-500/20';
+      case 'C': return 'text-yellow-400 bg-yellow-500/20';
+      case 'D': return 'text-orange-400 bg-orange-500/20';
+      case 'F': return 'text-red-400 bg-red-500/20';
+      default: return 'text-zinc-400 bg-zinc-500/20';
+    }
+  };
+
   const status = getConnectionStatusInfo();
+  const sentimentInfo = getSentimentInfo();
 
   return (
     <div className="fixed inset-y-0 right-0 w-full sm:w-96 bg-zinc-900 border-l border-zinc-800 shadow-2xl flex flex-col z-50">
@@ -633,6 +722,13 @@ function ActiveCall({
           {audioLevel > 10 && <span className="text-green-400">● Listening</span>}
           {isAgentSpeaking && <span className="text-cyan-400">● Speaking</span>}
           {agentParticipant && <span className="text-green-400">Agent Connected</span>}
+          {/* Sentiment Indicator */}
+          {sentimentInfo && (
+            <span className={`flex items-center gap-1 ${sentimentInfo.color}`} title={`Mood: ${sentiment?.current.sentiment} (${sentiment?.overall.trend})`}>
+              <span>{sentimentInfo.emoji}</span>
+              <span className="text-xs">{sentimentInfo.trend}</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -834,6 +930,54 @@ function ActiveCall({
           </button>
         </div>
       </div>
+
+      {/* Quality Score Modal (End of Call) */}
+      {showQualityModal && qualityScore && (
+        <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-20">
+          <div className="bg-zinc-800 border border-zinc-700 rounded-2xl p-6 w-80 text-center">
+            <h3 className="text-lg font-semibold text-white mb-4">Call Quality Score</h3>
+
+            {/* Grade Circle */}
+            <div className={`w-24 h-24 rounded-full ${getGradeColor(qualityScore.grade)} flex items-center justify-center mx-auto mb-4`}>
+              <span className="text-4xl font-bold">{qualityScore.grade}</span>
+            </div>
+
+            <p className="text-zinc-400 text-sm mb-4">
+              Score: {qualityScore.score}/100 • {qualityScore.message_count} messages • {formatDuration(qualityScore.duration_seconds)}
+            </p>
+
+            {/* Breakdown */}
+            <div className="grid grid-cols-2 gap-3 mb-6 text-left">
+              <div className="bg-zinc-700/50 rounded-lg p-2">
+                <div className="text-xs text-zinc-400">Latency</div>
+                <div className="text-sm font-medium text-cyan-400">{qualityScore.breakdown.latency}/30</div>
+              </div>
+              <div className="bg-zinc-700/50 rounded-lg p-2">
+                <div className="text-xs text-zinc-400">Sentiment</div>
+                <div className="text-sm font-medium text-green-400">{qualityScore.breakdown.sentiment}/30</div>
+              </div>
+              <div className="bg-zinc-700/50 rounded-lg p-2">
+                <div className="text-xs text-zinc-400">Engagement</div>
+                <div className="text-sm font-medium text-yellow-400">{qualityScore.breakdown.engagement}/20</div>
+              </div>
+              <div className="bg-zinc-700/50 rounded-lg p-2">
+                <div className="text-xs text-zinc-400">Duration</div>
+                <div className="text-sm font-medium text-purple-400">{qualityScore.breakdown.duration}/20</div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowQualityModal(false);
+                onClose();
+              }}
+              className="w-full py-2 bg-cyan-500 hover:bg-cyan-600 text-black font-medium rounded-lg transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
