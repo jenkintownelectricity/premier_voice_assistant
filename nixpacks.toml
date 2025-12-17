@@ -3,4 +3,11 @@
 # (TTS/Coqui requires Python <3.12, pipecat-ai requires >=3.10)
 
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
+nixPkgs = ["python311", "python311Packages.pip", "ffmpeg", "libopus"]
+
+[phases.install]
+cmds = [
+    "pip install --upgrade pip",
+    "pip install --no-cache-dir -r requirements.txt",
+    "pip install --no-cache-dir 'livekit-agents[deepgram,cartesia,openai,silero]==1.1.7'"
+]
