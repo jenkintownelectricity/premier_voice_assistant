@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HIVE215 Stack Architecture - System Overview</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --accent-blue: #00d4ff;
+            --accent-purple: #9b59b6;
+            --accent-green: #00ff88;
+            --accent-orange: #ff6b35;
+            --accent-pink: #ff4081;
+            --accent-yellow: #ffd700;
+            --text-primary: #ffffff;
+            --text-secondary: #8892b0;
+            --border-color: #1e2a3a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: linear-gradient(135deg, rgba(0,212,255,0.1), rgba(155,89,182,0.1));
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        /* Status Banner */
+        .status-banner {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+        }
+
+        .status-item {
+            flex: 1;
+            min-width: 200px;
+            padding: 15px 20px;
+            background: var(--bg-card);
+            border-radius: 12px;
+            border-left: 4px solid var(--accent-green);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-item.warning {
+            border-left-color: var(--accent-orange);
+        }
+
+        .status-item.error {
+            border-left-color: #ff4444;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        .status-item.warning .status-dot {
+            background: var(--accent-orange);
+        }
+
+        .status-item.error .status-dot {
+            background: #ff4444;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Architecture Diagram */
+        .architecture {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+        }
+
+        .layer {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 25px;
+            border: 1px solid var(--border-color);
+        }
+
+        .layer-title {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .layer-title::before {
+            content: '';
+            width: 30px;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent-blue), transparent);
+        }
+
+        /* Service Cards */
+        .services {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .service {
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .service:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent-blue);
+        }
+
+        .service::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+        }
+
+        .service.vercel::before { background: #000; }
+        .service.railway::before { background: #9b59b6; }
+        .service.livekit::before { background: var(--accent-blue); }
+        .service.modal::before { background: var(--accent-green); }
+        .service.supabase::before { background: var(--accent-orange); }
+        .service.deepgram::before { background: #13ef93; }
+        .service.cartesia::before { background: var(--accent-pink); }
+        .service.groq::before { background: var(--accent-yellow); }
+
+        .service-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .service-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .service-name {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .service-type {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .service-details {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .service-url {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.75rem;
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.4);
+            border-radius: 6px;
+            color: var(--accent-blue);
+            word-break: break-all;
+        }
+
+        /* Flow Diagram */
+        .flow-section {
+            margin-top: 40px;
+        }
+
+        .flow-diagram {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 30px;
+            border: 1px solid var(--border-color);
+        }
+
+        .flow-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .flow-visual {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .flow-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .flow-box {
+            padding: 15px 25px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 150px;
+            font-weight: 500;
+        }
+
+        .flow-box.user { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .flow-box.frontend { background: linear-gradient(135deg, #1e3a5f, #2d5a87); border: 2px solid #4a90d9; }
+        .flow-box.livekit { background: linear-gradient(135deg, #0088cc, #00d4ff); }
+        .flow-box.worker { background: linear-gradient(135deg, #6b21a8, #9b59b6); }
+        .flow-box.stt { background: linear-gradient(135deg, #059669, #10b981); }
+        .flow-box.llm { background: linear-gradient(135deg, #d97706, #fbbf24); color: #000; }
+        .flow-box.tts { background: linear-gradient(135deg, #be185d, #ec4899); }
+
+        .flow-arrow {
+            font-size: 1.5rem;
+            color: var(--accent-blue);
+        }
+
+        .flow-arrow.down {
+            transform: rotate(90deg);
+        }
+
+        /* Data Flow */
+        .data-flow {
+            margin-top: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .flow-step {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid var(--accent-blue);
+        }
+
+        .step-number {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            background: var(--accent-blue);
+            color: #000;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 28px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .step-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: inline;
+        }
+
+        .step-desc {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 8px;
+        }
+
+        /* Legend */
+        .legend {
+            margin-top: 40px;
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 25px;
+            border: 1px solid var(--border-color);
+        }
+
+        .legend-title {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+        }
+
+        .legend-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+
+        /* Hosting Note */
+        .hosting-note {
+            margin-top: 40px;
+            background: linear-gradient(135deg, rgba(0,212,255,0.1), rgba(155,89,182,0.1));
+            border-radius: 16px;
+            padding: 25px;
+            border: 1px solid var(--accent-blue);
+        }
+
+        .hosting-note h3 {
+            color: var(--accent-blue);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .hosting-note p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .hosting-note strong {
+            color: var(--text-primary);
+        }
+
+        /* Cost Table */
+        .cost-table {
+            margin-top: 40px;
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 25px;
+            border: 1px solid var(--border-color);
+            overflow-x: auto;
+        }
+
+        .cost-table h3 {
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: rgba(0,0,0,0.3);
+            color: var(--accent-blue);
+            font-weight: 600;
+        }
+
+        tr:hover td {
+            background: rgba(0,212,255,0.05);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge.running { background: rgba(0,255,136,0.2); color: var(--accent-green); }
+        .badge.pending { background: rgba(255,193,7,0.2); color: #ffc107; }
+        .badge.error { background: rgba(255,68,68,0.2); color: #ff4444; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            h1 { font-size: 1.8rem; }
+            .flow-row { flex-direction: column; }
+            .flow-arrow { transform: rotate(90deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⬡ HIVE215 Stack Architecture</h1>
+            <p class="subtitle">Premier Voice Assistant - Complete System Overview</p>
+        </header>
+
+        <!-- Current Status -->
+        <div class="status-banner">
+            <div class="status-item">
+                <div class="status-dot"></div>
+                <div>
+                    <strong>Vercel Frontend</strong>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">Next.js 14 Running</div>
+                </div>
+            </div>
+            <div class="status-item warning">
+                <div class="status-dot"></div>
+                <div>
+                    <strong>Railway Worker</strong>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">Build in Progress</div>
+                </div>
+            </div>
+            <div class="status-item">
+                <div class="status-dot"></div>
+                <div>
+                    <strong>Modal Fast Brain</strong>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">LPU Active</div>
+                </div>
+            </div>
+            <div class="status-item">
+                <div class="status-dot"></div>
+                <div>
+                    <strong>LiveKit Cloud</strong>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">WebRTC Ready</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hosting Clarification -->
+        <div class="hosting-note">
+            <h3>💡 How Your Stack Works</h3>
+            <p>
+                <strong>You don't host LiveKit yourself.</strong> LiveKit Cloud is a managed WebRTC service that handles all the real-time audio/video infrastructure.
+                Your <strong>Railway Worker</strong> runs the AI agent code that <em>connects to</em> LiveKit Cloud. When a user joins a room,
+                LiveKit notifies your worker, which then processes audio using Deepgram (STT), your LLM chain (Fast Brain/Groq/Claude), and Cartesia (TTS).
+            </p>
+        </div>
+
+        <!-- Architecture Layers -->
+        <div class="architecture">
+            <!-- Frontend Layer -->
+            <div class="layer">
+                <div class="layer-title">Frontend Layer</div>
+                <div class="services">
+                    <div class="service vercel">
+                        <div class="service-header">
+                            <div class="service-icon">▲</div>
+                            <div>
+                                <div class="service-name">Vercel</div>
+                                <div class="service-type">Next.js 14 Frontend</div>
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            React UI with LiveKitVoiceCall component. Handles user authentication, voice call UI, and real-time WebRTC connection.
+                        </div>
+                        <div class="service-url">hive215.vercel.app</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WebRTC Layer -->
+            <div class="layer">
+                <div class="layer-title">Real-Time WebRTC Layer</div>
+                <div class="services">
+                    <div class="service livekit">
+                        <div class="service-header">
+                            <div class="service-icon">🎙️</div>
+                            <div>
+                                <div class="service-name">LiveKit Cloud</div>
+                                <div class="service-type">Managed WebRTC Gateway</div>
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            Handles WebRTC connections, room management, audio/video transport. Ultra-low latency (~10-20ms). You connect TO it, not host it.
+                        </div>
+                        <div class="service-url">wss://your-project.livekit.cloud</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Worker Layer -->
+            <div class="layer">
+                <div class="layer-title">AI Worker Layer (Your Agent)</div>
+                <div class="services">
+                    <div class="service railway">
+                        <div class="service-header">
+                            <div class="service-icon">🚂</div>
+                            <div>
+                                <div class="service-name">Railway Worker</div>
+                                <div class="service-type">LiveKit Agent Process</div>
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            Runs livekit_agent.py - connects to LiveKit Cloud and processes voice: receives audio → STT → LLM → TTS → sends audio back.
+                        </div>
+                        <div class="service-url">python backend/livekit_worker.py start</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Voice Pipeline -->
+            <div class="layer">
+                <div class="layer-title">Voice Pipeline Services</div>
+                <div class="services">
+                    <div class="service deepgram">
+                        <div class="service-header">
+                            <div class="service-icon">👂</div>
+                            <div>
+                                <div class="service-name">Deepgram</div>
+                                <div class="service-type">Speech-to-Text (STT)</div>
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            Nova-2 model with streaming. Converts user speech to text in ~30ms. Used inside the LiveKit agent.
+                        </div>
+                        <div class="service-url">api.deepgram.com</div>
+                    </div>
+                    <div class="service groq">
+                        <div class="service-header">
+                            <div class="service-icon">🧠</div>
+                            <div>
+                                <div class="service-name">LLM Chain</div>
+                                <div class="service-type">Intelligence Layer</div>
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            <strong>Priority order:</strong><br>
+                            1. Fast Brain (Modal) - Your custom LPU<br>
+                            2. Groq Llama 3.3 - Ultra-fast backup<br>
+                            3. Claude - Reliable fallback
+                        </div>
+                        <div class="service-url">Fallback chain with health checks</div>
+                    </div>
+                    <div class="service cartesia">
+                        <div class="service-header">
+                            <div class="service-icon">🔊</div>
+                            <div>
+                                <div class="service-name">Cartesia</div>
+                                <div class="service-type">Text-to-Speech (TTS)</div>
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            Sonic-English model. Converts AI text response to natural speech audio in ~30ms streaming.
+                        </div>
+                        <div class="service-url">api.cartesia.ai</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal GPU Services -->
+            <div class="layer">
+                <div class="layer-title">GPU Compute (Modal)</div>
+                <div class="services">
+                    <div class="service modal">
+                        <div class="service-header">
+                            <div class="service-icon">⚡</div>
+                            <div>
+                                <div class="service-name">Fast Brain LPU</div>
+                                <div class="service-type">Custom LLM on Modal</div>
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            Your primary LLM service. Low-latency inference with custom prompts. Falls back to Groq if unavailable.
+                        </div>
+                        <div class="service-url">jenkintownelectricity--fast-brain-lpu-fastapi-app.modal.run</div>
+                    </div>
+                    <div class="service modal">
+                        <div class="service-header">
+                            <div class="service-icon">📊</div>
+                            <div>
+                                <div class="service-name">HIVE215 Dashboard</div>
+                                <div class="service-type">Flask Dashboard on Modal</div>
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            Monitoring and management dashboard for your Fast Brain LPU and voice agents.
+                        </div>
+                        <div class="service-url">jenkintownelectricity--hive215-dashboard-flask-app.modal.run</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Database Layer -->
+            <div class="layer">
+                <div class="layer-title">Database & Storage</div>
+                <div class="services">
+                    <div class="service supabase">
+                        <div class="service-header">
+                            <div class="service-icon">🗄️</div>
+                            <div>
+                                <div class="service-name">Supabase</div>
+                                <div class="service-type">PostgreSQL + Auth + Storage</div>
+                            </div>
+                        </div>
+                        <div class="service-details">
+                            <strong>Tables:</strong> va_assistants, va_call_logs, va_user_profiles, va_usage_metrics<br>
+                            <strong>Auth:</strong> Email, Phone, Apple, Google<br>
+                            <strong>Storage:</strong> Voice recordings, cloned voices
+                        </div>
+                        <div class="service-url">supabase.co/dashboard</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Voice Flow Diagram -->
+        <div class="flow-section">
+            <div class="flow-diagram">
+                <h3 class="flow-title">Voice Conversation Flow (~200-300ms total)</h3>
+
+                <div class="flow-visual">
+                    <div class="flow-row">
+                        <div class="flow-box user">👤 User Speaks</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box frontend">Vercel Frontend</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box livekit">LiveKit Cloud</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="flow-arrow down">↓</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="flow-box worker">Railway Worker</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box stt">Deepgram STT</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box llm">LLM Chain</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box tts">Cartesia TTS</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="flow-arrow down">↓</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="flow-box livekit">LiveKit Cloud</div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-box user">🔊 User Hears</div>
+                    </div>
+                </div>
+
+                <div class="data-flow">
+                    <div class="flow-step">
+                        <span class="step-number">1</span>
+                        <span class="step-title">User clicks "Start Call"</span>
+                        <div class="step-desc">Frontend creates room via POST /livekit/rooms and connects to LiveKit Cloud via WebRTC</div>
+                    </div>
+                    <div class="flow-step">
+                        <span class="step-number">2</span>
+                        <span class="step-title">LiveKit notifies Worker</span>
+                        <div class="step-desc">Railway worker receives job notification and joins the room automatically</div>
+                    </div>
+                    <div class="flow-step">
+                        <span class="step-number">3</span>
+                        <span class="step-title">Voice Activity Detection</span>
+                        <div class="step-desc">Silero VAD detects when user starts/stops speaking</div>
+                    </div>
+                    <div class="flow-step">
+                        <span class="step-number">4</span>
+                        <span class="step-title">Speech → Text</span>
+                        <div class="step-desc">Deepgram transcribes audio to text in real-time (~30ms)</div>
+                    </div>
+                    <div class="flow-step">
+                        <span class="step-number">5</span>
+                        <span class="step-title">LLM Processing</span>
+                        <div class="step-desc">Fast Brain (or Groq/Claude) generates response (~50-100ms)</div>
+                    </div>
+                    <div class="flow-step">
+                        <span class="step-number">6</span>
+                        <span class="step-title">Text → Speech</span>
+                        <div class="step-desc">Cartesia synthesizes audio and streams back to user (~30ms)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cost Breakdown -->
+        <div class="cost-table">
+            <h3>💰 Monthly Cost Estimate</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Service</th>
+                        <th>Provider</th>
+                        <th>Free Tier</th>
+                        <th>Est. Cost</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Frontend</td>
+                        <td>Vercel</td>
+                        <td>✅ Hobby Free</td>
+                        <td>$0</td>
+                        <td><span class="badge running">Running</span></td>
+                    </tr>
+                    <tr>
+                        <td>LiveKit Cloud</td>
+                        <td>LiveKit</td>
+                        <td>✅ Free Tier</td>
+                        <td>$0-20/mo</td>
+                        <td><span class="badge running">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td>Worker</td>
+                        <td>Railway</td>
+                        <td>$5 credit</td>
+                        <td>$5-20/mo</td>
+                        <td><span class="badge pending">Building</span></td>
+                    </tr>
+                    <tr>
+                        <td>Fast Brain LPU</td>
+                        <td>Modal</td>
+                        <td>$30 credit</td>
+                        <td>$10-30/mo</td>
+                        <td><span class="badge running">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td>STT (Deepgram)</td>
+                        <td>Deepgram</td>
+                        <td>$200 credit</td>
+                        <td>$10-50/mo</td>
+                        <td><span class="badge running">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td>TTS (Cartesia)</td>
+                        <td>Cartesia</td>
+                        <td>Free tier</td>
+                        <td>$10-30/mo</td>
+                        <td><span class="badge running">Active</span></td>
+                    </tr>
+                    <tr>
+                        <td>Database</td>
+                        <td>Supabase</td>
+                        <td>Free tier</td>
+                        <td>$0-25/mo</td>
+                        <td><span class="badge running">Running</span></td>
+                    </tr>
+                    <tr style="background: rgba(0,212,255,0.1); font-weight: bold;">
+                        <td colspan="3">Total Estimated</td>
+                        <td>$35-175/mo</td>
+                        <td></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Legend -->
+        <div class="legend">
+            <h3 class="legend-title">Service Legend</h3>
+            <div class="legend-grid">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #000;"></div>
+                    <span><strong>Vercel</strong> - Next.js frontend hosting</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #9b59b6;"></div>
+                    <span><strong>Railway</strong> - Python worker hosting</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00d4ff;"></div>
+                    <span><strong>LiveKit</strong> - Managed WebRTC (you connect TO it)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00ff88;"></div>
+                    <span><strong>Modal</strong> - GPU compute for Fast Brain</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #13ef93;"></div>
+                    <span><strong>Deepgram</strong> - Speech-to-text API</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ec4899;"></div>
+                    <span><strong>Cartesia</strong> - Text-to-speech API</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff6b35;"></div>
+                    <span><strong>Supabase</strong> - PostgreSQL + Auth + Storage</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ffd700;"></div>
+                    <span><strong>Groq</strong> - Fast LLM API (fallback)</span>
+                </div>
+            </div>
+        </div>
+
+        <footer style="text-align: center; padding: 40px 0; color: var(--text-secondary);">
+            <p>Generated for HIVE215 Voice AI Platform</p>
+            <p style="font-size: 0.8rem; margin-top: 10px;">December 2025</p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,13 +1,19 @@
 # Nixpacks configuration for Railway
-# Specify Python 3.11 for compatibility with all packages
-# (TTS/Coqui requires Python <3.12, pipecat-ai requires >=3.10)
+# Uses virtual environment to avoid PEP 668 externally-managed-environment error
 
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip", "ffmpeg", "libopus"]
+nixPkgs = ["python311", "python311Packages.pip", "python311Packages.virtualenv", "ffmpeg", "libopus"]
 
 [phases.install]
 cmds = [
-    "pip install --upgrade pip",
-    "pip install --no-cache-dir -r requirements.txt",
-    "pip install --no-cache-dir 'livekit-agents[deepgram,cartesia,openai,silero]==1.1.7'"
+    "python -m venv /app/venv",
+    "/app/venv/bin/pip install --upgrade pip",
+    "/app/venv/bin/pip install --no-cache-dir -r requirements.txt",
+    "/app/venv/bin/pip install --no-cache-dir 'livekit-agents[deepgram,cartesia,openai,silero]==1.1.7'"
 ]
+
+[phases.build]
+cmds = ["echo 'Build complete'"]
+
+[start]
+cmd = "/app/venv/bin/python backend/livekit_worker.py start"
