@@ -1,121 +1,199 @@
 """
-Skill Command Center - Hybrid LLM Router with Latency Masking
+Latency Manager - Context-Aware Fillers (World Class Edition)
 
 This is the brain of your voice AI platform. It:
 1. Routes queries to the best LLM (fast vs smart)
-2. Masks latency with natural filler sounds
+2. Masks latency with CONTEXT-AWARE filler sounds
 3. Retrieves skill-specific knowledge for narrow-role assistants
 4. Integrates with your voice platform (LiveKit, Vapi, etc.)
+
+World-Class Latency Masking Strategy:
+- Acoustic (0ms): "Hmm", "Uh-huh" (Immediate reaction)
+- Phatic (500ms): "I see", "Got it" (Acknowledges receipt)
+- Process (2s+): "Pulling up that spec sheet..." (Justifies the delay)
 """
 
 import asyncio
 import time
 import random
-from typing import AsyncGenerator, Optional, Dict, Any, Callable
+from typing import AsyncGenerator, Optional, Dict, Any, Callable, List
 from dataclasses import dataclass, field
 from enum import Enum
 
 # ============================================================================
-# LATENCY MASKING - The Secret Sauce
+# LATENCY MASKING - Context-Aware Edition (The Secret Sauce)
 # ============================================================================
 
 class LatencyMasker:
     """
-    Generates natural filler sounds/phrases while waiting for LLM response.
-    This makes slow models feel conversational instead of laggy.
+    Context-Aware Latency Masker - World Class Edition
+
+    A world-class agent doesn't just say "Hmm...". It buys time by telling
+    you what it's doing. This builds trust and makes delays feel purposeful.
+
+    Three-tier filler strategy:
+    1. ACOUSTIC (<200ms): "Hmm...", "Uh-huh..." - Immediate reaction
+    2. PHATIC (500ms): "I see", "Got it" - Acknowledges receipt
+    3. PROCESS (2s+): "Running the estimate..." - Justifies the delay
     """
-
-    # Filler sounds - short, natural thinking sounds
-    FILLER_SOUNDS = [
-        "Hmm...",
-        "Mmm...",
-        "Umm...",
-        "Ah...",
-        "Well...",
-    ]
-
-    # Thinking phrases - for longer waits
-    THINKING_PHRASES = [
-        "Let me think about that...",
-        "That's a good question...",
-        "Let me check...",
-        "One moment...",
-        "Interesting...",
-        "Let me see...",
-    ]
-
-    # Acknowledgment phrases - shows we heard them
-    ACKNOWLEDGMENTS = [
-        "I hear you.",
-        "Got it.",
-        "Okay.",
-        "Right.",
-        "Sure.",
-    ]
-
-    # Domain-specific fillers (customize per skill)
-    SKILL_FILLERS = {
-        "technical": ["Let me look that up...", "Checking the docs..."],
-        "customer_service": ["I understand.", "Let me help with that..."],
-        "scheduling": ["Let me check the calendar...", "One moment..."],
-        "sales": ["Great question!", "Let me find the best option..."],
-    }
 
     def __init__(self, skill_type: Optional[str] = None):
         self.skill_type = skill_type
         self.last_filler_time = 0
-        self.fillers_used = []
+        self.fillers_used: List[str] = []
+
+        # 1. THE "MICRO-FILLER" (Immediate Reaction - <200ms)
+        # Used when the system needs just a split second.
+        self.acoustic_fillers = [
+            "Hmm...",
+            "Mmm...",
+            "Uh-huh...",
+            "Right...",
+            "Okay...",
+        ]
+
+        # 2. THE "HOLDING PATTERN" (Thinking Time - >1s)
+        # Context-aware phrases that justify the delay.
+        self.context_fillers = {
+            "general": [
+                "Let me see...",
+                "One moment...",
+                "Let me check that for you...",
+                "Bear with me a second...",
+                "Thinking through that...",
+            ],
+            # ROOFING / CONSTRUCTION / TECHNICAL
+            "technical": [
+                "Checking the assembly specs...",
+                "Pulling up the manufacturer data...",
+                "Verifying that code requirement...",
+                "Let me look at the detail drawing...",
+                "Reviewing the layer buildup...",
+                "Let me look that up...",
+                "Checking the docs...",
+            ],
+            # SCHEDULING / CRM
+            "scheduling": [
+                "Checking the calendar...",
+                "Let me see what times are open...",
+                "Looking at availability...",
+                "Just a moment, syncing the schedule...",
+            ],
+            # MATH / ESTIMATES
+            "calculation": [
+                "Running those numbers...",
+                "Let me total that up...",
+                "Calculating the estimate...",
+                "Double checking the math...",
+            ],
+            # NEGOTIATION / SALES
+            "sales": [
+                "Great question!",
+                "Let me find the best option...",
+                "Checking what we have available...",
+            ],
+            # EMPATHETIC / CUSTOMER SERVICE
+            "customer_service": [
+                "I understand where you're coming from...",
+                "That's a fair point...",
+                "Let me see what we can do there...",
+                "I hear you...",
+                "I understand.",
+                "Let me help with that...",
+            ],
+            # ELECTRICIAN
+            "electrician": [
+                "Let me check the electrical codes...",
+                "Reviewing the circuit requirements...",
+                "Looking up the panel specs...",
+            ],
+            # PLUMBER
+            "plumber": [
+                "Checking the pipe sizing...",
+                "Let me look at the fixture requirements...",
+                "Reviewing the drain calculations...",
+            ],
+            # SOLAR
+            "solar": [
+                "Calculating the panel layout...",
+                "Checking your roof orientation...",
+                "Running the energy production estimate...",
+            ],
+            # LEGAL
+            "lawyer": [
+                "Let me review that provision...",
+                "Checking the relevant statute...",
+                "Looking at the case details...",
+            ],
+        }
 
     def get_instant_filler(self) -> str:
-        """Get a quick filler sound for immediate response (<100ms)"""
-        return random.choice(self.FILLER_SOUNDS)
+        """Get a quick acoustic filler for immediate response (<200ms)"""
+        return random.choice(self.acoustic_fillers)
 
-    def get_thinking_phrase(self) -> str:
-        """Get a longer thinking phrase for extended waits"""
-        if self.skill_type and self.skill_type in self.SKILL_FILLERS:
-            phrases = self.THINKING_PHRASES + self.SKILL_FILLERS[self.skill_type]
-        else:
-            phrases = self.THINKING_PHRASES
+    def get_context_filler(self, context: str = "general") -> str:
+        """Get a context-aware filler phrase for longer waits"""
+        # Use skill_type if set, otherwise use provided context
+        effective_context = self.skill_type or context
+
+        # Get the appropriate filler category
+        category = self.context_fillers.get(
+            effective_context,
+            self.context_fillers["general"]
+        )
 
         # Avoid repeating the same phrase
-        available = [p for p in phrases if p not in self.fillers_used[-3:]]
+        available = [p for p in category if p not in self.fillers_used[-3:]]
         if not available:
-            available = phrases
+            available = category
 
         phrase = random.choice(available)
         self.fillers_used.append(phrase)
         return phrase
 
+    def get_thinking_phrase(self) -> str:
+        """Alias for get_context_filler for backwards compatibility"""
+        return self.get_context_filler()
+
     async def mask_latency(
         self,
         response_generator: AsyncGenerator[str, None],
-        max_wait_before_filler: float = 0.3,  # Start filler after 300ms
-        filler_interval: float = 2.0,  # Add new filler every 2s if still waiting
+        context: str = "general",
     ) -> AsyncGenerator[str, None]:
         """
-        Wraps an LLM response generator and adds natural fillers during waits.
+        Yields a context-aware filler immediately, then the real response.
+
+        World-class latency masking strategy:
+        - 30% chance: Short acoustic filler ("Hmm...")
+        - 70% chance: Context-specific phrase ("Running those numbers...")
 
         Usage:
-            async for chunk in masker.mask_latency(llm.generate(prompt)):
+            async for chunk in masker.mask_latency(llm.generate(prompt), context="calculation"):
                 send_to_tts(chunk)
         """
+        # A. DECISION LOGIC: Short vs Long Delay?
+        # Mix them for natural variation.
+
+        # 30% chance of a short acoustic filler ("Hmm...")
+        if random.random() < 0.3:
+            filler = random.choice(self.acoustic_fillers)
+        else:
+            # 70% chance of a context-specific phrase
+            filler = self.get_context_filler(context)
+
+        # B. YIELD FILLER (The "Buying Time" Step)
+        yield filler + " "
+
+        # C. YIELD REAL INTELLIGENCE
         first_token_received = False
-        last_yield_time = time.time()
-        filler_count = 0
-
-        # Immediately yield a quick acknowledgment
-        yield self.get_instant_filler() + " "
-
         async for chunk in response_generator:
             if not first_token_received:
                 first_token_received = True
-                # Clear the filler and start real response
-                yield "\n"  # Natural transition
-
+                # Natural transition from filler to response
+                yield "\n"
             yield chunk
-            last_yield_time = time.time()
 
-        # If we never got a response, add a fallback
+        # D. FALLBACK if no response received
         if not first_token_received:
             yield "I'm having trouble with that. Could you try again?"
 

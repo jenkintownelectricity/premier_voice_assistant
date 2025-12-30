@@ -1,18 +1,20 @@
 """
-Voice Agent - Integrated Voice AI with Latency Masking and Turn-Taking
+Voice Agent - Integrated Voice AI with Context-Aware Latency Masking and Turn-Taking
 
 This module combines:
-1. LatencyMasker - Natural filler sounds while waiting for LLM response
+1. LatencyMasker - Context-aware filler sounds while waiting for LLM response
+   - Acoustic (<200ms): "Hmm...", "Uh-huh..." (Immediate reaction)
+   - Process (2s+): "Running the estimate...", "Checking the calendar..." (Justifies delay)
 2. TurnManager - State-of-the-art turn-taking for natural conversation flow
 
 Usage:
     from worker.voice_agent import VoiceAgent
 
-    agent = VoiceAgent()
+    agent = VoiceAgent(skill_type="electrician")
 
-    # In your voice pipeline, wrap LLM generation with latency masking
-    async for chunk in agent.generate(user_input, llm):
-        send_to_tts(chunk)
+    # In your voice pipeline, wrap LLM generation with context-aware latency masking
+    async for chunk in agent.generate(user_input, llm, context="calculation"):
+        send_to_tts(chunk)  # "Running those numbers..." while LLM thinks
 """
 
 import asyncio
@@ -68,28 +70,41 @@ class VoiceAgent:
         user_input: str,
         llm_generator: AsyncGenerator[str, None],
         use_latency_masking: bool = True,
+        context: str = "general",
     ) -> AsyncGenerator[str, None]:
         """
-        Generate a response with latency masking.
+        Generate a response with context-aware latency masking.
 
-        This wraps the LLM generation to add natural fillers like "Hmm..."
+        This wraps the LLM generation to add natural, context-aware fillers
         while waiting for the LLM to respond, creating a more conversational feel.
 
         Args:
             user_input: The user's input text
             llm_generator: Async generator that yields LLM response chunks
             use_latency_masking: Whether to add filler sounds
+            context: Context for filler selection. Options:
+                     "general", "technical", "scheduling", "calculation",
+                     "sales", "customer_service", "electrician", "plumber",
+                     "solar", "lawyer"
 
         Yields:
             Response chunks (including fillers if enabled)
+
+        Example:
+            # For a calculation query, use context="calculation"
+            # Agent will say "Running those numbers..." instead of "Hmm..."
+            async for chunk in agent.generate(query, llm_stream, context="calculation"):
+                send_to_tts(chunk)
         """
         self._last_user_input = user_input
         self._is_speaking = True
 
         try:
             if use_latency_masking:
-                # Wrap with latency masking - adds "Hmm..." while waiting
-                async for chunk in self.latency_masker.mask_latency(llm_generator):
+                # Wrap with context-aware latency masking
+                async for chunk in self.latency_masker.mask_latency(
+                    llm_generator, context=context
+                ):
                     yield chunk
             else:
                 # Pass through without modification
@@ -103,17 +118,22 @@ class VoiceAgent:
         messages: list,
         llm: Any,
         use_latency_masking: bool = True,
+        context: str = "general",
     ) -> AsyncGenerator[str, None]:
         """
-        Process a chat completion with latency masking.
+        Process a chat completion with context-aware latency masking.
 
         This is the recommended method for integrating with LLM chat APIs.
-        It automatically wraps the LLM call with latency masking.
+        It automatically wraps the LLM call with context-aware latency masking.
 
         Args:
             messages: List of message dicts (role, content)
             llm: LLM client with a chat() method that returns an async generator
             use_latency_masking: Whether to add filler sounds
+            context: Context for filler selection. Options:
+                     "general", "technical", "scheduling", "calculation",
+                     "sales", "customer_service", "electrician", "plumber",
+                     "solar", "lawyer"
 
         Yields:
             Response chunks (including fillers if enabled)
@@ -121,11 +141,13 @@ class VoiceAgent:
         Example:
             messages = [
                 {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Hello!"}
+                {"role": "user", "content": "How much will this cost?"}
             ]
 
-            async for chunk in agent.chat(messages, llm):
+            # Use context="calculation" for estimate queries
+            async for chunk in agent.chat(messages, llm, context="calculation"):
                 print(chunk, end="", flush=True)
+                # Output: "Running those numbers... The total comes to $1,500."
         """
         # Get the LLM stream
         if hasattr(llm, 'chat'):
@@ -137,9 +159,9 @@ class VoiceAgent:
         else:
             raise ValueError("LLM must have either chat() or generate() method")
 
-        # Wrap with latency masking
+        # Wrap with context-aware latency masking
         if use_latency_masking:
-            stream = self.latency_masker.mask_latency(stream)
+            stream = self.latency_masker.mask_latency(stream, context=context)
 
         async for chunk in stream:
             yield chunk
@@ -199,7 +221,17 @@ class VoiceAgent:
         Change the skill type for domain-specific fillers.
 
         Args:
-            skill_type: One of "technical", "customer_service", "scheduling", "sales"
+            skill_type: One of:
+                - "general" - Generic fillers
+                - "technical" - Construction/roofing specs
+                - "scheduling" - Calendar/CRM operations
+                - "calculation" - Math/estimates
+                - "sales" - Sales/negotiation
+                - "customer_service" - Empathetic responses
+                - "electrician" - Electrical codes/specs
+                - "plumber" - Plumbing calculations
+                - "solar" - Solar panel estimates
+                - "lawyer" - Legal intake
         """
         self.latency_masker.skill_type = skill_type
         logger.info(f"VoiceAgent skill type changed to: {skill_type}")
@@ -217,14 +249,20 @@ class VoiceAgent:
 async def create_masked_stream(
     llm_stream: AsyncGenerator[str, None],
     skill_type: Optional[str] = None,
+    context: str = "general",
 ) -> AsyncGenerator[str, None]:
     """
-    Quick helper to add latency masking to any LLM stream.
+    Quick helper to add context-aware latency masking to any LLM stream.
 
     Usage:
+        # Basic usage
         async for chunk in create_masked_stream(llm.chat(messages)):
             print(chunk, end="")
+
+        # With context for domain-specific fillers
+        async for chunk in create_masked_stream(llm.chat(messages), context="calculation"):
+            print(chunk, end="")  # "Running those numbers... $1,500 total."
     """
     masker = LatencyMasker(skill_type=skill_type)
-    async for chunk in masker.mask_latency(llm_stream):
+    async for chunk in masker.mask_latency(llm_stream, context=context):
         yield chunk
