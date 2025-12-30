@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Your Voice Agent - HIVE215 Guide</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --bg-step: #1a1a2e;
+            --accent-blue: #00d4ff;
+            --accent-purple: #9b59b6;
+            --accent-green: #00ff88;
+            --accent-orange: #ff6b35;
+            --accent-pink: #ff6b9d;
+            --text-primary: #ffffff;
+            --text-secondary: #8892b0;
+            --border-color: #1e2a3a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 60px 20px;
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(155, 89, 182, 0.1));
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 15px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.2rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .time-estimate {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid var(--accent-green);
+            border-radius: 20px;
+            color: var(--accent-green);
+            font-size: 0.9rem;
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            position: sticky;
+            top: 0;
+            background: var(--bg-dark);
+            padding: 15px 0;
+            border-bottom: 1px solid var(--border-color);
+            z-index: 100;
+        }
+
+        .progress-steps {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .progress-step {
+            padding: 8px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .progress-step:hover {
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        .progress-step.active {
+            background: var(--accent-blue);
+            color: var(--bg-dark);
+            border-color: var(--accent-blue);
+        }
+
+        /* Steps */
+        .step {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            margin: 40px 0;
+            overflow: hidden;
+        }
+
+        .step-header {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding: 25px 30px;
+            background: var(--bg-step);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .step-number {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .step-title {
+            font-size: 1.4rem;
+            color: var(--text-primary);
+        }
+
+        .step-time {
+            margin-left: auto;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .step-content {
+            padding: 30px;
+        }
+
+        .step-content p {
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+
+        /* Substeps */
+        .substep {
+            background: var(--bg-step);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        .substep h4 {
+            color: var(--accent-blue);
+            margin-bottom: 10px;
+            font-size: 1rem;
+        }
+
+        .substep p {
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+            font-size: 0.95rem;
+        }
+
+        /* Code blocks */
+        .code-block {
+            background: #0d0d14;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+        }
+
+        .code-block pre {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            color: #e0e0e0;
+            margin: 0;
+        }
+
+        .code-block .comment { color: #6a9955; }
+        .code-block .key { color: var(--accent-blue); }
+        .code-block .value { color: var(--accent-green); }
+        .code-block .label { color: var(--accent-orange); }
+
+        /* Input fields preview */
+        .field-preview {
+            background: var(--bg-step);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+
+        .field-label {
+            color: var(--accent-blue);
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+        }
+
+        .field-value {
+            background: #0d0d14;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 12px;
+            color: var(--text-primary);
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        /* Tips */
+        .tip {
+            background: rgba(0, 255, 136, 0.05);
+            border-left: 4px solid var(--accent-green);
+            padding: 15px 20px;
+            border-radius: 0 8px 8px 0;
+            margin: 20px 0;
+        }
+
+        .tip-title {
+            color: var(--accent-green);
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .tip p {
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        /* Warnings */
+        .warning {
+            background: rgba(255, 107, 53, 0.05);
+            border-left: 4px solid var(--accent-orange);
+            padding: 15px 20px;
+            border-radius: 0 8px 8px 0;
+            margin: 20px 0;
+        }
+
+        .warning-title {
+            color: var(--accent-orange);
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        /* Links */
+        a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            color: white;
+            border-radius: 8px;
+            font-weight: bold;
+            text-decoration: none;
+            margin: 10px 5px 10px 0;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.3);
+            text-decoration: none;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            border: 2px solid var(--accent-blue);
+        }
+
+        /* Checklist */
+        .checklist {
+            list-style: none;
+            padding: 0;
+        }
+
+        .checklist li {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .checklist li:last-child {
+            border-bottom: none;
+        }
+
+        .checkbox {
+            width: 22px;
+            height: 22px;
+            border: 2px solid var(--accent-blue);
+            border-radius: 4px;
+            flex-shrink: 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .checkbox:hover {
+            background: rgba(0, 212, 255, 0.1);
+        }
+
+        .checkbox.checked {
+            background: var(--accent-green);
+            border-color: var(--accent-green);
+        }
+
+        .checkbox.checked::after {
+            content: "✓";
+            color: var(--bg-dark);
+            font-weight: bold;
+        }
+
+        /* Architecture diagram */
+        .architecture {
+            background: var(--bg-step);
+            border-radius: 10px;
+            padding: 30px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .arch-flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+
+        .arch-box {
+            padding: 15px 20px;
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            min-width: 120px;
+        }
+
+        .arch-box.highlight {
+            border-color: var(--accent-green);
+            background: rgba(0, 255, 136, 0.1);
+        }
+
+        .arch-arrow {
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+        }
+
+        /* Final section */
+        .final-section {
+            background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(155, 89, 182, 0.1));
+            border: 1px solid var(--accent-purple);
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+            margin: 40px 0;
+        }
+
+        .final-section h2 {
+            color: var(--accent-purple);
+            margin-bottom: 15px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .step-header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .step-time {
+                margin-left: 0;
+                margin-top: 10px;
+            }
+
+            .arch-flow {
+                flex-direction: column;
+            }
+
+            .arch-arrow {
+                transform: rotate(90deg);
+            }
+        }
+
+        /* Collapsible sections */
+        .collapsible-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            padding: 15px;
+            background: var(--bg-step);
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        .collapsible-header:hover {
+            background: rgba(0, 212, 255, 0.1);
+        }
+
+        .collapsible-content {
+            display: none;
+            padding: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 0 0 8px 8px;
+            margin-top: -10px;
+        }
+
+        .collapsible-content.show {
+            display: block;
+        }
+
+        .expand-icon {
+            transition: transform 0.3s;
+        }
+
+        .expand-icon.rotated {
+            transform: rotate(180deg);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Create Your Voice Agent</h1>
+        <p class="subtitle">A step-by-step guide to building AI voice assistants with HIVE215, Fast Brain, and Cartesia</p>
+        <span class="time-estimate">Estimated time: 30-45 minutes</span>
+    </header>
+
+    <div class="progress-container">
+        <div class="progress-steps">
+            <a href="#step1" class="progress-step">1. Prerequisites</a>
+            <a href="#step2" class="progress-step">2. Create Skill</a>
+            <a href="#step3" class="progress-step">3. Clone Voice</a>
+            <a href="#step4" class="progress-step">4. Configure</a>
+            <a href="#step5" class="progress-step">5. Test</a>
+        </div>
+    </div>
+
+    <div class="container">
+
+        <!-- Overview -->
+        <div class="architecture">
+            <h3 style="margin-bottom: 20px; color: var(--text-secondary);">How It Works</h3>
+            <div class="arch-flow">
+                <div class="arch-box">User Speaks</div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-box">Deepgram STT</div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-box highlight">Fast Brain<br><small>(Your Skill)</small></div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-box highlight">Cartesia TTS<br><small>(Your Voice)</small></div>
+                <span class="arch-arrow">→</span>
+                <div class="arch-box">User Hears</div>
+            </div>
+            <p style="color: var(--text-secondary); margin-top: 20px;">You'll customize the <span style="color: var(--accent-green);">green boxes</span>: your AI's personality (skill) and voice (clone)</p>
+        </div>
+
+        <!-- Step 1: Prerequisites -->
+        <div class="step" id="step1">
+            <div class="step-header">
+                <div class="step-number">1</div>
+                <h2 class="step-title">Prerequisites</h2>
+                <span class="step-time">5 min</span>
+            </div>
+            <div class="step-content">
+                <p>Before you begin, make sure you have access to these tools:</p>
+
+                <ul class="checklist">
+                    <li>
+                        <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                        <div>
+                            <strong>Fast Brain Skill Command Center</strong><br>
+                            <span style="color: var(--text-secondary);">Access the skill management dashboard to create your agent's personality</span>
+                        </div>
+                    </li>
+                    <li>
+                        <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                        <div>
+                            <strong>Cartesia Account</strong><br>
+                            <span style="color: var(--text-secondary);">Sign up at <a href="https://cartesia.ai" target="_blank">cartesia.ai</a> for voice cloning</span>
+                        </div>
+                    </li>
+                    <li>
+                        <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                        <div>
+                            <strong>Voice Recording (5-10 seconds)</strong><br>
+                            <span style="color: var(--text-secondary);">A clear audio clip of the voice you want to clone</span>
+                        </div>
+                    </li>
+                    <li>
+                        <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                        <div>
+                            <strong>Railway Access (for deployment)</strong><br>
+                            <span style="color: var(--text-secondary);">To update environment variables for your worker</span>
+                        </div>
+                    </li>
+                </ul>
+
+                <div class="tip">
+                    <div class="tip-title">💡 Pro Tip</div>
+                    <p>Prepare your business information before starting: company name, services, FAQs, and how you want your agent to sound and behave.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Create Your Skill -->
+        <div class="step" id="step2">
+            <div class="step-header">
+                <div class="step-number">2</div>
+                <h2 class="step-title">Create Your Skill (Agent Personality)</h2>
+                <span class="step-time">15 min</span>
+            </div>
+            <div class="step-content">
+                <p>A "skill" defines your agent's personality, knowledge, and behavior. Open the Skill Command Center and fill in these fields:</p>
+
+                <div class="substep">
+                    <h4>2.1 Business Name</h4>
+                    <p>Your company or brand name</p>
+                    <div class="field-preview">
+                        <div class="field-label">Business Name *</div>
+                        <div class="field-value">Acme Services Inc.</div>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>2.2 Business Type</h4>
+                    <p>Select the category that best fits your use case</p>
+                    <div class="field-preview">
+                        <div class="field-label">Business Type</div>
+                        <div class="field-value">General Customer Service / Sales / Support / Appointment Booking</div>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>2.3 Business Description</h4>
+                    <p>2-3 sentences about what your business does. This helps the AI understand context.</p>
+                    <div class="field-preview">
+                        <div class="field-label">Business Description</div>
+                        <div class="field-value">We provide [your service] to [your audience]. Our team specializes in [key differentiator]. We've been serving customers since [year].</div>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>2.4 Default Greeting</h4>
+                    <p>The first thing your agent says when answering. Keep it warm and natural.</p>
+                    <div class="field-preview">
+                        <div class="field-label">Default Greeting</div>
+                        <div class="field-value">Hi there! Thanks for calling [Company Name]. How can I help you today?</div>
+                    </div>
+                    <div class="tip">
+                        <div class="tip-title">💡 Greeting Tips</div>
+                        <p>Keep it under 15 words. Mention your company name. End with an open question.</p>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>2.5 Personality</h4>
+                    <p>How should your agent sound? This affects word choice and tone.</p>
+                    <div class="field-preview">
+                        <div class="field-label">Personality</div>
+                        <div class="field-value">Friendly and casual / Professional and formal / Energetic and enthusiastic</div>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>2.6 Key Services</h4>
+                    <p>List your main offerings, one per line. The agent will reference these.</p>
+                    <div class="code-block">
+<pre>Emergency repairs
+Scheduled maintenance
+Free consultations
+24/7 support
+Installation services</pre>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>2.7 FAQ (Question & Answer Pairs)</h4>
+                    <p>Common questions your agent should know how to answer. Use this format:</p>
+                    <div class="code-block">
+<pre><span class="key">Q:</span> What are your hours?
+<span class="value">A:</span> We're open Monday through Friday, 9 AM to 6 PM.
+
+<span class="key">Q:</span> Do you offer free estimates?
+<span class="value">A:</span> Yes! We provide free estimates for all services.
+
+<span class="key">Q:</span> What areas do you serve?
+<span class="value">A:</span> We serve the entire metro area and surrounding counties.
+
+<span class="key">Q:</span> How do I schedule an appointment?
+<span class="value">A:</span> I can help you with that right now! What day works best for you?</pre>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>2.8 Custom Instructions</h4>
+                    <p>Special behavior rules for your agent. Be specific!</p>
+                    <div class="code-block">
+<pre><span class="comment"># Example Custom Instructions</span>
+
+<span class="label">Tone:</span>
+- Keep responses conversational and concise (2-3 sentences max)
+- Be helpful but never pushy
+- If you don't know something, say so honestly
+
+<span class="label">Goals:</span>
+- Collect caller's name and contact info
+- Understand their needs before offering solutions
+- Always offer to schedule a callback or appointment
+
+<span class="label">Boundaries:</span>
+- Don't quote specific prices (say "pricing varies, let me connect you with our team")
+- Don't make promises about timelines
+- Transfer to a human for complaints or complex issues</pre>
+                    </div>
+                </div>
+
+                <div class="warning">
+                    <div class="warning-title">⚠️ Important</div>
+                    <p>After saving, note your <strong>Skill ID</strong> (e.g., "acme-support"). You'll need this for Step 4.</p>
+                </div>
+
+                <a href="#" class="btn">Save Profile →</a>
+            </div>
+        </div>
+
+        <!-- Step 3: Clone Your Voice -->
+        <div class="step" id="step3">
+            <div class="step-header">
+                <div class="step-number">3</div>
+                <h2 class="step-title">Clone Your Voice</h2>
+                <span class="step-time">10 min</span>
+            </div>
+            <div class="step-content">
+                <p>Make your agent sound like a specific person using Cartesia's voice cloning.</p>
+
+                <div class="substep">
+                    <h4>3.1 Prepare Your Audio</h4>
+                    <p>Get a clean voice recording:</p>
+                    <ul class="checklist">
+                        <li>
+                            <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                            <span><strong>5-10 seconds</strong> of clear speech</span>
+                        </li>
+                        <li>
+                            <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                            <span><strong>Minimal background noise</strong> - quiet room, no music</span>
+                        </li>
+                        <li>
+                            <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                            <span><strong>Natural speaking style</strong> - match how you want the agent to sound</span>
+                        </li>
+                        <li>
+                            <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                            <span><strong>Good microphone quality</strong> - avoid phone recordings if possible</span>
+                        </li>
+                    </ul>
+
+                    <div class="tip">
+                        <div class="tip-title">💡 Getting Audio from YouTube</div>
+                        <p>If you have a YouTube video of the person speaking, you can extract audio using tools like <a href="https://y2mate.com" target="_blank">y2mate.com</a> or the command: <code>yt-dlp -x --audio-format mp3 [URL]</code></p>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>3.2 Clone on Cartesia</h4>
+                    <ol style="color: var(--text-secondary); padding-left: 20px;">
+                        <li style="margin: 10px 0;">Go to <a href="https://play.cartesia.ai/voices" target="_blank">play.cartesia.ai/voices</a></li>
+                        <li style="margin: 10px 0;">Click <strong>"Clone Voice"</strong> or <strong>"Instant Clone"</strong></li>
+                        <li style="margin: 10px 0;">Upload your audio file (MP3, WAV, or M4A)</li>
+                        <li style="margin: 10px 0;">Enter a name (e.g., "Sarah - Sales Agent")</li>
+                        <li style="margin: 10px 0;">Select the language (usually English)</li>
+                        <li style="margin: 10px 0;">Click <strong>"Clone"</strong> and wait ~30 seconds</li>
+                        <li style="margin: 10px 0;"><strong>Copy the Voice ID</strong> - it looks like: <code>a0e99841-438c-4a64-b679-ae501e7d6091</code></li>
+                    </ol>
+                </div>
+
+                <div class="substep">
+                    <h4>3.3 Test Your Voice</h4>
+                    <p>Before deploying, test the cloned voice in Cartesia's playground:</p>
+                    <ol style="color: var(--text-secondary); padding-left: 20px;">
+                        <li style="margin: 10px 0;">Click on your cloned voice</li>
+                        <li style="margin: 10px 0;">Enter sample text your agent might say</li>
+                        <li style="margin: 10px 0;">Click "Generate" and listen</li>
+                        <li style="margin: 10px 0;">Adjust or re-clone if needed</li>
+                    </ol>
+                </div>
+
+                <div class="warning">
+                    <div class="warning-title">⚠️ Save Your Voice ID</div>
+                    <p>Copy and save your Voice ID somewhere safe. You'll need it for Step 4.<br>
+                    Example: <code>a0e99841-438c-4a64-b679-ae501e7d6091</code></p>
+                </div>
+
+                <a href="https://play.cartesia.ai/voices" target="_blank" class="btn">Open Cartesia →</a>
+            </div>
+        </div>
+
+        <!-- Step 4: Configure Your Agent -->
+        <div class="step" id="step4">
+            <div class="step-header">
+                <div class="step-number">4</div>
+                <h2 class="step-title">Configure Your Agent</h2>
+                <span class="step-time">5 min</span>
+            </div>
+            <div class="step-content">
+                <p>Connect your skill and voice to the HIVE215 worker by setting environment variables in Railway.</p>
+
+                <div class="substep">
+                    <h4>4.1 Open Railway Worker Settings</h4>
+                    <ol style="color: var(--text-secondary); padding-left: 20px;">
+                        <li style="margin: 10px 0;">Go to your Railway project</li>
+                        <li style="margin: 10px 0;">Click on the <strong>Worker</strong> service</li>
+                        <li style="margin: 10px 0;">Go to <strong>Variables</strong> tab</li>
+                    </ol>
+                </div>
+
+                <div class="substep">
+                    <h4>4.2 Set Environment Variables</h4>
+                    <p>Add or update these variables:</p>
+
+                    <div class="code-block">
+<pre><span class="comment"># Your skill ID from Step 2</span>
+<span class="key">DEFAULT_SKILL</span>=<span class="value">your-skill-id</span>
+
+<span class="comment"># Your cloned voice ID from Step 3</span>
+<span class="key">CARTESIA_VOICE_ID</span>=<span class="value">a0e99841-438c-4a64-b679-ae501e7d6091</span></pre>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>4.3 Verify Other Required Variables</h4>
+                    <p>Make sure these are also set:</p>
+
+                    <div class="code-block">
+<pre><span class="comment"># Already set (don't change)</span>
+<span class="key">SERVICE_TYPE</span>=<span class="value">worker</span>
+<span class="key">LIVEKIT_URL</span>=<span class="value">wss://your-app.livekit.cloud</span>
+<span class="key">LIVEKIT_API_KEY</span>=<span class="value">APIxxxxxxxx</span>
+<span class="key">LIVEKIT_API_SECRET</span>=<span class="value">xxxxxxxxxx</span>
+<span class="key">DEEPGRAM_API_KEY</span>=<span class="value">xxxxxxxxxx</span>
+<span class="key">CARTESIA_API_KEY</span>=<span class="value">sk_car_xxxxxx</span>
+<span class="key">FAST_BRAIN_URL</span>=<span class="value">https://your-fast-brain.modal.run</span></pre>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>4.4 Redeploy</h4>
+                    <p>After saving variables, trigger a new deployment:</p>
+                    <ol style="color: var(--text-secondary); padding-left: 20px;">
+                        <li style="margin: 10px 0;">Go to <strong>Deployments</strong> tab</li>
+                        <li style="margin: 10px 0;">Click <strong>"Redeploy"</strong> on the latest deployment</li>
+                        <li style="margin: 10px 0;">Wait for the worker to come online (~1 minute)</li>
+                    </ol>
+                </div>
+
+                <div class="tip">
+                    <div class="tip-title">💡 No Rebuild Needed</div>
+                    <p>Environment variable changes don't require rebuilding the Docker image. A simple redeploy picks up the new values.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 5: Test Your Agent -->
+        <div class="step" id="step5">
+            <div class="step-header">
+                <div class="step-number">5</div>
+                <h2 class="step-title">Test Your Agent</h2>
+                <span class="step-time">5 min</span>
+            </div>
+            <div class="step-content">
+                <p>Time to hear your creation in action!</p>
+
+                <div class="substep">
+                    <h4>5.1 Check Worker Logs</h4>
+                    <p>In Railway, verify the worker started correctly:</p>
+                    <div class="code-block">
+<pre><span class="comment"># Look for these success messages:</span>
+Starting LiveKit Worker...
+Fast Brain LLM initialized: https://...
+Cartesia TTS initialized (voice=a0e99841...)
+registered worker</pre>
+                    </div>
+                </div>
+
+                <div class="substep">
+                    <h4>5.2 Make a Test Call</h4>
+                    <ol style="color: var(--text-secondary); padding-left: 20px;">
+                        <li style="margin: 10px 0;">Open your HIVE215 web interface</li>
+                        <li style="margin: 10px 0;">Click <strong>"Start Call"</strong> or equivalent</li>
+                        <li style="margin: 10px 0;">Listen for your greeting</li>
+                        <li style="margin: 10px 0;">Test a few questions from your FAQ</li>
+                    </ol>
+                </div>
+
+                <div class="substep">
+                    <h4>5.3 Verify These Work</h4>
+                    <ul class="checklist">
+                        <li>
+                            <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                            <span>Agent says your custom greeting</span>
+                        </li>
+                        <li>
+                            <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                            <span>Voice sounds like your cloned voice</span>
+                        </li>
+                        <li>
+                            <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                            <span>Agent knows your business info</span>
+                        </li>
+                        <li>
+                            <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                            <span>Agent answers FAQ questions correctly</span>
+                        </li>
+                        <li>
+                            <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                            <span>Personality matches your settings</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="warning">
+                    <div class="warning-title">⚠️ Something Wrong?</div>
+                    <p>Check the <a href="2025-12-18_deployment_diagnostic.html">Deployment Diagnostic Tool</a> for troubleshooting common issues.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Final Section -->
+        <div class="final-section">
+            <h2>🎉 Congratulations!</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 25px;">Your custom voice agent is now live and ready to take calls.</p>
+
+            <h3 style="color: var(--text-primary); margin: 30px 0 15px;">Next Steps</h3>
+            <div style="text-align: left; max-width: 500px; margin: 0 auto;">
+                <ul class="checklist">
+                    <li>
+                        <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                        <span>Monitor call logs for quality</span>
+                    </li>
+                    <li>
+                        <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                        <span>Refine your FAQ based on real calls</span>
+                    </li>
+                    <li>
+                        <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                        <span>Adjust custom instructions as needed</span>
+                    </li>
+                    <li>
+                        <div class="checkbox" onclick="this.classList.toggle('checked')"></div>
+                        <span>Connect to your phone system</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div style="margin-top: 30px;">
+                <a href="index.html" class="btn">Back to Docs</a>
+                <a href="2025-12-18_deployment_diagnostic.html" class="btn btn-secondary">Troubleshooting</a>
+            </div>
+        </div>
+
+        <!-- Quick Reference -->
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">?</div>
+                <h2 class="step-title">Quick Reference</h2>
+            </div>
+            <div class="step-content">
+                <h4 style="color: var(--accent-blue); margin-bottom: 15px;">Environment Variables Summary</h4>
+                <div class="code-block">
+<pre><span class="comment"># Your custom settings</span>
+<span class="key">DEFAULT_SKILL</span>=<span class="value">your-skill-id</span>
+<span class="key">CARTESIA_VOICE_ID</span>=<span class="value">your-cloned-voice-id</span>
+
+<span class="comment"># Required infrastructure (usually already set)</span>
+<span class="key">SERVICE_TYPE</span>=<span class="value">worker</span>
+<span class="key">LIVEKIT_URL</span>=<span class="value">wss://your-app.livekit.cloud</span>
+<span class="key">LIVEKIT_API_KEY</span>=<span class="value">APIxxxxxxxx</span>
+<span class="key">LIVEKIT_API_SECRET</span>=<span class="value">secret</span>
+<span class="key">DEEPGRAM_API_KEY</span>=<span class="value">xxxxxxxxxx</span>
+<span class="key">CARTESIA_API_KEY</span>=<span class="value">sk_car_xxxxxx</span>
+<span class="key">FAST_BRAIN_URL</span>=<span class="value">https://your-fast-brain.modal.run</span>
+<span class="key">GROQ_API_KEY</span>=<span class="value">gsk_xxxxxxxx</span>  <span class="comment"># fallback LLM</span></pre>
+                </div>
+
+                <h4 style="color: var(--accent-blue); margin: 25px 0 15px;">Helpful Links</h4>
+                <ul style="list-style: none; padding: 0;">
+                    <li style="margin: 10px 0;"><a href="https://cartesia.ai" target="_blank">Cartesia</a> - Voice cloning and TTS</li>
+                    <li style="margin: 10px 0;"><a href="https://docs.cartesia.ai/build-with-cartesia/capability-guides/clone-voices" target="_blank">Cartesia Voice Cloning Guide</a></li>
+                    <li style="margin: 10px 0;"><a href="https://railway.app" target="_blank">Railway</a> - Deployment platform</li>
+                    <li style="margin: 10px 0;"><a href="https://livekit.io" target="_blank">LiveKit</a> - Real-time communication</li>
+                </ul>
+            </div>
+        </div>
+
+    </div>
+
+    <footer style="text-align: center; padding: 40px 20px; border-top: 1px solid var(--border-color); color: var(--text-secondary);">
+        <p>HIVE215 Voice AI Platform</p>
+        <p style="font-size: 0.85rem; margin-top: 10px;">Voice Agent Creation Guide - December 18, 2025</p>
+    </footer>
+
+    <script>
+        // Smooth scrolling for progress steps
+        document.querySelectorAll('.progress-step').forEach(step => {
+            step.addEventListener('click', (e) => {
+                e.preventDefault();
+                const target = document.querySelector(step.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+
+        // Highlight current step in progress bar
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const id = entry.target.id;
+                    document.querySelectorAll('.progress-step').forEach(step => {
+                        step.classList.remove('active');
+                        if (step.getAttribute('href') === '#' + id) {
+                            step.classList.add('active');
+                        }
+                    });
+                }
+            });
+        }, { threshold: 0.3 });
+
+        document.querySelectorAll('.step[id]').forEach(step => {
+            observer.observe(step);
+        });
+    </script>
+</body>
+</html>

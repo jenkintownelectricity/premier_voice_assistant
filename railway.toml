@@ -1,9 +1,6 @@
-[build]
-builder = "nixpacks"
+# Railway auto-detects Dockerfile (no need to specify builder)
+# SERVICE_TYPE env var determines web vs worker (set in Railway UI)
 
 [deploy]
-# Start command and healthcheck removed - configure per-service in Railway UI
-# Web service: healthcheckPath = "/health", start = uvicorn
-# Worker service: no healthcheck needed, start = python backend/livekit_worker.py start
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

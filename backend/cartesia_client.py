@@ -684,16 +684,17 @@ class CartesiaSonic3:
         is_public: bool = True,
     ) -> List[Dict[str, Any]]:
         """
-        List available voices.
+        List available voices from Cartesia API.
 
         Args:
             language: Filter by language code
-            is_public: Include public voices
+            is_public: Include public voices (ignored - Cartesia returns all accessible voices)
 
         Returns:
-            List of voice objects
+            List of voice objects with id, name, description, language, is_public, etc.
         """
         if not self.config.api_key:
+            logger.warning("Cartesia API key not configured for list_voices")
             return []
 
         try:
@@ -712,13 +713,29 @@ class CartesiaSonic3:
                 async with session.get(url, headers=headers, params=params) as resp:
                     if resp.status == 200:
                         result = await resp.json()
-                        return result.get("voices", [])
+
+                        # Cartesia API returns array directly, not {"voices": [...]}
+                        if isinstance(result, list):
+                            logger.info(f"Cartesia API returned {len(result)} voices")
+                            return result
+                        elif isinstance(result, dict):
+                            # Handle case where it might be wrapped in an object
+                            voices = result.get("voices", result.get("data", []))
+                            if isinstance(voices, list):
+                                logger.info(f"Cartesia API returned {len(voices)} voices (wrapped)")
+                                return voices
+                            logger.warning(f"Unexpected Cartesia response structure: {list(result.keys())}")
+                            return []
+                        else:
+                            logger.warning(f"Unexpected Cartesia response type: {type(result)}")
+                            return []
                     else:
-                        logger.error(f"Failed to list voices: {resp.status}")
+                        error_text = await resp.text()
+                        logger.error(f"Failed to list Cartesia voices: {resp.status} - {error_text[:200]}")
                         return []
 
         except Exception as e:
-            logger.error(f"Error listing voices: {e}")
+            logger.error(f"Error listing Cartesia voices: {e}")
             return []
 
     async def get_voice(self, voice_id: str) -> Optional[Dict[str, Any]]:

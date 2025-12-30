@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Build Optimization - HIVE215</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --accent-blue: #00d4ff;
+            --accent-purple: #9b59b6;
+            --accent-green: #00ff88;
+            --accent-orange: #ff6b35;
+            --accent-red: #ff4757;
+            --text-primary: #ffffff;
+            --text-secondary: #8892b0;
+            --border-color: #1e2a3a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 40px;
+        }
+
+        .container { max-width: 1000px; margin: 0 auto; }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: 40px;
+        }
+
+        .section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .section h2 {
+            color: var(--accent-blue);
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        /* Docker Layer Visualization */
+        .layer-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .layer {
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            position: relative;
+        }
+
+        .layer-number {
+            width: 30px;
+            height: 30px;
+            background: rgba(0, 212, 255, 0.2);
+            border: 2px solid var(--accent-blue);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+
+        .layer-content {
+            flex: 1;
+        }
+
+        .layer-status {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .layer.cached {
+            background: linear-gradient(90deg, rgba(0, 255, 136, 0.1), transparent);
+            border-left: 4px solid var(--accent-green);
+        }
+
+        .layer.cached .layer-status {
+            background: rgba(0, 255, 136, 0.2);
+            color: var(--accent-green);
+        }
+
+        .layer.rebuilt {
+            background: linear-gradient(90deg, rgba(255, 107, 53, 0.1), transparent);
+            border-left: 4px solid var(--accent-orange);
+        }
+
+        .layer.rebuilt .layer-status {
+            background: rgba(255, 107, 53, 0.2);
+            color: var(--accent-orange);
+        }
+
+        .layer.new {
+            background: linear-gradient(90deg, rgba(0, 212, 255, 0.1), transparent);
+            border-left: 4px solid var(--accent-blue);
+        }
+
+        .layer.new .layer-status {
+            background: rgba(0, 212, 255, 0.2);
+            color: var(--accent-blue);
+        }
+
+        /* Comparison */
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .compare-box {
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .compare-box.bad {
+            background: rgba(255, 71, 87, 0.1);
+            border: 2px solid var(--accent-red);
+        }
+
+        .compare-box.good {
+            background: rgba(0, 255, 136, 0.1);
+            border: 2px solid var(--accent-green);
+        }
+
+        .compare-box h3 {
+            margin-bottom: 10px;
+        }
+
+        .compare-box.bad h3 { color: var(--accent-red); }
+        .compare-box.good h3 { color: var(--accent-green); }
+
+        .time {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin: 15px 0;
+        }
+
+        .compare-box.bad .time { color: var(--accent-red); }
+        .compare-box.good .time { color: var(--accent-green); }
+
+        /* Code block */
+        .code-block {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+
+        .code-block pre {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+
+        .code-comment { color: #6a9955; }
+        .code-keyword { color: #569cd6; }
+        .code-string { color: #ce9178; }
+        .code-important { color: var(--accent-green); font-weight: bold; }
+
+        /* Key insight boxes */
+        .insight {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            padding: 20px;
+            background: rgba(0, 212, 255, 0.05);
+            border-left: 4px solid var(--accent-blue);
+            border-radius: 0 8px 8px 0;
+            margin: 20px 0;
+        }
+
+        .insight-icon {
+            font-size: 2rem;
+        }
+
+        .insight h4 {
+            color: var(--accent-blue);
+            margin-bottom: 8px;
+        }
+
+        .insight p {
+            color: var(--text-secondary);
+        }
+
+        /* Flow diagram */
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 30px;
+            flex-wrap: wrap;
+        }
+
+        .flow-box {
+            padding: 15px 25px;
+            background: var(--bg-card);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            text-align: center;
+            min-width: 150px;
+        }
+
+        .flow-box.highlight {
+            border-color: var(--accent-green);
+            background: rgba(0, 255, 136, 0.1);
+        }
+
+        .flow-arrow {
+            font-size: 1.5rem;
+            color: var(--text-secondary);
+        }
+
+        /* Stats grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: rgba(0, 212, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--accent-blue);
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px 0;
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border-color);
+            margin-top: 40px;
+        }
+
+        @media (max-width: 768px) {
+            .comparison, .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Docker Build Optimization</h1>
+        <p class="subtitle">Why your builds went from minutes to seconds</p>
+
+        <!-- Build Time Comparison -->
+        <div class="section">
+            <h2>Build Time: Before vs After</h2>
+            <div class="comparison">
+                <div class="compare-box bad">
+                    <h3>Before (No Layer Caching)</h3>
+                    <div class="time">~5-10 min</div>
+                    <p>Every build reinstalls all dependencies</p>
+                </div>
+                <div class="compare-box good">
+                    <h3>After (Layer Caching)</h3>
+                    <div class="time">~20 sec</div>
+                    <p>Only changed layers rebuild</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- The Secret -->
+        <div class="section">
+            <h2>The Secret: Layer Ordering</h2>
+
+            <div class="insight">
+                <div class="insight-icon">&#128161;</div>
+                <div>
+                    <h4>Docker caches layers top-to-bottom</h4>
+                    <p>If a layer changes, all layers BELOW it must rebuild. So put slow, stable things (like pip install) at the TOP, and fast, changing things (like your code) at the BOTTOM.</p>
+                </div>
+            </div>
+
+            <div class="code-block">
+<pre><span class="code-comment"># Dockerfile - Optimized Layer Order</span>
+
+<span class="code-keyword">FROM</span> python:3.11-slim           <span class="code-comment"># Layer 1: Base (cached)</span>
+
+<span class="code-keyword">WORKDIR</span> /app                     <span class="code-comment"># Layer 2: Setup (cached)</span>
+
+<span class="code-keyword">RUN</span> apt-get update && ...        <span class="code-comment"># Layer 3: System deps (cached)</span>
+
+<span class="code-important">COPY requirements.txt .</span>          <span class="code-comment"># Layer 4: JUST requirements (cached if unchanged)</span>
+<span class="code-important">RUN pip install -r requirements.txt</span>  <span class="code-comment"># Layer 5: Slow pip install (CACHED!)</span>
+
+<span class="code-keyword">RUN</span> python -c "..."              <span class="code-comment"># Layer 6: Download models (cached)</span>
+
+<span class="code-keyword">COPY . .</span>                         <span class="code-comment"># Layer 7: Your code (rebuilds on every push)</span>
+
+<span class="code-keyword">CMD</span> ["bash", "scripts/start.sh"] <span class="code-comment"># Layer 8: Start command</span></pre>
+            </div>
+        </div>
+
+        <!-- Layer Status Visualization -->
+        <div class="section">
+            <h2>What Happens on Each Build</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 20px;">When you push code changes (no dependency changes):</p>
+
+            <div class="layer-stack">
+                <div class="layer cached">
+                    <div class="layer-number">1</div>
+                    <div class="layer-content">FROM python:3.11-slim</div>
+                    <div class="layer-status">cached</div>
+                </div>
+                <div class="layer cached">
+                    <div class="layer-number">2</div>
+                    <div class="layer-content">WORKDIR /app</div>
+                    <div class="layer-status">cached</div>
+                </div>
+                <div class="layer cached">
+                    <div class="layer-number">3</div>
+                    <div class="layer-content">RUN apt-get install ffmpeg libopus0</div>
+                    <div class="layer-status">cached</div>
+                </div>
+                <div class="layer cached">
+                    <div class="layer-number">4</div>
+                    <div class="layer-content">COPY requirements.txt .</div>
+                    <div class="layer-status">cached</div>
+                </div>
+                <div class="layer cached">
+                    <div class="layer-number">5</div>
+                    <div class="layer-content">RUN pip install -r requirements.txt <span style="color: var(--accent-green);">(~3 min normally)</span></div>
+                    <div class="layer-status">cached</div>
+                </div>
+                <div class="layer cached">
+                    <div class="layer-number">6</div>
+                    <div class="layer-content">RUN pip install livekit-agents[...]==1.3.8</div>
+                    <div class="layer-status">cached</div>
+                </div>
+                <div class="layer cached">
+                    <div class="layer-number">7</div>
+                    <div class="layer-content">RUN python -c "from livekit.plugins.turn_detector..."</div>
+                    <div class="layer-status">cached</div>
+                </div>
+                <div class="layer rebuilt">
+                    <div class="layer-number">8</div>
+                    <div class="layer-content">COPY . . <span style="color: var(--accent-orange);">(your code changed)</span></div>
+                    <div class="layer-status">rebuilt</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Why It's Fast Now -->
+        <div class="section">
+            <h2>Why Railway Shows "cached" for Most Steps</h2>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value">0ms</div>
+                    <div class="stat-label">pip install (cached)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">0ms</div>
+                    <div class="stat-label">apt-get install (cached)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">~500ms</div>
+                    <div class="stat-label">COPY . . (your code)</div>
+                </div>
+            </div>
+
+            <div class="insight">
+                <div class="insight-icon">&#9889;</div>
+                <div>
+                    <h4>The "0ms" in Railway logs</h4>
+                    <p>When you see "cached" next to a step, Docker is reusing the layer from a previous build. It doesn't re-run the command at all - just uses the cached result. That's why pip install shows "0ms" even though it normally takes 3+ minutes.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- What Invalidates Cache -->
+        <div class="section">
+            <h2>What Triggers a Full Rebuild?</h2>
+
+            <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <th style="text-align: left; padding: 15px; color: var(--accent-blue);">Change Type</th>
+                    <th style="text-align: left; padding: 15px; color: var(--accent-blue);">Layers Rebuilt</th>
+                    <th style="text-align: left; padding: 15px; color: var(--accent-blue);">Time</th>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 15px;">Python code change</td>
+                    <td style="padding: 15px;"><span style="color: var(--accent-green);">Only COPY . .</span></td>
+                    <td style="padding: 15px;"><span style="color: var(--accent-green);">~20 sec</span></td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 15px;">requirements.txt change</td>
+                    <td style="padding: 15px;"><span style="color: var(--accent-orange);">pip install + below</span></td>
+                    <td style="padding: 15px;"><span style="color: var(--accent-orange);">~5 min</span></td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 15px;">Dockerfile change</td>
+                    <td style="padding: 15px;"><span style="color: var(--accent-red);">Everything below change</span></td>
+                    <td style="padding: 15px;"><span style="color: var(--accent-red);">~5-10 min</span></td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- The Optimizations Made -->
+        <div class="section">
+            <h2>Optimizations Applied</h2>
+
+            <div style="display: grid; gap: 20px; margin-top: 20px;">
+                <div style="display: flex; gap: 15px; padding: 20px; background: rgba(0, 255, 136, 0.05); border-radius: 8px; border-left: 4px solid var(--accent-green);">
+                    <div style="font-size: 1.5rem;">1</div>
+                    <div>
+                        <h4 style="color: var(--accent-green); margin-bottom: 5px;">Copy requirements.txt separately</h4>
+                        <p style="color: var(--text-secondary);">Before: <code>COPY . .</code> then pip install (always rebuilds)</p>
+                        <p style="color: var(--text-secondary);">After: <code>COPY requirements.txt .</code> then pip install (cached if unchanged)</p>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 15px; padding: 20px; background: rgba(0, 255, 136, 0.05); border-radius: 8px; border-left: 4px solid var(--accent-green);">
+                    <div style="font-size: 1.5rem;">2</div>
+                    <div>
+                        <h4 style="color: var(--accent-green); margin-bottom: 5px;">Use python:3.11-slim</h4>
+                        <p style="color: var(--text-secondary);">Smaller base image = faster download + less to cache</p>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 15px; padding: 20px; background: rgba(0, 255, 136, 0.05); border-radius: 8px; border-left: 4px solid var(--accent-green);">
+                    <div style="font-size: 1.5rem;">3</div>
+                    <div>
+                        <h4 style="color: var(--accent-green); margin-bottom: 5px;">Direct model download</h4>
+                        <p style="color: var(--text-secondary);">Instead of running the full worker script (which has complex imports), use a minimal Python command to download the turn detector model</p>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 15px; padding: 20px; background: rgba(0, 255, 136, 0.05); border-radius: 8px; border-left: 4px solid var(--accent-green);">
+                    <div style="font-size: 1.5rem;">4</div>
+                    <div>
+                        <h4 style="color: var(--accent-green); margin-bottom: 5px;">Clean apt cache</h4>
+                        <p style="color: var(--text-secondary);"><code>rm -rf /var/lib/apt/lists/*</code> removes package lists after install, reducing layer size</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Final Dockerfile -->
+        <div class="section">
+            <h2>Your Optimized Dockerfile</h2>
+            <div class="code-block">
+<pre><span class="code-keyword">FROM</span> <span class="code-string">python:3.11-slim</span>
+
+<span class="code-keyword">WORKDIR</span> /app
+
+<span class="code-comment"># System dependencies (cached unless Dockerfile changes)</span>
+<span class="code-keyword">RUN</span> apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libopus0 \
+    && rm -rf /var/lib/apt/lists/*
+
+<span class="code-comment"># Python dependencies (cached unless requirements.txt changes)</span>
+<span class="code-important">COPY requirements.txt .</span>
+<span class="code-keyword">RUN</span> pip install --no-cache-dir -r requirements.txt
+<span class="code-keyword">RUN</span> pip install --no-cache-dir <span class="code-string">'livekit-agents[deepgram,cartesia,openai,silero]==1.3.8'</span>
+
+<span class="code-comment"># Download turn detector model (cached)</span>
+<span class="code-keyword">RUN</span> python -c <span class="code-string">"from livekit.plugins.turn_detector import EOUModel; EOUModel().initialize()"</span> || echo <span class="code-string">"skipped"</span>
+
+<span class="code-comment"># Application code (rebuilds on every push - BUT THAT'S FAST!)</span>
+<span class="code-keyword">COPY</span> . .
+
+<span class="code-keyword">CMD</span> [<span class="code-string">"bash"</span>, <span class="code-string">"scripts/start.sh"</span>]</pre>
+            </div>
+        </div>
+
+        <footer>
+            <p>HIVE215 Voice AI Platform</p>
+            <p style="font-size: 0.85rem; margin-top: 10px;">Docker Build Optimization Guide - December 18, 2025</p>
+        </footer>
+    </div>
+</body>
+</html>

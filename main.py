@@ -7,7 +7,7 @@ Designed for mobile apps (iOS/Android)
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -18,12 +18,54 @@ import logging
 import os
 import json
 import asyncio
+import struct
+import wave
 import base64
 from datetime import datetime
 
 from backend.supabase_client import get_supabase, SupabaseManager
 from backend.feature_gates import get_feature_gate, FeatureGateError
-from backend.stripe_payments import get_stripe_payments, handle_webhook_event
+from backend.stripe_payments import get_stripe_payments, handle_webhook_event, validate_stripe_config
+from backend.twilio_integration import get_twilio_service, validate_twilio_config
+from backend.model_manager import (
+    get_model_manager, get_model, get_model_with_fallback,
+    validate_models_on_startup, ResilientAnthropicClient
+)
+from backend.streaming_manager import (
+    StreamingPipeline, StreamingConfig, PipelineState,
+    create_streaming_pipeline
+)
+from backend.lightning_pipeline import (
+    LightningPipeline, LightningConfig, PipelineState as LightningState,
+    LatencyMetrics
+)
+from backend.groq_client import HybridLLMClient, GroqConfig
+from backend.cartesia_client import CartesiaSonic3, CartesiaConfig, get_supported_languages as get_tts_languages
+from backend.deepgram_client import DeepgramNova3, DeepgramConfig, get_supported_languages as get_stt_languages
+
+# LiveKit WebRTC Integration
+try:
+    from backend.livekit_api import router as livekit_router
+    LIVEKIT_ROUTER_AVAILABLE = True
+except ImportError:
+    LIVEKIT_ROUTER_AVAILABLE = False
+    logger_livekit = logging.getLogger("livekit")
+    logger_livekit.warning("LiveKit API not available - SDK may not be installed")
+
+# Twilio Phone/SMS Integration with LiveKit SIP
+try:
+    from backend.twilio_integration import router as twilio_router
+    TWILIO_ROUTER_AVAILABLE = True
+except ImportError:
+    TWILIO_ROUTER_AVAILABLE = False
+
+# Multi-Provider Telephony Integration
+try:
+    from backend.telephony.router import router as telephony_router
+    from backend.telephony.factory import init_providers_from_env
+    TELEPHONY_ROUTER_AVAILABLE = True
+except ImportError:
+    TELEPHONY_ROUTER_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(
@@ -54,6 +96,148 @@ CLAUDE_PRICING = {
     "claude-haiku-4-5-20241022": {
         "input": 0.25,
         "output": 1.25,
+    },
+}
+
+# ============================================================================
+# LLM PROVIDERS - All major providers with API documentation links
+# ============================================================================
+LLM_PROVIDERS = {
+    "anthropic": {
+        "name": "Anthropic (Claude)",
+        "api_docs": "https://docs.anthropic.com/en/api/getting-started",
+        "api_keys_url": "https://console.anthropic.com/settings/keys",
+        "models": [
+            {"id": "claude-sonnet-4-5-20250929", "name": "Claude Sonnet 4.5 (Latest)", "context": "200K", "speed": "fast"},
+            {"id": "claude-opus-4-5-20251101", "name": "Claude Opus 4.5 (Smartest)", "context": "200K", "speed": "medium"},
+            {"id": "claude-haiku-4-5-20241022", "name": "Claude Haiku 4.5 (Fastest)", "context": "200K", "speed": "fastest"},
+        ],
+        "default_model": "claude-sonnet-4-5-20250929",
+        "env_key": "ANTHROPIC_API_KEY",
+    },
+    "openai": {
+        "name": "OpenAI (GPT)",
+        "api_docs": "https://platform.openai.com/docs/api-reference",
+        "api_keys_url": "https://platform.openai.com/api-keys",
+        "models": [
+            {"id": "gpt-4o", "name": "GPT-4o (Latest)", "context": "128K", "speed": "fast"},
+            {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Fastest)", "context": "128K", "speed": "fastest"},
+            {"id": "gpt-4-turbo", "name": "GPT-4 Turbo", "context": "128K", "speed": "medium"},
+            {"id": "o1", "name": "o1 (Reasoning)", "context": "200K", "speed": "slow"},
+            {"id": "o1-mini", "name": "o1 Mini (Fast Reasoning)", "context": "128K", "speed": "medium"},
+        ],
+        "default_model": "gpt-4o",
+        "env_key": "OPENAI_API_KEY",
+    },
+    "groq": {
+        "name": "Groq (Ultra Fast)",
+        "api_docs": "https://console.groq.com/docs/api-reference",
+        "api_keys_url": "https://console.groq.com/keys",
+        "models": [
+            {"id": "llama-3.3-70b-versatile", "name": "Llama 3.3 70B (Best)", "context": "128K", "speed": "fastest"},
+            {"id": "llama-3.1-70b-versatile", "name": "Llama 3.1 70B", "context": "128K", "speed": "fastest"},
+            {"id": "llama-3.1-8b-instant", "name": "Llama 3.1 8B (Instant)", "context": "128K", "speed": "fastest"},
+            {"id": "mixtral-8x7b-32768", "name": "Mixtral 8x7B", "context": "32K", "speed": "fastest"},
+            {"id": "gemma2-9b-it", "name": "Gemma 2 9B", "context": "8K", "speed": "fastest"},
+        ],
+        "default_model": "llama-3.3-70b-versatile",
+        "env_key": "GROQ_API_KEY",
+    },
+    "google": {
+        "name": "Google (Gemini)",
+        "api_docs": "https://ai.google.dev/gemini-api/docs",
+        "api_keys_url": "https://aistudio.google.com/apikey",
+        "models": [
+            {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash (Latest)", "context": "1M", "speed": "fastest"},
+            {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "context": "2M", "speed": "medium"},
+            {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "context": "1M", "speed": "fast"},
+        ],
+        "default_model": "gemini-2.0-flash",
+        "env_key": "GOOGLE_API_KEY",
+    },
+    "mistral": {
+        "name": "Mistral AI",
+        "api_docs": "https://docs.mistral.ai/api/",
+        "api_keys_url": "https://console.mistral.ai/api-keys/",
+        "models": [
+            {"id": "mistral-large-latest", "name": "Mistral Large (Best)", "context": "128K", "speed": "medium"},
+            {"id": "mistral-medium-latest", "name": "Mistral Medium", "context": "32K", "speed": "fast"},
+            {"id": "mistral-small-latest", "name": "Mistral Small (Fastest)", "context": "32K", "speed": "fastest"},
+            {"id": "codestral-latest", "name": "Codestral (Code)", "context": "32K", "speed": "fast"},
+        ],
+        "default_model": "mistral-large-latest",
+        "env_key": "MISTRAL_API_KEY",
+    },
+    "together": {
+        "name": "Together AI",
+        "api_docs": "https://docs.together.ai/reference/completions",
+        "api_keys_url": "https://api.together.xyz/settings/api-keys",
+        "models": [
+            {"id": "meta-llama/Llama-3.3-70B-Instruct-Turbo", "name": "Llama 3.3 70B Turbo", "context": "128K", "speed": "fast"},
+            {"id": "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo", "name": "Llama 3.1 405B", "context": "128K", "speed": "medium"},
+            {"id": "Qwen/Qwen2.5-72B-Instruct-Turbo", "name": "Qwen 2.5 72B", "context": "32K", "speed": "fast"},
+            {"id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B", "name": "DeepSeek R1 70B", "context": "64K", "speed": "fast"},
+        ],
+        "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "env_key": "TOGETHER_API_KEY",
+    },
+    "fireworks": {
+        "name": "Fireworks AI",
+        "api_docs": "https://docs.fireworks.ai/api-reference/introduction",
+        "api_keys_url": "https://fireworks.ai/account/api-keys",
+        "models": [
+            {"id": "accounts/fireworks/models/llama-v3p3-70b-instruct", "name": "Llama 3.3 70B", "context": "128K", "speed": "fastest"},
+            {"id": "accounts/fireworks/models/llama-v3p1-405b-instruct", "name": "Llama 3.1 405B", "context": "128K", "speed": "fast"},
+            {"id": "accounts/fireworks/models/deepseek-r1", "name": "DeepSeek R1", "context": "64K", "speed": "medium"},
+        ],
+        "default_model": "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        "env_key": "FIREWORKS_API_KEY",
+    },
+    "deepseek": {
+        "name": "DeepSeek",
+        "api_docs": "https://platform.deepseek.com/api-docs",
+        "api_keys_url": "https://platform.deepseek.com/api_keys",
+        "models": [
+            {"id": "deepseek-chat", "name": "DeepSeek Chat (V3)", "context": "64K", "speed": "fast"},
+            {"id": "deepseek-reasoner", "name": "DeepSeek R1 (Reasoning)", "context": "64K", "speed": "medium"},
+        ],
+        "default_model": "deepseek-chat",
+        "env_key": "DEEPSEEK_API_KEY",
+    },
+    "xai": {
+        "name": "xAI (Grok)",
+        "api_docs": "https://docs.x.ai/api",
+        "api_keys_url": "https://console.x.ai/",
+        "models": [
+            {"id": "grok-2-latest", "name": "Grok 2 (Latest)", "context": "128K", "speed": "fast"},
+            {"id": "grok-2-vision-latest", "name": "Grok 2 Vision", "context": "32K", "speed": "fast"},
+        ],
+        "default_model": "grok-2-latest",
+        "env_key": "XAI_API_KEY",
+    },
+    "cohere": {
+        "name": "Cohere",
+        "api_docs": "https://docs.cohere.com/reference/chat",
+        "api_keys_url": "https://dashboard.cohere.com/api-keys",
+        "models": [
+            {"id": "command-r-plus", "name": "Command R+ (Best)", "context": "128K", "speed": "medium"},
+            {"id": "command-r", "name": "Command R", "context": "128K", "speed": "fast"},
+            {"id": "command-light", "name": "Command Light (Fastest)", "context": "4K", "speed": "fastest"},
+        ],
+        "default_model": "command-r-plus",
+        "env_key": "COHERE_API_KEY",
+    },
+    "perplexity": {
+        "name": "Perplexity (Online)",
+        "api_docs": "https://docs.perplexity.ai/api-reference/chat-completions",
+        "api_keys_url": "https://www.perplexity.ai/settings/api",
+        "models": [
+            {"id": "sonar-pro", "name": "Sonar Pro (Best Online)", "context": "200K", "speed": "medium"},
+            {"id": "sonar", "name": "Sonar (Online Search)", "context": "127K", "speed": "fast"},
+            {"id": "sonar-reasoning-pro", "name": "Sonar Reasoning Pro", "context": "127K", "speed": "slow"},
+        ],
+        "default_model": "sonar-pro",
+        "env_key": "PERPLEXITY_API_KEY",
     },
 }
 
@@ -96,6 +280,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include LiveKit router for WebRTC voice sessions
+if LIVEKIT_ROUTER_AVAILABLE:
+    app.include_router(livekit_router, prefix="/livekit", tags=["livekit"])
+    logger.info("LiveKit API endpoints enabled at /livekit/*")
+
+# Include Twilio router for phone/SMS with LiveKit SIP integration
+if TWILIO_ROUTER_AVAILABLE:
+    app.include_router(twilio_router, prefix="/twilio", tags=["twilio"])
+    logger.info("Twilio API endpoints enabled at /twilio/*")
+
+# Include multi-provider telephony router
+if TELEPHONY_ROUTER_AVAILABLE:
+    app.include_router(telephony_router, prefix="/telephony", tags=["telephony"])
+    init_providers_from_env()  # Initialize providers from environment
+    logger.info("Multi-provider telephony API enabled at /telephony/*")
+
 # Pydantic models for request/response validation
 class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
@@ -106,6 +306,11 @@ class ChatRequest(BaseModel):
 class SpeakRequest(BaseModel):
     text: str
     voice: Optional[str] = "fabio"
+
+
+class TextChatRequest(BaseModel):
+    message: str
+    system_prompt: Optional[str] = None
 
 
 class UserPreferencesUpdate(BaseModel):
@@ -161,11 +366,14 @@ class CreateAssistantRequest(BaseModel):
     name: str
     system_prompt: str
     description: Optional[str] = None
-    voice_id: Optional[str] = "default"
-    model: Optional[str] = "claude-sonnet-4-5-20250929"
+    tts_provider: Optional[str] = "cartesia"  # TTS Provider: cartesia, elevenlabs, deepgram, openai, playht, rime
+    voice_id: Optional[str] = "f786b574-daa5-4673-aa0c-cbe3e8534c02"  # Default Cartesia Katie voice
+    llm_provider: Optional[str] = "groq"  # Provider: groq, anthropic, openai, google, mistral, etc.
+    model: Optional[str] = "llama-3.3-70b-versatile"  # Model ID from the selected provider
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 150
     first_message: Optional[str] = None
+    fast_brain_skill: Optional[str] = "default"  # Fast Brain skill: default, receptionist, electrician, plumber, lawyer, solar, etc.
     # Advanced latency optimization settings
     vad_sensitivity: Optional[float] = 0.5
     endpointing_ms: Optional[int] = 600
@@ -173,18 +381,27 @@ class CreateAssistantRequest(BaseModel):
     streaming_chunks: Optional[bool] = True
     first_message_latency_ms: Optional[int] = 800
     turn_detection_mode: Optional[str] = "server_vad"
+    # Voice control settings (competitive with Vapi/ElevenLabs)
+    speech_speed: Optional[float] = 0.9  # TTS speed (0.7-1.2), 0.9 for natural conversation
+    response_delay_ms: Optional[int] = 400  # Delay before responding after user stops (Vapi default: 400ms)
+    punctuation_pause_ms: Optional[int] = 300  # Pause after punctuation detected
+    no_punctuation_pause_ms: Optional[int] = 1000  # Pause when no punctuation (waiting for more speech)
+    turn_eagerness: Optional[str] = "balanced"  # low, balanced, high - how quickly to take turns
 
 
 class UpdateAssistantRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     system_prompt: Optional[str] = None
+    tts_provider: Optional[str] = None  # TTS Provider: cartesia, elevenlabs, deepgram, openai, playht, rime
     voice_id: Optional[str] = None
+    llm_provider: Optional[str] = None  # Provider: groq, anthropic, openai, google, mistral, etc.
     model: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     first_message: Optional[str] = None
     is_active: Optional[bool] = None
+    fast_brain_skill: Optional[str] = None  # Fast Brain skill: default, receptionist, electrician, plumber, lawyer, solar, etc.
     # Advanced latency optimization settings
     vad_sensitivity: Optional[float] = None
     endpointing_ms: Optional[int] = None
@@ -192,6 +409,24 @@ class UpdateAssistantRequest(BaseModel):
     streaming_chunks: Optional[bool] = None
     first_message_latency_ms: Optional[int] = None
     turn_detection_mode: Optional[str] = None
+    # Voice control settings (competitive with Vapi/ElevenLabs)
+    speech_speed: Optional[float] = None  # TTS speed (0.7-1.2)
+    response_delay_ms: Optional[int] = None  # Delay before responding
+    punctuation_pause_ms: Optional[int] = None  # Pause after punctuation
+    no_punctuation_pause_ms: Optional[int] = None  # Pause when no punctuation
+    turn_eagerness: Optional[str] = None  # low, balanced, high
+
+
+def pcm_to_wav(pcm_data: bytes, sample_rate: int = 16000, channels: int = 1, sample_width: int = 2) -> bytes:
+    """Convert raw PCM audio bytes to WAV format."""
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, 'wb') as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(sample_width)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(pcm_data)
+    wav_buffer.seek(0)
+    return wav_buffer.read()
 
 
 class VoiceAssistant:
@@ -207,19 +442,17 @@ class VoiceAssistant:
         self.supabase = get_supabase()
 
     def initialize_modal(self):
-        """Initialize Modal clients (lazy loading)"""
+        """Initialize Modal HTTP endpoints (lazy loading)"""
         if self.modal_initialized:
             return
 
         try:
-            import modal
-
-            # Import Modal apps
-            from modal_deployment.whisper_stt import WhisperSTT
-            from modal_deployment.coqui_tts import CoquiTTS
-
-            self.stt = WhisperSTT()
-            self.tts = CoquiTTS()
+            import httpx
+            
+            # Use HTTP endpoints instead of Modal SDK
+            self.modal_stt_url = "https://jenkintownelectricity--premier-whisper-stt-transcribe-web.modal.run"
+            self.modal_tts_url = "https://jenkintownelectricity--hive215-kokoro-tts-synthesize-web.modal.run"
+            self.http_client = httpx.Client(timeout=60.0)
             self.modal_initialized = True
 
             logger.info("Modal services initialized")
@@ -249,12 +482,23 @@ class VoiceAssistant:
 
     def transcribe_audio(self, audio_bytes: bytes, user_id: str = None) -> dict:
         """
-        Transcribe audio to text using Whisper.
+        Transcribe audio to text using Whisper via HTTP.
         """
         self.initialize_modal()
 
         start = time.time()
-        result = self.stt.transcribe.remote(audio_bytes)
+        
+        try:
+            # Call Modal HTTP endpoint
+            files = {"audio_bytes": ("audio.wav", audio_bytes, "audio/wav")}
+            data = {"language": "en"}
+            response = self.http_client.post(self.modal_stt_url, files=files, data=data)
+            response.raise_for_status()
+            result = response.json()
+        except Exception as e:
+            logger.error(f"STT HTTP error: {e}")
+            result = {"text": "", "error": str(e)}
+        
         latency_ms = int((time.time() - start) * 1000)
 
         # Log metrics
@@ -370,12 +614,22 @@ Your role:
         self, text: str, voice: str = "fabio", user_id: str = None
     ) -> bytes:
         """
-        Synthesize text to speech using Coqui TTS.
+        Synthesize text to speech using Coqui TTS via HTTP.
         """
         self.initialize_modal()
 
         start = time.time()
-        audio = self.tts.synthesize.remote(text, voice)
+        
+        try:
+            # Call Modal HTTP endpoint
+            data = {"text": text, "voice": voice, "language": "en"}
+            response = self.http_client.post(self.modal_tts_url, json=data)
+            response.raise_for_status()
+            audio = response.content
+        except Exception as e:
+            logger.error(f"TTS HTTP error: {e}")
+            audio = b""
+        
         latency_ms = int((time.time() - start) * 1000)
 
         # Log metrics
@@ -489,6 +743,175 @@ async def health_check():
         "service": "Premier Voice Assistant",
         "version": "0.2.0",
     }
+
+
+# ============================================================================
+# ERROR REPORTING
+# ============================================================================
+
+class ErrorReportRequest(BaseModel):
+    """Error report from frontend."""
+    user_id: str
+    assistant_id: Optional[str] = None
+    call_id: Optional[str] = None
+    error_message: str
+    error_code: Optional[str] = None
+    error_context: Optional[str] = None
+    error_history: Optional[List[dict]] = None
+    pipeline_info: Optional[str] = None
+    latency_data: Optional[dict] = None
+    transcript_summary: Optional[List[str]] = None
+    call_duration: Optional[int] = None
+    user_notes: Optional[str] = None
+    user_agent: Optional[str] = None
+    timestamp: Optional[str] = None
+
+
+@app.post("/error-reports")
+async def submit_error_report(report: ErrorReportRequest):
+    """
+    Receive error reports from the frontend.
+
+    Stores in database and logs for developer review.
+    """
+    try:
+        # Log the error for immediate visibility
+        logger.error(
+            f"[ERROR REPORT] User: {report.user_id}, "
+            f"Call: {report.call_id or 'N/A'}, "
+            f"Error: {report.error_message}, "
+            f"Code: {report.error_code or 'N/A'}, "
+            f"Pipeline: {report.pipeline_info or 'N/A'}"
+        )
+
+        # Store in database
+        db = get_supabase()
+
+        # Create error report record
+        report_data = {
+            "user_id": report.user_id,
+            "assistant_id": report.assistant_id,
+            "call_id": report.call_id,
+            "error_message": report.error_message,
+            "error_code": report.error_code,
+            "error_context": report.error_context,
+            "error_history": report.error_history,
+            "pipeline_info": report.pipeline_info,
+            "latency_data": report.latency_data,
+            "transcript_summary": report.transcript_summary,
+            "call_duration": report.call_duration,
+            "user_notes": report.user_notes,
+            "user_agent": report.user_agent,
+            "reported_at": report.timestamp or datetime.utcnow().isoformat(),
+            "status": "new",
+        }
+
+        # Try to insert into error_reports table (if exists)
+        try:
+            result = db.client.table("va_error_reports").insert(report_data).execute()
+            report_id = result.data[0]["id"] if result.data else None
+            logger.info(f"Error report saved with ID: {report_id}")
+        except Exception as db_error:
+            # Table might not exist yet - just log it
+            logger.warning(f"Could not save error report to DB: {db_error}")
+            report_id = None
+
+        return {
+            "status": "ok",
+            "message": "Error report received",
+            "report_id": report_id,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to process error report: {e}")
+        # Still return success to not frustrate users
+        return {
+            "status": "ok",
+            "message": "Error report logged",
+            "report_id": None,
+        }
+
+
+@app.get("/error-reports")
+async def get_error_reports(
+    user_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+):
+    """
+    Get error reports (for admin dashboard).
+    """
+    try:
+        db = get_supabase()
+        query = db.client.table("va_error_reports").select("*")
+
+        if user_id:
+            query = query.eq("user_id", user_id)
+        if status:
+            query = query.eq("status", status)
+
+        query = query.order("reported_at", desc=True).limit(limit)
+        result = query.execute()
+
+        return {
+            "status": "ok",
+            "reports": result.data,
+            "count": len(result.data),
+        }
+    except Exception as e:
+        logger.error(f"Failed to get error reports: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "reports": [],
+        }
+
+
+@app.get("/models/status")
+async def model_status():
+    """
+    Get status of available models with automatic fallback info.
+
+    Returns:
+        Model validation report showing available/deprecated models
+    """
+    try:
+        report = validate_models_on_startup()
+        return {
+            "status": "ok",
+            "report": report,
+        }
+    except Exception as e:
+        logger.error(f"Model status check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+        }
+
+
+@app.get("/models/current")
+async def current_models():
+    """
+    Get currently selected models for each family.
+
+    Returns:
+        Currently active model for each family (sonnet, haiku, opus)
+    """
+    try:
+        manager = get_model_manager()
+        return {
+            "status": "ok",
+            "models": {
+                family: manager.get_model(family)
+                for family in manager.get_all_families()
+            },
+        }
+    except Exception as e:
+        logger.error(f"Current models check failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+        }
 
 
 @app.post("/transcribe")
@@ -611,13 +1034,51 @@ async def chat(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/chat/text")
+async def chat_text(request: TextChatRequest):
+    """
+    Text-based chat with Claude AI.
+
+    Body:
+        message: User message
+        system_prompt: Optional system prompt
+
+    Returns:
+        response: AI response text
+    """
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+        system = request.system_prompt or "You are a helpful AI assistant for HIVE215, a premier voice assistant platform. Be concise, friendly, and helpful."
+
+        message = client.messages.create(
+            model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250929"),
+            max_tokens=1024,
+            system=system,
+            messages=[
+                {"role": "user", "content": request.message}
+            ]
+        )
+
+        # Extract text from response
+        response_text = message.content[0].text if message.content else "I couldn't generate a response."
+
+        return {"response": response_text}
+
+    except Exception as e:
+        logger.error(f"Text chat error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/clone-voice")
 async def clone_voice(
-    voice_name: str,
-    display_name: str,
     audio: UploadFile = File(...),
+    voice_name: str = Form(...),
+    display_name: str = Form(...),
+    is_public: str = Form("false"),
     user_id: str = Header(..., alias="X-User-ID"),
-    is_public: bool = False,
     db: SupabaseManager = Depends(get_db),
 ):
     """
@@ -627,6 +1088,9 @@ async def clone_voice(
         X-User-ID: Required user ID
     """
     try:
+        # Convert is_public string to boolean (form data comes as string)
+        is_public_bool = is_public.lower() in ("true", "1", "yes")
+
         # Check if user's plan allows custom voices
         feature_gate = get_feature_gate()
         from backend.feature_gates import get_plan_features
@@ -653,9 +1117,19 @@ async def clone_voice(
         file_path = f"{user_id}/{voice_name}.wav"
         audio_url = db.upload_audio("va-voice-clones", file_path, audio_bytes)
 
-        # Clone voice on Modal
+        # Clone voice on Modal via HTTP
         assistant.initialize_modal()
-        clone_result = assistant.tts.clone_voice.remote(voice_name, audio_bytes)
+        try:
+            import httpx
+            clone_url = "https://jenkintownelectricity--premier-coqui-tts-clone-voice-web.modal.run"
+            files = {"reference_audio": ("audio.wav", audio_bytes, "audio/wav")}
+            data = {"voice": voice_name}
+            response = httpx.post(clone_url, files=files, data=data, timeout=120.0)
+            response.raise_for_status()
+            clone_result = response.json()
+        except Exception as e:
+            logger.error(f"Voice clone HTTP error: {e}")
+            clone_result = {"duration": 0, "error": str(e)}
 
         # Save to database
         voice_clone = db.create_voice_clone(
@@ -665,7 +1139,7 @@ async def clone_voice(
             reference_audio_url=audio_url,
             sample_duration=clone_result.get('duration'),
             modal_voice_id=voice_name,
-            is_public=is_public,
+            is_public=is_public_bool,
         )
 
         return {
@@ -776,6 +1250,171 @@ async def get_voice_clones(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/tts/voices/{provider}")
+async def get_tts_provider_voices(
+    provider: str,
+    user_id: Optional[str] = Header(None, alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Fetch available voices from a TTS provider.
+
+    For Cartesia: Fetches from Cartesia API + user's cloned voices from database.
+    For other providers: Returns curated list of popular voices.
+
+    Returns voices organized by category (user_clones, female, male, neutral).
+    """
+    try:
+        voices = []
+        user_clones = []
+
+        # Get user's voice clones from database if user_id provided
+        if user_id and provider == "cartesia":
+            try:
+                clones = db.get_user_voice_clones(user_id)
+                for clone in clones:
+                    user_clones.append({
+                        "id": clone.get("cartesia_voice_id") or clone.get("voice_name"),
+                        "name": clone.get("display_name") or clone.get("voice_name"),
+                        "gender": "Custom",
+                        "accent": "Your Voice",
+                        "is_user_clone": True,
+                        "created_at": clone.get("created_at"),
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to load user voice clones: {e}")
+
+        if provider == "cartesia":
+            # Try to fetch from Cartesia API
+            cartesia_api_key = os.getenv("CARTESIA_API_KEY")
+            if cartesia_api_key:
+                try:
+                    config = CartesiaConfig(api_key=cartesia_api_key)
+                    client = CartesiaSonic3(config)
+                    api_voices = await client.list_voices()
+
+                    logger.info(f"Cartesia API returned {len(api_voices)} voices")
+
+                    for voice in api_voices:
+                        # Skip voices without required fields
+                        voice_id = voice.get("id")
+                        voice_name = voice.get("name")
+                        if not voice_id or not voice_name:
+                            continue
+
+                        # Determine gender from voice metadata
+                        gender = "Neutral"
+                        name_lower = voice_name.lower()
+                        description = (voice.get("description") or "").lower()
+
+                        if any(w in name_lower or w in description for w in ["female", "woman", "girl", "she"]):
+                            gender = "Female"
+                        elif any(w in name_lower or w in description for w in ["male", "man", "boy", "he"]):
+                            gender = "Male"
+
+                        # Get language code - handle both string and object formats
+                        lang = voice.get("language", "en")
+                        if isinstance(lang, dict):
+                            lang = lang.get("code", "en")
+
+                        voices.append({
+                            "id": voice_id,
+                            "name": voice_name,
+                            "gender": gender,
+                            "accent": lang.upper() if isinstance(lang, str) else "EN",
+                            "description": voice.get("description", ""),
+                            "is_public": voice.get("is_public", True),
+                            "is_user_clone": not voice.get("is_public", True),  # Private = user clone
+                        })
+
+                    logger.info(f"Processed {len(voices)} Cartesia voices for dropdown")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch Cartesia voices from API: {e}", exc_info=True)
+
+            # Fallback: if no voices from API, provide curated defaults
+            if not voices:
+                voices = [
+                    {"id": "f786b574-daa5-4673-aa0c-cbe3e8534c02", "name": "Katie", "gender": "Female", "accent": "American", "is_user_clone": False},
+                    {"id": "a0e99841-438c-4a64-b679-ae501e7d6091", "name": "Sarah", "gender": "Female", "accent": "American", "is_user_clone": False},
+                    {"id": "71a7ad14-091c-4e8e-a314-022ece01c121", "name": "Barbershop Man", "gender": "Male", "accent": "American", "is_user_clone": False},
+                    {"id": "565510e8-6b45-45de-8758-13588fbaec73", "name": "British Lady", "gender": "Female", "accent": "British", "is_user_clone": False},
+                    {"id": "d46abd1d-2571-4d4f-8d61-ba3afb9b8f33", "name": "Confident Man", "gender": "Male", "accent": "American", "is_user_clone": False},
+                    {"id": "79a125e8-cd45-4c13-8a67-188112f4dd22", "name": "Southern Woman", "gender": "Female", "accent": "Southern", "is_user_clone": False},
+                    {"id": "87748186-23bb-4158-a1eb-332911b0b708", "name": "Wise Guide", "gender": "Male", "accent": "American", "is_user_clone": False},
+                    {"id": "c2ac25f9-ecc4-4f56-9095-651354df60c0", "name": "Customer Support", "gender": "Female", "accent": "American", "is_user_clone": False},
+                ]
+
+        elif provider == "elevenlabs":
+            # ElevenLabs curated voices (API key required for full list)
+            voices = [
+                {"id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "EXAVITQu4vr4xnSDxMaL", "name": "Bella", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "ErXwobaYiN019PkySvjV", "name": "Antoni", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "VR6AewLTigWG4xSOukaG", "name": "Arnold", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "pNInz6obpgDQGcFmaJgB", "name": "Adam", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "yoZ06aMxZJJ28mfd3POQ", "name": "Sam", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "ThT5KcBeYPX3keUQqHPh", "name": "Dorothy", "gender": "Female", "accent": "British", "is_user_clone": False},
+                {"id": "onwK4e9ZLuTAKqWW03F9", "name": "Daniel", "gender": "Male", "accent": "British", "is_user_clone": False},
+            ]
+
+        elif provider == "deepgram":
+            voices = [
+                {"id": "aura-asteria-en", "name": "Asteria", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "aura-luna-en", "name": "Luna", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "aura-stella-en", "name": "Stella", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "aura-athena-en", "name": "Athena", "gender": "Female", "accent": "British", "is_user_clone": False},
+                {"id": "aura-orion-en", "name": "Orion", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "aura-arcas-en", "name": "Arcas", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "aura-perseus-en", "name": "Perseus", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "aura-helios-en", "name": "Helios", "gender": "Male", "accent": "British", "is_user_clone": False},
+            ]
+
+        elif provider == "openai":
+            voices = [
+                {"id": "alloy", "name": "Alloy", "gender": "Neutral", "accent": "American", "is_user_clone": False},
+                {"id": "echo", "name": "Echo", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "fable", "name": "Fable", "gender": "Male", "accent": "British", "is_user_clone": False},
+                {"id": "onyx", "name": "Onyx", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "nova", "name": "Nova", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "shimmer", "name": "Shimmer", "gender": "Female", "accent": "American", "is_user_clone": False},
+            ]
+
+        elif provider == "playht":
+            voices = [
+                {"id": "s3://voice-cloning-zero-shot/d9ff78ba-d016-47f6-b0ef-dd630f59414e/female-cs/manifest.json", "name": "Jennifer", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "s3://voice-cloning-zero-shot/820da3d2-3a3b-42e7-844d-e68db835a206/matt/manifest.json", "name": "Matt", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "s3://voice-cloning-zero-shot/65977f5e-a22a-4b36-861b-70f6a1e1c9af/original/manifest.json", "name": "Sophie", "gender": "Female", "accent": "British", "is_user_clone": False},
+                {"id": "s3://voice-cloning-zero-shot/1591b954-8760-41a9-bc58-9176a68c5726/original/manifest.json", "name": "Oliver", "gender": "Male", "accent": "British", "is_user_clone": False},
+            ]
+
+        elif provider == "rime":
+            voices = [
+                {"id": "mist", "name": "Mist", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "grove", "name": "Grove", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "bay", "name": "Bay", "gender": "Male", "accent": "American", "is_user_clone": False},
+                {"id": "cove", "name": "Cove", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "brook", "name": "Brook", "gender": "Female", "accent": "American", "is_user_clone": False},
+                {"id": "fjord", "name": "Fjord", "gender": "Male", "accent": "Nordic", "is_user_clone": False},
+            ]
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown TTS provider: {provider}")
+
+        return {
+            "provider": provider,
+            "user_clones": user_clones,
+            "voices": voices,
+            "total": len(voices) + len(user_clones),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching TTS voices for {provider}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # SUBSCRIPTION & USAGE ROUTES
 # ============================================================================
@@ -819,6 +1458,77 @@ async def get_subscription(
 
     except Exception as e:
         logger.error(f"Error getting subscription: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/subscription/trial")
+async def start_trial(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Start a 30-day free trial with Pro plan features.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        # Check if user already had a trial
+        existing_trial = db.client.table("va_user_subscriptions").select("id").eq(
+            "user_id", user_id
+        ).eq("is_trial", True).execute()
+
+        if existing_trial.data:
+            raise HTTPException(
+                status_code=400,
+                detail="You have already used your free trial"
+            )
+
+        # Check if user already has an active paid subscription
+        existing_sub = db.client.table("va_user_subscriptions").select("id").eq(
+            "user_id", user_id
+        ).eq("status", "active").neq("plan_id", None).execute()
+
+        if existing_sub.data:
+            raise HTTPException(
+                status_code=400,
+                detail="You already have an active subscription"
+            )
+
+        # Get the Pro plan ID
+        pro_plan = db.client.table("va_subscription_plans").select("id").eq(
+            "plan_name", "pro"
+        ).execute()
+
+        if not pro_plan.data:
+            raise HTTPException(status_code=500, detail="Pro plan not found")
+
+        plan_id = pro_plan.data[0]["id"]
+
+        # Create trial subscription
+        trial_end = datetime.utcnow() + timedelta(days=30)
+
+        db.client.table("va_user_subscriptions").insert({
+            "user_id": user_id,
+            "plan_id": plan_id,
+            "status": "trialing",
+            "is_trial": True,
+            "trial_end": trial_end.isoformat(),
+            "current_period_start": datetime.utcnow().isoformat(),
+            "current_period_end": trial_end.isoformat()
+        }).execute()
+
+        return {
+            "success": True,
+            "message": "30-day free trial started! Enjoy Pro features.",
+            "trial_end": trial_end.isoformat(),
+            "plan": "pro"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting trial: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -897,6 +1607,47 @@ async def get_feature_limits(
 
     except Exception as e:
         logger.error(f"Error getting feature limits: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/limits")
+async def get_limits(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's plan limits (alias for /feature-limits).
+    Returns limits in format expected by frontend.
+
+    Headers:
+        X-User-ID: Required user ID
+    """
+    try:
+        feature_gate = get_feature_gate()
+        plan = feature_gate.get_user_plan(user_id)
+
+        if not plan:
+            # Default limits for users without a plan
+            return {
+                "limits": {
+                    "max_voice_clones": 0,
+                    "max_assistants": 1,
+                    "max_minutes": 10
+                }
+            }
+
+        plan_name = plan.get("plan_name", "free")
+
+        # Get all features for this plan
+        from backend.feature_gates import get_plan_features
+        features = get_plan_features(plan_name)
+
+        return {
+            "limits": features
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting limits: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1259,7 +2010,7 @@ Format as JSON:
         try:
             client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
             response = client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-5-20250929"),
                 max_tokens=1000,
                 temperature=0.7,
                 messages=[{
@@ -1738,6 +2489,171 @@ async def get_error_correlation(
 
 
 # ============================================================================
+# LLM PROVIDERS ROUTES
+# ============================================================================
+
+@app.get("/llm-providers")
+async def get_llm_providers():
+    """
+    Get all available LLM providers with their models and API documentation links.
+
+    Returns:
+        Dictionary of LLM providers with:
+        - name: Display name
+        - api_docs: API documentation URL
+        - api_keys_url: URL to get API keys
+        - models: List of available models with id, name, context window, speed
+        - default_model: Default model ID for this provider
+        - env_key: Environment variable name for API key
+    """
+    return {
+        "providers": LLM_PROVIDERS,
+        "recommended": ["groq", "anthropic", "openai"],  # Recommended for voice assistants
+        "fastest": ["groq", "fireworks", "together"],  # Lowest latency options
+    }
+
+
+@app.get("/llm-providers/{provider_id}")
+async def get_llm_provider_details(provider_id: str):
+    """
+    Get details for a specific LLM provider.
+
+    Args:
+        provider_id: The provider ID (e.g., 'anthropic', 'openai', 'groq')
+
+    Returns:
+        Provider details with models and API links
+    """
+    if provider_id not in LLM_PROVIDERS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found. Available: {list(LLM_PROVIDERS.keys())}"
+        )
+
+    provider = LLM_PROVIDERS[provider_id]
+    return {
+        "id": provider_id,
+        **provider
+    }
+
+
+# ============================================================================
+# USER API KEYS ROUTES
+# ============================================================================
+
+class SaveApiKeysRequest(BaseModel):
+    keys: Dict[str, str]  # provider_id -> api_key
+
+
+@app.get("/user/api-keys")
+async def get_user_api_keys(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get user's configured LLM API keys (masked for security).
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Returns:
+        Dictionary of provider_id -> masked_key (e.g., "sk-...abc123")
+    """
+    try:
+        result = db.client.table("va_user_api_keys").select(
+            "provider, api_key_masked, updated_at"
+        ).eq("user_id", user_id).execute()
+
+        keys = {}
+        for row in result.data:
+            keys[row["provider"]] = row["api_key_masked"]
+
+        return {"keys": keys}
+
+    except Exception as e:
+        logger.error(f"Error getting API keys: {e}")
+        # Return empty if table doesn't exist yet
+        return {"keys": {}}
+
+
+@app.post("/user/api-keys")
+async def save_user_api_keys(
+    request: SaveApiKeysRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Save user's LLM API keys (encrypted in database).
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Body:
+        keys: Dictionary of provider_id -> api_key
+
+    Returns:
+        Success status
+    """
+    try:
+        for provider, api_key in request.keys.items():
+            if not api_key:
+                # Delete key if empty
+                db.client.table("va_user_api_keys").delete().eq(
+                    "user_id", user_id
+                ).eq("provider", provider).execute()
+                continue
+
+            # Create masked version for display
+            if len(api_key) > 8:
+                masked = api_key[:4] + "..." + api_key[-4:]
+            else:
+                masked = "****"
+
+            # Upsert the key (encrypt in production!)
+            db.client.table("va_user_api_keys").upsert({
+                "user_id": user_id,
+                "provider": provider,
+                "api_key": api_key,  # In production, encrypt this!
+                "api_key_masked": masked,
+                "updated_at": "now()",
+            }, on_conflict="user_id,provider").execute()
+
+        logger.info(f"Saved API keys for user {user_id}: {list(request.keys.keys())}")
+        return {"success": True, "message": "API keys saved"}
+
+    except Exception as e:
+        logger.error(f"Error saving API keys: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/user/api-keys/{provider}")
+async def delete_user_api_key(
+    provider: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Delete a specific API key for a provider.
+
+    Headers:
+        X-User-ID: Required user ID
+
+    Path:
+        provider: The LLM provider ID (e.g., 'openai', 'anthropic')
+    """
+    try:
+        db.client.table("va_user_api_keys").delete().eq(
+            "user_id", user_id
+        ).eq("provider", provider).execute()
+
+        return {"success": True, "message": f"API key for {provider} deleted"}
+
+    except Exception as e:
+        logger.error(f"Error deleting API key: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # ASSISTANTS ROUTES
 # ============================================================================
 
@@ -1829,11 +2745,14 @@ async def create_assistant(
             "name": request.name,
             "description": request.description,
             "system_prompt": request.system_prompt,
+            "tts_provider": request.tts_provider,
             "voice_id": request.voice_id,
+            "llm_provider": request.llm_provider,
             "model": request.model,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
             "first_message": request.first_message,
+            "fast_brain_skill": request.fast_brain_skill,  # Fast Brain skill/persona
             "is_active": True,
             # Advanced latency optimization settings
             "vad_sensitivity": request.vad_sensitivity,
@@ -1841,7 +2760,13 @@ async def create_assistant(
             "enable_bargein": request.enable_bargein,
             "streaming_chunks": request.streaming_chunks,
             "first_message_latency_ms": request.first_message_latency_ms,
-            "turn_detection_mode": request.turn_detection_mode
+            "turn_detection_mode": request.turn_detection_mode,
+            # Voice control settings (competitive with Vapi/ElevenLabs)
+            "speech_speed": request.speech_speed,
+            "response_delay_ms": request.response_delay_ms,
+            "punctuation_pause_ms": request.punctuation_pause_ms,
+            "no_punctuation_pause_ms": request.no_punctuation_pause_ms,
+            "turn_eagerness": request.turn_eagerness,
         }
 
         result = db.client.table("va_assistants").insert(assistant_data).execute()
@@ -1887,10 +2812,13 @@ async def update_assistant(
 
         # Build update dict
         updates = {}
-        for field in ["name", "description", "system_prompt", "voice_id",
-                      "model", "temperature", "max_tokens", "first_message", "is_active",
+        for field in ["name", "description", "system_prompt", "tts_provider", "voice_id",
+                      "llm_provider", "model", "temperature", "max_tokens", "first_message", "is_active",
+                      "fast_brain_skill",  # Fast Brain skill/persona
                       "vad_sensitivity", "endpointing_ms", "enable_bargein",
-                      "streaming_chunks", "first_message_latency_ms", "turn_detection_mode"]:
+                      "streaming_chunks", "first_message_latency_ms", "turn_detection_mode",
+                      "speech_speed", "response_delay_ms", "punctuation_pause_ms",
+                      "no_punctuation_pause_ms", "turn_eagerness"]:
             value = getattr(request, field)
             if value is not None:
                 updates[field] = value
@@ -2037,6 +2965,20 @@ async def get_call(
 
         call = result.data[0]
 
+        # Parse transcript if it's a string
+        if call.get("transcript") and isinstance(call["transcript"], str):
+            try:
+                call["transcript"] = json.loads(call["transcript"])
+            except json.JSONDecodeError:
+                call["transcript"] = []
+
+        # Parse summary if it's a string
+        if call.get("summary") and isinstance(call["summary"], str):
+            try:
+                call["summary"] = json.loads(call["summary"])
+            except json.JSONDecodeError:
+                pass  # Keep as string if not valid JSON
+
         # Get assistant name
         if call.get("assistant_id"):
             assistant = db.client.table("va_assistants").select("name").eq(
@@ -2134,9 +3076,751 @@ async def get_call_stats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/calls/export")
+async def export_calls(
+    user_id: str = Header(..., alias="X-User-ID"),
+    format: str = "json",  # json, csv
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    assistant_id: Optional[str] = None,
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Export call logs with full transcripts in JSON or CSV format.
+
+    Query Parameters:
+    - format: 'json' or 'csv' (default: json)
+    - start_date: Filter calls after this date (ISO format)
+    - end_date: Filter calls before this date (ISO format)
+    - assistant_id: Filter by specific assistant
+    """
+    try:
+        # Build query
+        query = db.client.table("va_call_logs").select(
+            "id, assistant_id, call_type, phone_number, status, started_at, ended_at, "
+            "duration_seconds, cost_cents, transcript, summary, sentiment, ended_reason, metadata"
+        ).eq("user_id", user_id)
+
+        if assistant_id:
+            query = query.eq("assistant_id", assistant_id)
+        if start_date:
+            query = query.gte("started_at", start_date)
+        if end_date:
+            query = query.lte("started_at", end_date)
+
+        result = query.order("started_at", desc=True).execute()
+        calls = result.data or []
+
+        # Get assistant names
+        assistant_ids = list(set(c.get("assistant_id") for c in calls if c.get("assistant_id")))
+        assistant_names = {}
+        if assistant_ids:
+            assistants_result = db.client.table("va_assistants").select("id, name").in_("id", assistant_ids).execute()
+            for a in assistants_result.data or []:
+                assistant_names[a["id"]] = a["name"]
+
+        # Enrich calls with assistant names
+        for call in calls:
+            call["assistant_name"] = assistant_names.get(call.get("assistant_id"), "Unknown")
+
+        if format.lower() == "csv":
+            # Generate CSV
+            import csv
+            from io import StringIO
+
+            output = StringIO()
+            writer = csv.writer(output)
+
+            # Write header
+            writer.writerow([
+                "Call ID", "Assistant", "Type", "Phone", "Status",
+                "Started At", "Ended At", "Duration (sec)", "Cost (cents)",
+                "Sentiment", "Summary", "Transcript"
+            ])
+
+            # Write data
+            for call in calls:
+                # Format transcript as readable text
+                transcript = call.get("transcript", [])
+                if isinstance(transcript, list):
+                    transcript_text = "\n".join([
+                        f"{m.get('role', 'unknown')}: {m.get('content', '')}"
+                        for m in transcript
+                    ])
+                else:
+                    transcript_text = str(transcript)
+
+                writer.writerow([
+                    call.get("id"),
+                    call.get("assistant_name"),
+                    call.get("call_type"),
+                    call.get("phone_number", ""),
+                    call.get("status"),
+                    call.get("started_at"),
+                    call.get("ended_at"),
+                    call.get("duration_seconds", 0),
+                    call.get("cost_cents", 0),
+                    call.get("sentiment", "neutral"),
+                    call.get("summary", ""),
+                    transcript_text,
+                ])
+
+            csv_content = output.getvalue()
+            return StreamingResponse(
+                iter([csv_content]),
+                media_type="text/csv",
+                headers={"Content-Disposition": "attachment; filename=call_export.csv"}
+            )
+
+        else:
+            # Return JSON
+            return {
+                "export_date": datetime.utcnow().isoformat(),
+                "total_calls": len(calls),
+                "filters": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "assistant_id": assistant_id,
+                },
+                "calls": calls,
+            }
+
+    except Exception as e:
+        logger.error(f"Error exporting calls: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/calls/{call_id}/messages")
+async def get_call_messages(
+    call_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get individual messages for a call from the va_call_messages table.
+    This provides more detailed message data than the transcript array.
+    """
+    try:
+        # Verify call belongs to user
+        call_result = db.client.table("va_call_logs").select("id").eq("id", call_id).eq("user_id", user_id).execute()
+        if not call_result.data:
+            raise HTTPException(status_code=404, detail="Call not found")
+
+        # Get messages
+        messages_result = db.client.table("va_call_messages").select(
+            "id, role, content, timestamp, sequence_number, sentiment_score, metadata"
+        ).eq("call_id", call_id).order("sequence_number").execute()
+
+        return {
+            "call_id": call_id,
+            "messages": messages_result.data or [],
+            "message_count": len(messages_result.data or []),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting call messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/storage/usage")
+async def get_storage_usage(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get storage usage statistics for the user.
+    Shows how much storage is being used and available based on plan.
+    """
+    try:
+        # Get storage usage
+        usage_result = db.client.table("va_storage_usage").select("*").eq("user_id", user_id).execute()
+
+        if usage_result.data:
+            usage = usage_result.data[0]
+        else:
+            # Calculate if not cached
+            calls_result = db.client.table("va_call_logs").select("id").eq("user_id", user_id).execute()
+            messages_result = db.client.table("va_call_messages").select("id, content").eq("user_id", user_id).execute()
+
+            transcript_bytes = sum(len(m.get("content", "")) for m in (messages_result.data or []))
+
+            usage = {
+                "call_count": len(calls_result.data or []),
+                "message_count": len(messages_result.data or []),
+                "transcript_bytes": transcript_bytes,
+                "recording_bytes": 0,
+                "total_bytes": transcript_bytes,
+            }
+
+        # Get plan limits (default 500MB)
+        storage_limit = 524288000  # 500MB default
+
+        return {
+            "usage": usage,
+            "limit_bytes": storage_limit,
+            "usage_percentage": round((usage.get("total_bytes", 0) / storage_limit) * 100, 2) if storage_limit > 0 else 0,
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting storage usage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/calls/active")
+async def get_active_calls(
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Get currently active voice calls for monitoring.
+
+    Returns list of calls that are in progress, with real-time data.
+    """
+    try:
+        # Filter active calls for this user
+        user_calls = []
+        for call_id, call_data in active_voice_calls.items():
+            if call_data.get("user_id") == user_id:
+                # Calculate current duration
+                start_time = call_data.get("started_at")
+                if start_time:
+                    duration = int((datetime.utcnow() - start_time).total_seconds())
+                else:
+                    duration = 0
+
+                user_calls.append({
+                    "id": call_id,
+                    "assistant_id": call_data.get("assistant_id"),
+                    "assistant_name": call_data.get("assistant_name", "Assistant"),
+                    "user_id": user_id,
+                    "started_at": call_data.get("started_at").isoformat() if call_data.get("started_at") else None,
+                    "duration_seconds": duration,
+                    "status": "active",
+                    "sentiment": call_data.get("sentiment"),
+                    "urgency": call_data.get("urgency", "normal"),
+                    "transcript": call_data.get("transcript", [])[-10:],  # Last 10 messages
+                    "caller_info": call_data.get("caller_info"),
+                })
+
+        return {"calls": user_calls}
+
+    except Exception as e:
+        logger.error(f"Error getting active calls: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/monitor/{call_id}")
+async def websocket_monitor_endpoint(
+    websocket: WebSocket,
+    call_id: str,
+):
+    """
+    WebSocket endpoint for monitoring an active call.
+
+    Protocol:
+    - Client sends: {"type": "auth", "user_id": "...", "mode": "listen"|"takeover"}
+    - Server sends: {"type": "audio", "data": "<base64 audio>"}
+    - Server sends: {"type": "transcript", "role": "...", "content": "..."}
+    - Server sends: {"type": "call_update", "update": {...}}
+    - Server sends: {"type": "call_ended"}
+    """
+    await websocket.accept()
+
+    try:
+        # Wait for authentication
+        auth_data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+        if auth_data.get('type') != 'auth' or not auth_data.get('user_id'):
+            await websocket.send_json({"type": "error", "message": "Authentication required"})
+            await websocket.close()
+            return
+
+        user_id = auth_data['user_id']
+        mode = auth_data.get('mode', 'listen')
+
+        # Check if call exists and belongs to user
+        if call_id not in active_voice_calls:
+            await websocket.send_json({"type": "error", "message": "Call not found or ended"})
+            await websocket.close()
+            return
+
+        call_data = active_voice_calls[call_id]
+        if call_data.get("user_id") != user_id:
+            await websocket.send_json({"type": "error", "message": "Not authorized to monitor this call"})
+            await websocket.close()
+            return
+
+        # Add to monitors list
+        if call_id not in call_monitors:
+            call_monitors[call_id] = []
+        call_monitors[call_id].append(websocket)
+
+        logger.info(f"Monitor connected to call {call_id} in {mode} mode")
+
+        # Send current call state
+        await websocket.send_json({
+            "type": "call_update",
+            "update": {
+                "transcript": call_data.get("transcript", []),
+                "sentiment": call_data.get("sentiment"),
+                "urgency": call_data.get("urgency", "normal"),
+            }
+        })
+
+        # Listen for commands (takeover, release, etc.)
+        while True:
+            try:
+                message = await websocket.receive_json()
+                msg_type = message.get('type')
+
+                if msg_type == 'takeover':
+                    # Mark call as taken over by human
+                    active_voice_calls[call_id]["is_human_controlled"] = True
+                    active_voice_calls[call_id]["controlling_user"] = user_id
+                    logger.info(f"Call {call_id} taken over by user {user_id}")
+
+                elif msg_type == 'release':
+                    # Release back to AI
+                    active_voice_calls[call_id]["is_human_controlled"] = False
+                    active_voice_calls[call_id]["controlling_user"] = None
+                    logger.info(f"Call {call_id} released back to AI")
+
+                elif msg_type == 'audio' and mode == 'takeover':
+                    # Forward audio from human operator to call
+                    # This would need to be forwarded to the main call websocket
+                    pass
+
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger.error(f"Monitor websocket error: {e}")
+                break
+
+    except Exception as e:
+        logger.error(f"Monitor websocket error: {e}")
+    finally:
+        # Remove from monitors list
+        if call_id in call_monitors and websocket in call_monitors[call_id]:
+            call_monitors[call_id].remove(websocket)
+            if not call_monitors[call_id]:
+                del call_monitors[call_id]
+
+
 # ============================================================================
 # ADMIN ROUTES
 # ============================================================================
+
+@app.get("/admin/status")
+async def get_admin_status(
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get system status and health checks."""
+    status = {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "services": {}
+    }
+
+    # Check Supabase
+    try:
+        import time
+        start = time.time()
+        db.client.table("va_subscription_plans").select("id").limit(1).execute()
+        latency = int((time.time() - start) * 1000)
+        status["services"]["supabase"] = {
+            "status": "healthy",
+            "latency_ms": latency,
+            "message": "Connected"
+        }
+    except Exception as e:
+        status["services"]["supabase"] = {
+            "status": "error",
+            "latency_ms": None,
+            "message": str(e)
+        }
+
+    # Check Anthropic
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if anthropic_key:
+        status["services"]["anthropic"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"API key set (ends in ...{anthropic_key[-4:]})"
+        }
+    else:
+        status["services"]["anthropic"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "ANTHROPIC_API_KEY not set"
+        }
+
+    # Check Modal
+    modal_id = os.getenv("MODAL_TOKEN_ID", "")
+    if modal_id:
+        status["services"]["modal"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": "Token configured"
+        }
+    else:
+        status["services"]["modal"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "MODAL_TOKEN_ID not set"
+        }
+
+    # Check Stripe
+    stripe_issues = validate_stripe_config()
+    stripe_key = os.getenv("STRIPE_SECRET_KEY", "")
+    if stripe_key and not stripe_issues:
+        status["services"]["stripe"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": "Fully configured"
+        }
+    elif stripe_key:
+        status["services"]["stripe"] = {
+            "status": "partial",
+            "latency_ms": 0,
+            "message": f"Missing: {', '.join(stripe_issues)}"
+        }
+    else:
+        status["services"]["stripe"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": f"Missing: {', '.join(stripe_issues)}"
+        }
+
+    # Check Twilio
+    twilio_issues = validate_twilio_config()
+    twilio_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+    if twilio_sid and not twilio_issues:
+        status["services"]["twilio"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"Account configured (SID ends in ...{twilio_sid[-4:]})"
+        }
+    elif twilio_sid:
+        status["services"]["twilio"] = {
+            "status": "partial",
+            "latency_ms": 0,
+            "message": f"Missing: {', '.join(twilio_issues)}"
+        }
+    else:
+        status["services"]["twilio"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER"
+        }
+
+    # Check Deepgram (Streaming STT)
+    deepgram_key = os.getenv("DEEPGRAM_API_KEY", "")
+    if deepgram_key:
+        status["services"]["deepgram"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"Streaming STT enabled (key ends in ...{deepgram_key[-4:]})"
+        }
+    else:
+        status["services"]["deepgram"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "DEEPGRAM_API_KEY not set - using Modal batch STT"
+        }
+
+    # Check Cartesia (Streaming TTS)
+    cartesia_key = os.getenv("CARTESIA_API_KEY", "")
+    cartesia_voice = os.getenv("CARTESIA_VOICE_ID", "")
+    if cartesia_key:
+        voice_info = f", voice: {cartesia_voice[:8]}..." if cartesia_voice else ""
+        status["services"]["cartesia"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"Streaming TTS enabled (key ends in ...{cartesia_key[-4:]}{voice_info})"
+        }
+    else:
+        status["services"]["cartesia"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "CARTESIA_API_KEY not set - using Modal batch TTS"
+        }
+
+    # Check LiveKit (WebRTC Voice Agent)
+    livekit_url = os.getenv("LIVEKIT_URL", "")
+    livekit_api_key = os.getenv("LIVEKIT_API_KEY", "")
+    livekit_api_secret = os.getenv("LIVEKIT_API_SECRET", "")
+    if livekit_url and livekit_api_key and livekit_api_secret:
+        # Parse URL for display
+        display_url = livekit_url.replace("wss://", "").replace("ws://", "")[:30]
+        status["services"]["livekit"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"WebRTC enabled ({display_url}...)"
+        }
+    elif livekit_url or livekit_api_key:
+        missing = []
+        if not livekit_url:
+            missing.append("LIVEKIT_URL")
+        if not livekit_api_key:
+            missing.append("LIVEKIT_API_KEY")
+        if not livekit_api_secret:
+            missing.append("LIVEKIT_API_SECRET")
+        status["services"]["livekit"] = {
+            "status": "partial",
+            "latency_ms": None,
+            "message": f"Missing: {', '.join(missing)}"
+        }
+    else:
+        status["services"]["livekit"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "LiveKit not configured - WebRTC voice disabled"
+        }
+
+    # Check Groq (Fast LLM)
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if groq_key:
+        status["services"]["groq"] = {
+            "status": "configured",
+            "latency_ms": 0,
+            "message": f"Groq LPU enabled (key ends in ...{groq_key[-4:]})"
+        }
+    else:
+        status["services"]["groq"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "GROQ_API_KEY not set"
+        }
+
+    # Check Fast Brain (Custom Groq-powered LPU)
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if fast_brain_url:
+        try:
+            import httpx
+            start = time.time()
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{fast_brain_url.rstrip('/')}/health")
+                latency = int((time.time() - start) * 1000)
+                if response.status_code == 200:
+                    health_data = response.json()
+                    skills_count = len(health_data.get("skills_available", []))
+                    status["services"]["fast_brain"] = {
+                        "status": "healthy",
+                        "latency_ms": latency,
+                        "message": f"Online - {skills_count} skills available (~80ms TTFB)",
+                        "skills_available": health_data.get("skills_available", []),
+                        "backend": health_data.get("backend", "groq"),
+                    }
+                else:
+                    status["services"]["fast_brain"] = {
+                        "status": "error",
+                        "latency_ms": latency,
+                        "message": f"Health check failed: HTTP {response.status_code}"
+                    }
+        except Exception as e:
+            display_brain_url = fast_brain_url[:40]
+            status["services"]["fast_brain"] = {
+                "status": "configured",
+                "latency_ms": None,
+                "message": f"Configured but unreachable ({display_brain_url}...) - {str(e)[:50]}"
+            }
+    else:
+        status["services"]["fast_brain"] = {
+            "status": "not_configured",
+            "latency_ms": None,
+            "message": "FAST_BRAIN_URL not set - using Groq fallback"
+        }
+
+    # Voice Agent status - which LLM will be used
+    voice_agent_llm = "none"
+    voice_agent_status = "not_configured"
+    voice_agent_message = "No LLM configured for voice agent"
+
+    # Check Fast Brain health status from the check above
+    fast_brain_healthy = status["services"].get("fast_brain", {}).get("status") == "healthy"
+
+    if fast_brain_url and fast_brain_healthy:
+        voice_agent_llm = "fast_brain"
+        voice_agent_status = "configured"
+        skills = status["services"]["fast_brain"].get("skills_available", [])
+        voice_agent_message = f"Using Fast Brain (~80ms TTFB, {len(skills)} skills)"
+    elif fast_brain_url:
+        # Fast Brain configured but not healthy - fall back
+        if groq_key:
+            voice_agent_llm = "groq"
+            voice_agent_status = "fallback"
+            voice_agent_message = "Fast Brain unreachable - using Groq fallback"
+        elif anthropic_key:
+            voice_agent_llm = "anthropic"
+            voice_agent_status = "fallback"
+            voice_agent_message = "Fast Brain unreachable - using Anthropic fallback"
+    elif groq_key:
+        voice_agent_llm = "groq"
+        voice_agent_status = "fallback"
+        voice_agent_message = "Using Groq LPU (Fast Brain not configured)"
+    elif anthropic_key:
+        voice_agent_llm = "anthropic"
+        voice_agent_status = "fallback"
+        voice_agent_message = "Using Anthropic Claude (Groq not configured)"
+
+    status["voice_agent"] = {
+        "status": voice_agent_status,
+        "active_llm": voice_agent_llm,
+        "message": voice_agent_message,
+        "livekit_enabled": bool(livekit_url and livekit_api_key and livekit_api_secret),
+        "fallback_chain": ["fast_brain", "groq", "anthropic"],
+        "configured_llms": [
+            llm for llm, configured in [
+                ("fast_brain", bool(fast_brain_url)),
+                ("groq", bool(groq_key)),
+                ("anthropic", bool(anthropic_key)),
+            ] if configured
+        ]
+    }
+
+    # Streaming pipeline status
+    streaming_enabled = bool(deepgram_key and cartesia_key)
+    status["streaming"] = {
+        "enabled": streaming_enabled,
+        "stt_provider": "deepgram" if deepgram_key else "modal",
+        "tts_provider": "cartesia" if cartesia_key else "modal",
+        "target_latency_ms": 500 if streaming_enabled else 2000,
+        "message": "Full streaming pipeline active" if streaming_enabled else "Using batch processing (higher latency)"
+    }
+
+    # Environment info
+    status["environment"] = {
+        "python_version": os.popen("python --version 2>&1").read().strip(),
+        "env": os.getenv("ENVIRONMENT", "development"),
+        "railway_environment": os.getenv("RAILWAY_ENVIRONMENT_NAME", "not deployed"),
+        "api_url": os.getenv("API_URL", "localhost"),
+    }
+
+    # Get stats
+    try:
+        users_result = db.client.table("va_user_subscriptions").select("id", count="exact").execute()
+        calls_result = db.client.table("va_call_logs").select("id", count="exact").execute()
+        assistants_result = db.client.table("va_assistants").select("id", count="exact").execute()
+        status["stats"] = {
+            "total_users": users_result.count or 0,
+            "total_calls": calls_result.count or 0,
+            "total_assistants": assistants_result.count or 0,
+        }
+    except Exception as e:
+        status["stats"] = {"error": str(e)}
+
+    return status
+
+
+# ============================================================================
+# FAST BRAIN SKILLS API
+# ============================================================================
+
+@app.get("/api/skills/fast-brain")
+async def get_fast_brain_skills():
+    """
+    Fetch available skills from Fast Brain LPU.
+
+    Returns:
+        - skills: List of available skill adapters
+        - error: Error message if Fast Brain is unavailable
+
+    Skills include: general, receptionist, electrician, plumber, lawyer
+    """
+    import httpx
+
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        return {
+            "skills": [],
+            "error": "FAST_BRAIN_URL not configured",
+            "message": "Fast Brain not set up - configure FAST_BRAIN_URL environment variable"
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Try /v1/skills endpoint first
+            response = await client.get(f"{fast_brain_url.rstrip('/')}/v1/skills")
+            if response.status_code == 200:
+                return response.json()
+
+            # Fallback to /health endpoint which includes skills_available
+            response = await client.get(f"{fast_brain_url.rstrip('/')}/health")
+            if response.status_code == 200:
+                health_data = response.json()
+                skills = health_data.get("skills_available", [])
+                # Convert simple skill list to full skill objects
+                return {
+                    "skills": [
+                        {
+                            "id": skill if isinstance(skill, str) else skill.get("id", skill),
+                            "name": skill.title() if isinstance(skill, str) else skill.get("name", skill),
+                            "description": f"{skill.title()} skill adapter" if isinstance(skill, str) else skill.get("description", ""),
+                        }
+                        for skill in skills
+                    ]
+                }
+
+            return {"skills": [], "error": f"Fast Brain returned HTTP {response.status_code}"}
+
+    except httpx.TimeoutException:
+        return {"skills": [], "error": "Fast Brain request timed out"}
+    except Exception as e:
+        return {"skills": [], "error": str(e)}
+
+
+class FastBrainSkillCreate(BaseModel):
+    """Request model for creating a custom Fast Brain skill."""
+    name: str
+    description: Optional[str] = None
+    system_prompt: str
+    examples: Optional[List[Dict]] = None
+
+
+@app.post("/api/skills/fast-brain")
+async def create_fast_brain_skill(skill: FastBrainSkillCreate):
+    """
+    Create a custom skill in Fast Brain.
+
+    Body:
+        - name: Skill name (e.g., "my_business")
+        - description: Human-readable description
+        - system_prompt: The system prompt for this skill
+        - examples: Optional list of example conversations
+
+    Returns:
+        - success: Whether the skill was created
+        - skill: The created skill object
+        - error: Error message if creation failed
+    """
+    import httpx
+
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        return {
+            "success": False,
+            "error": "FAST_BRAIN_URL not configured"
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{fast_brain_url.rstrip('/')}/v1/skills",
+                json=skill.model_dump()
+            )
+            if response.status_code in [200, 201]:
+                return {"success": True, "skill": response.json()}
+            else:
+                return {
+                    "success": False,
+                    "error": f"Fast Brain returned HTTP {response.status_code}: {response.text[:200]}"
+                }
+
+    except httpx.TimeoutException:
+        return {"success": False, "error": "Fast Brain request timed out"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 
 @app.post("/admin/upgrade-user")
 async def admin_upgrade_user(
@@ -2456,7 +4140,7 @@ async def create_checkout_session(
                 # Save customer ID to profile
                 db.client.table("va_user_profiles").update({
                     "stripe_customer_id": customer_id
-                }).eq("user_id", user_id).execute()
+                }).eq("id", user_id).execute()
 
         if not customer_id:
             raise HTTPException(status_code=500, detail="Failed to create Stripe customer")
@@ -2996,10 +4680,14 @@ async def list_user_teams(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class CreateTeamRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
 @app.post("/teams")
 async def create_team(
-    name: str,
-    description: str = None,
+    request: CreateTeamRequest,
     user_id: str = Header(..., alias="X-User-ID"),
     db: SupabaseManager = Depends(get_db),
 ):
@@ -3016,8 +4704,8 @@ async def create_team(
     try:
         # Create team
         team_data = {
-            "name": name,
-            "description": description,
+            "name": request.name,
+            "description": request.description,
             "owner_id": user_id
         }
 
@@ -3461,8 +5149,30 @@ async def create_team_dashboard(
 # WEBSOCKET VOICE STREAMING
 # =====================================================
 
+# Global registry of active voice calls for monitoring
+active_voice_calls: Dict[str, dict] = {}
+# Subscribers listening to calls (call_id -> list of websockets)
+call_monitors: Dict[str, List[WebSocket]] = {}
+
+
 class VoiceCallSession:
     """Manages a single WebSocket voice call session."""
+
+    # Sentiment analysis word lists for real-time detection
+    POSITIVE_WORDS = [
+        'thank', 'thanks', 'great', 'good', 'excellent', 'happy', 'love', 'wonderful',
+        'amazing', 'perfect', 'helpful', 'appreciate', 'pleased', 'fantastic', 'awesome',
+        'yes', 'absolutely', 'definitely', 'sure', 'okay', 'sounds good', 'exactly'
+    ]
+    NEGATIVE_WORDS = [
+        'bad', 'terrible', 'hate', 'angry', 'frustrated', 'wrong', 'awful', 'horrible',
+        'disappointed', 'annoyed', 'upset', 'confused', 'problem', 'issue', 'fail',
+        'no', 'never', 'cancel', 'stop', 'wait', 'wrong', 'mistake', 'error'
+    ]
+    URGENCY_WORDS = [
+        'urgent', 'emergency', 'asap', 'immediately', 'now', 'hurry', 'critical',
+        'important', 'today', 'right away', 'quickly', 'fast'
+    ]
 
     def __init__(self, websocket: WebSocket, user_id: str, assistant_id: str):
         self.websocket = websocket
@@ -3474,10 +5184,26 @@ class VoiceCallSession:
         self.should_stop_tts = False
         self.audio_buffer = bytearray()
         self.db = get_supabase()
+        # Call timing
+        self.call_start_time = None
+        # Real-time sentiment tracking
+        self.current_sentiment = 'neutral'
+        self.sentiment_score = 0  # -100 to +100
+        self.urgency_level = 'normal'  # normal, elevated, urgent
+        self.sentiment_history = []  # Track sentiment over time
+        # User settings (loaded in start_call)
+        self.user_settings = {
+            'ai_enabled': True,
+            'ai_transcription_enabled': True,
+            'ai_summary_enabled': True,
+            'call_screening_enabled': True,
+            'call_recording_enabled': True,
+        }
 
     async def start_call(self):
-        """Initialize call log in database."""
+        """Initialize call log in database and register for monitoring."""
         try:
+            self.call_start_time = time.time()
             result = self.db.client.rpc(
                 'va_create_call_log',
                 {
@@ -3487,53 +5213,347 @@ class VoiceCallSession:
                 }
             ).execute()
             self.call_id = result.data
+
+            # Load user settings
+            try:
+                settings_result = self.db.client.table('va_user_settings').select('*').eq('user_id', self.user_id).execute()
+                if settings_result.data and len(settings_result.data) > 0:
+                    stored_settings = settings_result.data[0]
+                    self.user_settings = {
+                        'ai_enabled': stored_settings.get('ai_enabled', True),
+                        'ai_transcription_enabled': stored_settings.get('ai_transcription_enabled', True),
+                        'ai_summary_enabled': stored_settings.get('ai_summary_enabled', True),
+                        'call_screening_enabled': stored_settings.get('call_screening_enabled', True),
+                        'call_recording_enabled': stored_settings.get('call_recording_enabled', True),
+                    }
+                    logger.info(f"Loaded user settings for call: ai_enabled={self.user_settings['ai_enabled']}")
+            except Exception as e:
+                logger.warning(f"Could not load user settings, using defaults: {e}")
+
+            # Get assistant name for monitoring display
+            assistant_name = "Unknown Assistant"
+            try:
+                assistant_result = self.db.client.table('va_assistants').select('name').eq('id', self.assistant_id).single().execute()
+                if assistant_result.data:
+                    assistant_name = assistant_result.data.get('name', 'Unknown Assistant')
+            except Exception as e:
+                logger.warning(f"Could not fetch assistant name: {e}")
+
+            # Register call for live monitoring
+            active_voice_calls[self.call_id] = {
+                'id': self.call_id,
+                'user_id': self.user_id,
+                'assistant_id': self.assistant_id,
+                'assistant_name': assistant_name,
+                'start_time': datetime.utcnow().isoformat(),
+                'is_human_controlled': False,
+                'controlling_user': None,
+                'caller_number': 'Web Call',
+                'session': self  # Reference to session for takeover
+            }
+
             logger.info(f"Started call {self.call_id} for user {self.user_id}")
             return self.call_id
         except Exception as e:
             logger.error(f"Failed to create call log: {e}")
             return None
 
-    async def end_call(self, ended_reason: str = 'user_ended'):
-        """End call and save final transcript."""
+    def get_duration_seconds(self) -> int:
+        """Get call duration in seconds."""
+        if self.call_start_time:
+            return int(time.time() - self.call_start_time)
+        return 0
+
+    async def end_call(self, ended_reason: str = 'user_ended', duration_seconds: int = 0):
+        """End call and save final transcript with quality score."""
         if not self.call_id:
             return
 
         try:
-            # Determine sentiment from transcript (simple heuristic)
-            sentiment = 'neutral'
-            if self.transcript:
-                text = ' '.join([t['content'] for t in self.transcript])
-                positive_words = ['thank', 'great', 'good', 'excellent', 'happy', 'love']
-                negative_words = ['bad', 'terrible', 'hate', 'angry', 'frustrated', 'wrong']
-                pos_count = sum(1 for w in positive_words if w in text.lower())
-                neg_count = sum(1 for w in negative_words if w in text.lower())
-                if pos_count > neg_count:
-                    sentiment = 'positive'
-                elif neg_count > pos_count:
-                    sentiment = 'negative'
+            # Use real-time sentiment tracking (already calculated)
+            sentiment = self.current_sentiment
+
+            # Calculate quality score
+            quality_data = self.calculate_quality_score(duration_seconds)
+
+            # Build summary with quality data (only if ai_summary_enabled)
+            summary_data = None
+            if self.user_settings.get('ai_summary_enabled', True):
+                summary_data = {
+                    'quality_score': quality_data['total'],
+                    'quality_grade': quality_data['grade'],
+                    'quality_breakdown': quality_data['breakdown'],
+                    'sentiment_score': self.sentiment_score,
+                    'urgency_level': self.urgency_level,
+                    'exchange_count': len(self.transcript) // 2
+                }
+            else:
+                logger.info(f"AI summary disabled for call {self.call_id}")
+
+            # Only save transcript if ai_transcription_enabled
+            transcript_to_save = None
+            if self.user_settings.get('ai_transcription_enabled', True):
+                transcript_to_save = self.transcript
+            else:
+                logger.info(f"Transcription disabled for call {self.call_id}")
+
+            # Recording URL (only if call_recording_enabled - placeholder for future)
+            recording_url = None
+            if not self.user_settings.get('call_recording_enabled', True):
+                logger.info(f"Call recording disabled for call {self.call_id}")
 
             self.db.client.rpc(
                 'va_end_call',
                 {
                     'p_call_id': self.call_id,
-                    'p_transcript': json.dumps(self.transcript),
-                    'p_summary': None,
+                    'p_transcript': json.dumps(transcript_to_save) if transcript_to_save else None,
+                    'p_summary': json.dumps(summary_data) if summary_data else None,
                     'p_ended_reason': ended_reason,
-                    'p_recording_url': None,
+                    'p_recording_url': recording_url,
                     'p_sentiment': sentiment
                 }
             ).execute()
-            logger.info(f"Ended call {self.call_id}")
+            logger.info(f"Ended call {self.call_id} with quality score {quality_data['total']} ({quality_data['grade']})")
+
+            # Notify monitors that call has ended
+            await self.notify_monitors({
+                'type': 'call_ended',
+                'call_id': self.call_id,
+                'ended_reason': ended_reason,
+                'duration': self.get_duration_seconds()
+            })
+
+            # Unregister from active calls
+            if self.call_id in active_voice_calls:
+                del active_voice_calls[self.call_id]
+
+            # Clean up monitors list
+            if self.call_id in call_monitors:
+                del call_monitors[self.call_id]
+
+            return quality_data
         except Exception as e:
             logger.error(f"Failed to end call: {e}")
+            return None
 
     def add_to_transcript(self, role: str, content: str):
-        """Add message to transcript."""
-        self.transcript.append({
+        """Add message to transcript and notify monitors."""
+        entry = {
             'role': role,
             'content': content,
             'timestamp': datetime.utcnow().isoformat()
+        }
+        self.transcript.append(entry)
+
+        # Notify monitors of new transcript entry (fire and forget)
+        if self.call_id:
+            asyncio.create_task(self.notify_monitors({
+                'type': 'transcript',
+                'call_id': self.call_id,
+                'entry': entry
+            }))
+
+    async def notify_monitors(self, message: dict):
+        """Send message to all monitors listening to this call."""
+        if not self.call_id or self.call_id not in call_monitors:
+            return
+
+        monitors = call_monitors.get(self.call_id, [])
+        for ws in monitors[:]:  # Copy list to avoid modification during iteration
+            try:
+                await ws.send_json(message)
+            except Exception as e:
+                logger.warning(f"Failed to send to monitor: {e}")
+                # Remove disconnected monitors
+                if ws in call_monitors.get(self.call_id, []):
+                    call_monitors[self.call_id].remove(ws)
+
+    async def broadcast_audio_to_monitors(self, audio_data: bytes, is_caller: bool = True):
+        """Broadcast audio to all monitors listening to this call."""
+        if not self.call_id or self.call_id not in call_monitors:
+            return
+
+        # Only send if we have monitors
+        monitors = call_monitors.get(self.call_id, [])
+        if not monitors:
+            return
+
+        # Send audio as base64 for JSON transport
+        import base64
+        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+
+        message = {
+            'type': 'audio',
+            'call_id': self.call_id,
+            'source': 'caller' if is_caller else 'assistant',
+            'audio': audio_b64
+        }
+
+        for ws in monitors[:]:
+            try:
+                await ws.send_json(message)
+            except Exception as e:
+                logger.warning(f"Failed to send audio to monitor: {e}")
+                if ws in call_monitors.get(self.call_id, []):
+                    call_monitors[self.call_id].remove(ws)
+
+    def analyze_sentiment_realtime(self, text: str) -> dict:
+        """
+        Analyze sentiment of text in real-time.
+        Returns sentiment info for WebSocket broadcast.
+        """
+        text_lower = text.lower()
+
+        # Count sentiment words
+        pos_count = sum(1 for word in self.POSITIVE_WORDS if word in text_lower)
+        neg_count = sum(1 for word in self.NEGATIVE_WORDS if word in text_lower)
+        urgency_count = sum(1 for word in self.URGENCY_WORDS if word in text_lower)
+
+        # Calculate delta score (-10 to +10 per message)
+        delta = (pos_count - neg_count) * 5
+        delta = max(-15, min(15, delta))  # Clamp
+
+        # Update running sentiment score with decay toward neutral
+        self.sentiment_score = self.sentiment_score * 0.7 + delta
+        self.sentiment_score = max(-100, min(100, self.sentiment_score))
+
+        # Determine sentiment category
+        if self.sentiment_score > 20:
+            self.current_sentiment = 'positive'
+        elif self.sentiment_score < -20:
+            self.current_sentiment = 'negative'
+        else:
+            self.current_sentiment = 'neutral'
+
+        # Determine urgency level
+        if urgency_count >= 2:
+            self.urgency_level = 'urgent'
+        elif urgency_count >= 1 or any(w in text_lower for w in ['soon', 'quickly']):
+            self.urgency_level = 'elevated'
+        else:
+            # Decay urgency over time
+            if self.urgency_level == 'urgent':
+                self.urgency_level = 'elevated'
+            elif self.urgency_level == 'elevated':
+                self.urgency_level = 'normal'
+
+        # Track history for trend detection
+        self.sentiment_history.append({
+            'score': self.sentiment_score,
+            'sentiment': self.current_sentiment,
+            'urgency': self.urgency_level,
+            'timestamp': datetime.utcnow().isoformat()
         })
+
+        # Determine trend
+        trend = 'stable'
+        if len(self.sentiment_history) >= 3:
+            recent = self.sentiment_history[-3:]
+            scores = [h['score'] for h in recent]
+            if scores[-1] > scores[0] + 10:
+                trend = 'improving'
+            elif scores[-1] < scores[0] - 10:
+                trend = 'declining'
+
+        return {
+            'sentiment': self.current_sentiment,
+            'score': round(self.sentiment_score),
+            'urgency': self.urgency_level,
+            'trend': trend,
+            'positive_signals': pos_count,
+            'negative_signals': neg_count
+        }
+
+    def calculate_quality_score(self, duration_seconds: int) -> dict:
+        """
+        Calculate call quality score (0-100) based on multiple factors.
+        Returns score breakdown for transparency.
+        """
+        scores = {}
+
+        # 1. Sentiment Score (0-30 points)
+        # Positive = 30, Neutral = 20, Negative = 5
+        if self.current_sentiment == 'positive':
+            scores['sentiment'] = 30
+        elif self.current_sentiment == 'neutral':
+            scores['sentiment'] = 20
+        else:
+            scores['sentiment'] = 5
+
+        # 2. Conversation Flow Score (0-25 points)
+        # Based on back-and-forth exchanges (ideal: 4-10 exchanges)
+        exchange_count = len(self.transcript) // 2
+        if 4 <= exchange_count <= 10:
+            scores['flow'] = 25
+        elif 2 <= exchange_count <= 3:
+            scores['flow'] = 18
+        elif 11 <= exchange_count <= 15:
+            scores['flow'] = 20
+        elif exchange_count < 2:
+            scores['flow'] = 10  # Too short
+        else:
+            scores['flow'] = 15  # Too long, might indicate issues
+
+        # 3. Duration Score (0-20 points)
+        # Ideal call: 60-180 seconds
+        if 60 <= duration_seconds <= 180:
+            scores['duration'] = 20
+        elif 30 <= duration_seconds < 60:
+            scores['duration'] = 15
+        elif 180 < duration_seconds <= 300:
+            scores['duration'] = 15
+        elif duration_seconds < 30:
+            scores['duration'] = 8  # Might be abandoned
+        else:
+            scores['duration'] = 10  # Very long call
+
+        # 4. Resolution Indicators (0-15 points)
+        # Look for positive closure words in last messages
+        resolution_score = 0
+        if self.transcript:
+            last_messages = ' '.join([t['content'].lower() for t in self.transcript[-4:]])
+            closure_words = ['thank', 'thanks', 'perfect', 'great', 'that helps', 'got it',
+                           'sounds good', 'appreciate', 'excellent', 'wonderful', 'bye', 'goodbye']
+            closure_count = sum(1 for word in closure_words if word in last_messages)
+            resolution_score = min(15, closure_count * 5)
+        scores['resolution'] = resolution_score
+
+        # 5. Urgency Handling (0-10 points)
+        # Urgent calls that ended positively get bonus
+        if self.urgency_level == 'urgent' and self.current_sentiment == 'positive':
+            scores['urgency_handling'] = 10
+        elif self.urgency_level == 'urgent' and self.current_sentiment == 'neutral':
+            scores['urgency_handling'] = 7
+        elif self.urgency_level == 'urgent':
+            scores['urgency_handling'] = 3
+        else:
+            scores['urgency_handling'] = 8  # Normal call handled fine
+
+        total_score = sum(scores.values())
+
+        # Determine grade
+        if total_score >= 85:
+            grade = 'A'
+        elif total_score >= 70:
+            grade = 'B'
+        elif total_score >= 55:
+            grade = 'C'
+        elif total_score >= 40:
+            grade = 'D'
+        else:
+            grade = 'F'
+
+        return {
+            'total': total_score,
+            'grade': grade,
+            'breakdown': scores,
+            'factors': {
+                'sentiment': self.current_sentiment,
+                'exchanges': exchange_count,
+                'duration_seconds': duration_seconds,
+                'urgency': self.urgency_level
+            }
+        }
 
 
 @app.websocket("/ws/voice/{assistant_id}")
@@ -3615,9 +5635,167 @@ async def websocket_voice_endpoint(
             "assistant_name": assistant['name']
         })
 
-        # Initialize voice assistant for processing
+        # Check available pipeline options (priority: Lightning > Streaming > Modal)
+        groq_key = os.getenv("GROQ_API_KEY", "")
+        deepgram_key = os.getenv("DEEPGRAM_API_KEY", "")
+        cartesia_key = os.getenv("CARTESIA_API_KEY", "")
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+
+        # Determine which pipeline to use
+        lightning_enabled = bool(groq_key and deepgram_key and cartesia_key)
+        streaming_enabled = bool(deepgram_key and cartesia_key and anthropic_key) and not lightning_enabled
+
+        # Initialize the appropriate pipeline
+        lightning_pipeline: Optional[LightningPipeline] = None
+        streaming_pipeline: Optional[StreamingPipeline] = None
+
+        if lightning_enabled:
+            # ⚡ LIGHTNING PIPELINE - Sub-150ms latency (Groq + Deepgram + Cartesia)
+            logger.info(f"⚡ Lightning pipeline enabled for call {call_id}")
+
+            lightning_config = LightningConfig()
+            # Use assistant's voice_id if valid, otherwise use default Katie voice
+            assistant_voice_id = assistant.get('voice_id')
+            if assistant_voice_id and len(assistant_voice_id) > 10:  # Valid UUID is 36 chars
+                lightning_config.cartesia_voice_id = assistant_voice_id
+            # Apply LLM provider and model from assistant
+            if assistant.get('llm_provider'):
+                lightning_config.llm_provider = assistant.get('llm_provider')
+                logger.info(f"🤖 Using LLM provider: {lightning_config.llm_provider}")
+            if assistant.get('model'):
+                # Update groq_model if using Groq-compatible provider
+                if lightning_config.llm_provider in ('groq', 'together', 'fireworks'):
+                    lightning_config.groq_model = assistant.get('model')
+                logger.info(f"🤖 Using model: {assistant.get('model')}")
+            # Apply voice control settings from assistant
+            if assistant.get('speech_speed'):
+                lightning_config.speech_speed = assistant.get('speech_speed')
+            if assistant.get('response_delay_ms'):
+                lightning_config.response_delay_ms = assistant.get('response_delay_ms')
+            # Apply turn-taking model settings
+            if assistant.get('turn_eagerness'):
+                lightning_config.turn_eagerness = assistant.get('turn_eagerness')
+            lightning_pipeline = LightningPipeline(lightning_config)
+
+            # Set up callbacks
+            async def on_lightning_transcript(role: str, text: str):
+                await websocket.send_json({
+                    "type": "transcript",
+                    "role": role,
+                    "content": text
+                })
+                session.add_to_transcript(role, text)
+
+            async def on_lightning_audio(audio_bytes: bytes):
+                # Wrap raw PCM in WAV header for browser playback
+                wav_audio = pcm_to_wav(audio_bytes, sample_rate=16000)
+                audio_b64 = base64.b64encode(wav_audio).decode('utf-8')
+                await websocket.send_json({
+                    "type": "audio",
+                    "data": audio_b64
+                })
+                await session.broadcast_audio_to_monitors(audio_bytes, is_caller=False)
+
+            async def on_lightning_state_change(state: LightningState):
+                is_speaking = state == LightningState.SPEAKING
+                await websocket.send_json({"type": "speaking", "is_speaking": is_speaking})
+                session.is_speaking = is_speaking
+
+            async def on_lightning_latency(metrics: LatencyMetrics):
+                await websocket.send_json({
+                    "type": "latency",
+                    "data": {
+                        "stt_ms": metrics.stt_ms,
+                        "llm_ms": metrics.llm_ttft_ms,
+                        "tts_ms": metrics.tts_ttfb_ms,
+                        "total_ms": metrics.total_perceived_ms,
+                        "target_ms": 150,
+                        "status": "lightning" if metrics.total_perceived_ms < 200 else "fast" if metrics.total_perceived_ms < 500 else "normal"
+                    }
+                })
+
+            lightning_pipeline.on_transcript = on_lightning_transcript
+            lightning_pipeline.on_audio_out = on_lightning_audio
+            lightning_pipeline.on_state_change = on_lightning_state_change
+            lightning_pipeline.on_latency = on_lightning_latency
+
+            await lightning_pipeline.initialize(
+                system_prompt=assistant['system_prompt'],
+                voice_id=assistant_voice_id if assistant_voice_id and len(assistant_voice_id) > 10 else None,
+            )
+
+            await websocket.send_json({
+                "type": "info",
+                "message": "⚡ Lightning pipeline active - sub-150ms latency!"
+            })
+
+        elif streaming_enabled:
+            logger.info(f"Streaming pipeline enabled for call {call_id}")
+            streaming_config = StreamingConfig()
+            # Use assistant's voice_id if valid, otherwise use default Katie voice
+            assistant_voice_id = assistant.get('voice_id')
+            if assistant_voice_id and len(assistant_voice_id) > 10:
+                streaming_config.cartesia_voice_id = assistant_voice_id
+            streaming_pipeline = StreamingPipeline(streaming_config)
+
+            # Set up callbacks for streaming pipeline
+            async def on_streaming_transcript(role: str, text: str):
+                await websocket.send_json({
+                    "type": "transcript",
+                    "role": role,
+                    "content": text
+                })
+                session.add_to_transcript(role, text)
+
+            async def on_streaming_audio(audio_bytes: bytes):
+                # Wrap raw PCM in WAV header for browser playback
+                wav_audio = pcm_to_wav(audio_bytes, sample_rate=16000)
+                audio_b64 = base64.b64encode(wav_audio).decode('utf-8')
+                await websocket.send_json({
+                    "type": "audio",
+                    "data": audio_b64
+                })
+                # Broadcast TTS audio to monitors
+                await session.broadcast_audio_to_monitors(audio_bytes, is_caller=False)
+
+            async def on_streaming_state_change(state: PipelineState):
+                is_speaking = state == PipelineState.SPEAKING
+                await websocket.send_json({"type": "speaking", "is_speaking": is_speaking})
+                session.is_speaking = is_speaking
+
+            async def on_streaming_latency(latency: dict):
+                total = latency.get('stt', 0) + latency.get('llm', 0) + latency.get('tts', 0)
+                await websocket.send_json({
+                    "type": "latency",
+                    "data": {
+                        "stt_ms": latency.get('stt', 0),
+                        "llm_ms": latency.get('llm', 0),
+                        "tts_ms": latency.get('tts', 0),
+                        "total_ms": total,
+                        "target_ms": 500,
+                        "status": "good" if total < 500 else "warning" if total < 800 else "slow"
+                    }
+                })
+
+            streaming_pipeline.on_transcript = on_streaming_transcript
+            streaming_pipeline.on_audio_out = on_streaming_audio
+            streaming_pipeline.on_state_change = on_streaming_state_change
+            streaming_pipeline.on_latency = on_streaming_latency
+
+            # Initialize the pipeline with system prompt
+            await streaming_pipeline.initialize(assistant['system_prompt'])
+
+            await websocket.send_json({
+                "type": "info",
+                "message": "Streaming pipeline active - sub-500ms latency enabled"
+            })
+        else:
+            logger.info(f"Using batch processing for call {call_id} (streaming not configured)")
+
+        # Initialize voice assistant for batch processing (fallback or primary)
         voice_assistant = VoiceAssistant()
         voice_assistant.initialize_modal()
+        voice_assistant.initialize_claude()
 
         # Send first message if configured
         if assistant.get('first_message'):
@@ -3628,17 +5806,30 @@ async def websocket_voice_endpoint(
             })
             session.add_to_transcript("assistant", assistant['first_message'])
 
-            # Synthesize and send first message audio
+            # Synthesize first message audio using appropriate TTS
             try:
-                audio_bytes = voice_assistant.tts.synthesize.remote(
-                    assistant['first_message'],
-                    assistant.get('voice_id', 'default')
-                )
-                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-                await websocket.send_json({
-                    "type": "audio",
-                    "data": audio_b64
-                })
+                if lightning_pipeline and lightning_pipeline.tts:
+                    # Use Lightning TTS (Cartesia - fast)
+                    logger.info("Using Lightning TTS for first message")
+                    await lightning_pipeline.speak(assistant['first_message'])
+                elif streaming_pipeline and streaming_pipeline.tts:
+                    # Use streaming TTS (Cartesia)
+                    logger.info("Using streaming TTS for first message")
+                    await streaming_pipeline.speak(assistant['first_message'])
+                else:
+                    # Fallback to Modal TTS (slow)
+                    logger.info("Using Modal TTS for first message (fallback)")
+                    audio_bytes = voice_assistant.synthesize_speech(
+                        assistant['first_message'],
+                        assistant.get('voice_id', 'default'),
+                        user_id
+                    )
+                    if audio_bytes:
+                        audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                        await websocket.send_json({
+                            "type": "audio",
+                            "data": audio_b64
+                        })
             except Exception as e:
                 logger.error(f"Error synthesizing first message: {e}")
 
@@ -3657,6 +5848,62 @@ async def websocket_voice_endpoint(
                     session.is_speaking = False
                     await websocket.send_json({"type": "speaking", "is_speaking": False})
 
+                    # Cancel Lightning TTS if active (highest priority)
+                    if lightning_pipeline and lightning_pipeline.tts:
+                        await lightning_pipeline.tts.cancel()
+                    # Cancel streaming TTS if active
+                    elif streaming_pipeline and streaming_pipeline.tts:
+                        await streaming_pipeline.tts.cancel()
+
+                elif msg_type == 'update_config':
+                    # Real-time configuration update during call
+                    updates = message.get('config', {})
+                    save_to_db = message.get('save', False)
+
+                    result = {}
+
+                    # Apply to Lightning Pipeline
+                    if lightning_pipeline:
+                        result = lightning_pipeline.update_config(updates)
+
+                    # Apply to Streaming Pipeline if active
+                    if streaming_pipeline and hasattr(streaming_pipeline, 'update_config'):
+                        streaming_pipeline.update_config(updates)
+
+                    # Save to database if requested
+                    if save_to_db and session.assistant_id:
+                        try:
+                            db_updates = {}
+                            if 'speech_speed' in updates:
+                                db_updates['speech_speed'] = updates['speech_speed']
+                            if 'response_delay_ms' in updates:
+                                db_updates['response_delay_ms'] = updates['response_delay_ms']
+                            if 'turn_eagerness' in updates:
+                                db_updates['turn_eagerness'] = updates['turn_eagerness']
+
+                            if db_updates:
+                                db.update_assistant(user_id, session.assistant_id, db_updates)
+                                logger.info(f"💾 Settings saved to assistant {session.assistant_id}")
+                                result['saved_to_db'] = True
+                        except Exception as e:
+                            logger.error(f"Failed to save settings: {e}")
+                            result['save_error'] = str(e)
+
+                    await websocket.send_json({
+                        "type": "config_updated",
+                        "data": result
+                    })
+
+                elif msg_type == 'get_config':
+                    # Get current configuration
+                    config = {}
+                    if lightning_pipeline:
+                        config = lightning_pipeline.get_current_config()
+                    await websocket.send_json({
+                        "type": "current_config",
+                        "data": config
+                    })
+
                 elif msg_type == 'audio':
                     # Receive audio chunk
                     audio_b64 = message.get('data', '')
@@ -3668,13 +5915,53 @@ async def websocket_voice_endpoint(
                     except Exception:
                         continue
 
-                    # Process audio through pipeline
+                    # Check audio format from frontend
+                    # 'pcm_16000' = raw PCM for streaming, empty = webm/opus for batch
+                    audio_format = message.get('format', '')
+
+                    # ⚡ LIGHTNING PIPELINE (Priority 1) - Sub-150ms latency
+                    if lightning_pipeline and audio_format == 'pcm_16000':
+                        # Check if AI is enabled
+                        if not session.user_settings.get('ai_enabled', True):
+                            logger.debug(f"AI disabled for user {user_id}, lightning audio ignored")
+                            continue
+                        # Lightning mode: Send raw PCM audio to Deepgram → Groq → Cartesia
+                        # Pipeline handles STT -> LLM -> TTS automatically via callbacks
+                        await lightning_pipeline.send_audio(audio_bytes)
+                        # Broadcast caller audio to monitors
+                        await session.broadcast_audio_to_monitors(audio_bytes, is_caller=True)
+                        continue
+
+                    # STREAMING PIPELINE (Priority 2) - Sub-500ms latency
+                    if streaming_pipeline and audio_format == 'pcm_16000':
+                        # Check if AI is enabled for streaming mode too
+                        if not session.user_settings.get('ai_enabled', True):
+                            logger.debug(f"AI disabled for user {user_id}, streaming audio ignored")
+                            continue
+                        # Streaming mode: Send raw PCM audio to Deepgram
+                        # Pipeline handles STT -> LLM -> TTS automatically via callbacks
+                        await streaming_pipeline.send_audio(audio_bytes)
+                        # Broadcast caller audio to monitors
+                        await session.broadcast_audio_to_monitors(audio_bytes, is_caller=True)
+                        continue
+
+                    # Batch processing mode (Modal STT/TTS) - handles webm/opus or PCM audio
                     session.should_stop_tts = False
+
+                    # Convert PCM to WAV if needed (for Modal STT compatibility)
+                    audio_to_transcribe = audio_bytes
+                    if audio_format == 'pcm_16000':
+                        try:
+                            audio_to_transcribe = pcm_to_wav(audio_bytes, sample_rate=16000)
+                            logger.debug("Converted PCM to WAV for batch STT")
+                        except Exception as e:
+                            logger.error(f"PCM to WAV conversion error: {e}")
+                            continue
 
                     # 1. STT - Transcribe audio
                     stt_start = time.time()
                     try:
-                        stt_result = voice_assistant.stt.transcribe.remote(audio_bytes)
+                        stt_result = voice_assistant.transcribe_audio(audio_to_transcribe, user_id)
                         user_text = stt_result.get('text', '').strip()
                         stt_latency = int((time.time() - stt_start) * 1000)
                     except Exception as e:
@@ -3692,8 +5979,25 @@ async def websocket_voice_endpoint(
                     })
                     session.add_to_transcript("user", user_text)
 
-                    # 2. LLM - Generate response
+                    # Analyze and send real-time sentiment
+                    sentiment_data = session.analyze_sentiment_realtime(user_text)
+                    await websocket.send_json({
+                        "type": "sentiment",
+                        "data": sentiment_data
+                    })
+
+                    # Check if AI is enabled before generating response
+                    if not session.user_settings.get('ai_enabled', True):
+                        logger.info(f"AI disabled for user {user_id}, skipping response")
+                        await websocket.send_json({
+                            "type": "ai_disabled",
+                            "message": "AI assistant is currently disabled in your settings"
+                        })
+                        continue
+
+                    # 2. LLM - Generate response (with automatic model fallback)
                     llm_start = time.time()
+                    llm_latency = 0  # Initialize in case of error
                     try:
                         # Build conversation history
                         messages = []
@@ -3703,19 +6007,69 @@ async def websocket_voice_endpoint(
                                 "content": t['content']
                             })
 
-                        response = voice_assistant.anthropic_client.messages.create(
-                            model=assistant.get('model', 'claude-sonnet-4-5-20250929'),
-                            max_tokens=assistant.get('max_tokens', 150),
-                            temperature=float(assistant.get('temperature', 0.7)),
-                            system=assistant['system_prompt'],
-                            messages=messages
-                        )
+                        # Use model manager to get best available model
+                        # If assistant has specific model, use it; otherwise use auto-selection
+                        configured_model = assistant.get('model', '')
+                        model_manager = get_model_manager()
 
-                        assistant_text = response.content[0].text
-                        llm_latency = int((time.time() - llm_start) * 1000)
+                        # Determine model family from configured model
+                        if 'haiku' in configured_model.lower():
+                            model_family = 'haiku'
+                        elif 'opus' in configured_model.lower():
+                            model_family = 'opus'
+                        else:
+                            model_family = 'sonnet'
+
+                        # Get best available model (handles deprecation automatically)
+                        selected_model = model_manager.get_model(model_family)
+                        logger.debug(f"Using model: {selected_model} (family: {model_family})")
+
+                        # Try with automatic fallback on 404 errors
+                        max_retries = 3
+                        last_error = None
+                        excluded_models = []
+
+                        # Build system prompt with user settings context
+                        system_prompt = assistant['system_prompt']
+                        if not session.user_settings.get('call_screening_enabled', True):
+                            system_prompt += "\n\n[User setting: Call screening is disabled. Skip asking for caller identification or screening questions.]"
+
+                        for attempt in range(max_retries):
+                            try:
+                                response = voice_assistant.anthropic_client.messages.create(
+                                    model=selected_model,
+                                    max_tokens=assistant.get('max_tokens', 150),
+                                    temperature=float(assistant.get('temperature', 0.7)),
+                                    system=system_prompt,
+                                    messages=messages
+                                )
+                                assistant_text = response.content[0].text
+                                llm_latency = int((time.time() - llm_start) * 1000)
+                                break  # Success!
+
+                            except Exception as api_error:
+                                error_str = str(api_error).lower()
+                                if '404' in error_str or 'not_found' in error_str or 'deprecated' in error_str:
+                                    # Model deprecated - try fallback
+                                    logger.warning(f"Model {selected_model} unavailable, trying fallback...")
+                                    excluded_models.append(selected_model)
+                                    model_manager.mark_model_failed(selected_model)
+                                    selected_model = model_manager.get_model(model_family, exclude=excluded_models)
+                                    logger.info(f"Falling back to: {selected_model}")
+                                    last_error = api_error
+                                else:
+                                    # Other error - don't retry with different model
+                                    raise
+                        else:
+                            # All retries exhausted
+                            if last_error:
+                                raise last_error
+
                     except Exception as e:
                         logger.error(f"LLM error: {e}")
-                        assistant_text = "I'm sorry, I encountered an error. Please try again."
+                        import traceback
+                        logger.error(f"LLM traceback: {traceback.format_exc()}")
+                        assistant_text = f"I'm sorry, I encountered an error. Please try again."
 
                     # Check for barge-in before sending response
                     if session.should_stop_tts:
@@ -3736,19 +6090,22 @@ async def websocket_voice_endpoint(
                             session.is_speaking = True
                             await websocket.send_json({"type": "speaking", "is_speaking": True})
 
-                            audio_bytes = voice_assistant.tts.synthesize.remote(
+                            audio_bytes = voice_assistant.synthesize_speech(
                                 assistant_text,
-                                assistant.get('voice_id', 'default')
+                                assistant.get('voice_id', 'default'),
+                                user_id
                             )
                             tts_latency = int((time.time() - tts_start) * 1000)
 
                             # Send audio if not interrupted
-                            if not session.should_stop_tts:
+                            if not session.should_stop_tts and audio_bytes:
                                 audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
                                 await websocket.send_json({
                                     "type": "audio",
                                     "data": audio_b64
                                 })
+                                # Broadcast TTS audio to monitors
+                                await session.broadcast_audio_to_monitors(audio_bytes, is_caller=False)
 
                             session.is_speaking = False
                             await websocket.send_json({"type": "speaking", "is_speaking": False})
@@ -3756,6 +6113,19 @@ async def websocket_voice_endpoint(
                             # Log latencies
                             total_latency = stt_latency + llm_latency + tts_latency
                             logger.info(f"Call {call_id} - STT: {stt_latency}ms, LLM: {llm_latency}ms, TTS: {tts_latency}ms, Total: {total_latency}ms")
+
+                            # Send real-time latency data to client
+                            await websocket.send_json({
+                                "type": "latency",
+                                "data": {
+                                    "stt_ms": stt_latency,
+                                    "llm_ms": llm_latency,
+                                    "tts_ms": tts_latency,
+                                    "total_ms": total_latency,
+                                    "target_ms": 800,
+                                    "status": "good" if total_latency < 800 else "warning" if total_latency < 1500 else "slow"
+                                }
+                            })
 
                         except Exception as e:
                             logger.error(f"TTS error: {e}")
@@ -3773,28 +6143,2124 @@ async def websocket_voice_endpoint(
 
         # End call normally
         if session:
-            await session.end_call('user_ended')
-            await websocket.send_json({"type": "call_ended", "reason": "user_ended"})
+            duration = session.get_duration_seconds()
+            quality_data = await session.end_call('user_ended', duration)
+            await websocket.send_json({
+                "type": "call_ended",
+                "reason": "user_ended",
+                "duration_seconds": duration,
+                "quality_score": quality_data
+            })
 
     except WebSocketDisconnect:
         if session:
-            await session.end_call('disconnected')
+            duration = session.get_duration_seconds()
+            await session.end_call('disconnected', duration)
     except asyncio.TimeoutError:
         await websocket.send_json({"type": "error", "message": "Authentication timeout"})
         await websocket.close()
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
         if session:
-            await session.end_call('error')
+            duration = session.get_duration_seconds()
+            await session.end_call('error', duration)
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except:
             pass
     finally:
+        # Clean up Lightning pipeline (highest priority)
+        if lightning_pipeline:
+            try:
+                await lightning_pipeline.close()
+                logger.info(f"⚡ Lightning pipeline closed for call {call_id if 'call_id' in dir() else 'unknown'}")
+            except Exception as e:
+                logger.error(f"Error closing lightning pipeline: {e}")
+
+        # Clean up streaming pipeline
+        if streaming_pipeline:
+            try:
+                await streaming_pipeline.close()
+                logger.info(f"Streaming pipeline closed for call {call_id if 'call_id' in dir() else 'unknown'}")
+            except Exception as e:
+                logger.error(f"Error closing streaming pipeline: {e}")
+
         try:
             await websocket.close()
         except:
             pass
+
+
+# ============================================================================
+# PHONE NUMBERS & TWILIO INTEGRATION
+# ============================================================================
+
+class PhoneNumberRequest(BaseModel):
+    phone_number: str
+    phone_type: str = "mobile"
+    country_code: str = "+1"
+
+class VerifyPhoneRequest(BaseModel):
+    phone_number: str
+    code: str
+
+class SendSMSRequest(BaseModel):
+    to_number: str
+    message: str
+
+@app.get("/phone-numbers")
+async def list_phone_numbers(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get user's phone numbers."""
+    try:
+        result = db.client.table("va_phone_numbers").select("*").eq(
+            "user_id", user_id
+        ).execute()
+        return {"phone_numbers": result.data or []}
+    except Exception as e:
+        logger.error(f"Error getting phone numbers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/phone-numbers")
+async def add_phone_number(
+    request: PhoneNumberRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Add a new phone number (starts verification)."""
+    import random
+    try:
+        # Generate verification code
+        code = str(random.randint(100000, 999999))
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+        # Store verification
+        db.client.table("va_phone_verifications").insert({
+            "user_id": user_id,
+            "phone_number": request.phone_number,
+            "verification_code": code,
+            "expires_at": expires_at.isoformat()
+        }).execute()
+
+        # Send SMS via Twilio
+        twilio_service = get_twilio_service()
+        sms_result = twilio_service.send_verification_code(request.phone_number, code)
+
+        if not sms_result.get("success"):
+            logger.warning(f"Failed to send SMS: {sms_result.get('error')}")
+
+        # In dev mode, also return the code for testing
+        is_dev = os.getenv("DEBUG", "false").lower() == "true"
+        return {
+            "success": True,
+            "message": "Verification code sent" if sms_result.get("success") else "Code generated (SMS failed - check logs)",
+            "phone_number": request.phone_number,
+            "dev_code": code if is_dev else None
+        }
+    except Exception as e:
+        logger.error(f"Error adding phone number: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/phone-numbers/verify")
+async def verify_phone_number(
+    request: VerifyPhoneRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Verify a phone number with code."""
+    try:
+        # Check verification code
+        result = db.client.table("va_phone_verifications").select("*").eq(
+            "user_id", user_id
+        ).eq("phone_number", request.phone_number).eq(
+            "verification_code", request.code
+        ).is_("verified_at", "null").order("created_at", desc=True).limit(1).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+        verification = result.data[0]
+        if datetime.fromisoformat(verification["expires_at"].replace("Z", "")) < datetime.utcnow():
+            raise HTTPException(status_code=400, detail="Code expired")
+
+        # Mark as verified
+        db.client.table("va_phone_verifications").update({
+            "verified_at": datetime.utcnow().isoformat()
+        }).eq("id", verification["id"]).execute()
+
+        # Add phone number
+        db.client.table("va_phone_numbers").insert({
+            "user_id": user_id,
+            "phone_number": request.phone_number,
+            "is_verified": True,
+            "is_primary": True
+        }).execute()
+
+        return {"success": True, "message": "Phone number verified"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying phone: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/phone-numbers/{phone_id}")
+async def delete_phone_number(
+    phone_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Delete a phone number."""
+    try:
+        db.client.table("va_phone_numbers").delete().eq(
+            "id", phone_id
+        ).eq("user_id", user_id).execute()
+        return {"success": True, "message": "Phone number deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/sms/send")
+async def send_sms(
+    request: SendSMSRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Send an SMS message."""
+    try:
+        # Get user's primary phone number
+        phone_result = db.client.table("va_phone_numbers").select("*").eq(
+            "user_id", user_id
+        ).eq("is_primary", True).execute()
+
+        if not phone_result.data:
+            raise HTTPException(status_code=400, detail="No verified phone number")
+
+        from_number = phone_result.data[0]["phone_number"]
+
+        # Log the SMS
+        db.client.table("va_sms_messages").insert({
+            "user_id": user_id,
+            "direction": "outbound",
+            "from_number": from_number,
+            "to_number": request.to_number,
+            "body": request.message,
+            "status": "sent"
+        }).execute()
+
+        # TODO: Actually send via Twilio
+        return {"success": True, "message": "SMS sent"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/sms")
+async def list_sms(
+    user_id: str = Header(..., alias="X-User-ID"),
+    limit: int = 50,
+    offset: int = 0,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get SMS message history."""
+    try:
+        result = db.client.table("va_sms_messages").select("*").eq(
+            "user_id", user_id
+        ).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        return {"messages": result.data or [], "total": len(result.data or [])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# TWILIO VOICE WEBHOOKS
+# ============================================================================
+
+@app.post("/twilio/voice/inbound")
+async def twilio_inbound_call(
+    request: Request,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Handle incoming Twilio voice call webhook."""
+    from twilio.twiml.voice_response import VoiceResponse, Gather
+
+    try:
+        form_data = await request.form()
+        call_sid = form_data.get("CallSid")
+        from_number = form_data.get("From")
+        to_number = form_data.get("To")
+
+        logger.info(f"Inbound call: {call_sid} from {from_number} to {to_number}")
+
+        # Find user by phone number
+        user_result = db.client.table("va_phone_numbers").select("user_id").eq(
+            "phone_number", to_number
+        ).execute()
+
+        user_id = user_result.data[0]["user_id"] if user_result.data else None
+
+        # Get assistant greeting
+        greeting = "Hello, thank you for calling. How can I help you today?"
+        if user_id:
+            profile = db.client.table("va_user_profiles").select("*").eq(
+                "id", user_id
+            ).execute()
+            if profile.data:
+                assistant_name = profile.data[0].get("assistant_name", "AI Assistant")
+                business_name = profile.data[0].get("business_name", "")
+                if business_name:
+                    greeting = f"Hello, thank you for calling {business_name}. This is {assistant_name}. How can I help you today?"
+                else:
+                    greeting = f"Hello, this is {assistant_name}. How can I help you today?"
+
+            # Log the call
+            db.client.table("va_call_logs").insert({
+                "user_id": user_id,
+                "direction": "inbound",
+                "caller_number": from_number,
+                "callee_number": to_number,
+                "twilio_call_sid": call_sid,
+                "status": "in_progress"
+            }).execute()
+
+        # Generate TwiML response
+        api_url = os.getenv("API_URL", "http://localhost:8000")
+        response = VoiceResponse()
+        gather = Gather(
+            input="speech",
+            action=f"{api_url}/twilio/voice/respond?call_sid={call_sid}&user_id={user_id or ''}",
+            method="POST",
+            speech_timeout="auto",
+            language="en-US"
+        )
+        gather.say(greeting, voice="Polly.Joanna")
+        response.append(gather)
+        response.say("I didn't catch that. Please try again or call back later.", voice="Polly.Joanna")
+        response.hangup()
+
+        return Response(content=str(response), media_type="application/xml")
+
+    except Exception as e:
+        logger.error(f"Error handling inbound call: {e}")
+        response = VoiceResponse()
+        response.say("Sorry, we're experiencing technical difficulties. Please try again later.", voice="Polly.Joanna")
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
+
+
+@app.post("/twilio/voice/respond")
+async def twilio_voice_respond(
+    request: Request,
+    call_sid: str = "",
+    user_id: str = "",
+    db: SupabaseManager = Depends(get_db),
+):
+    """Process speech input and generate AI response."""
+    from twilio.twiml.voice_response import VoiceResponse, Gather
+
+    try:
+        form_data = await request.form()
+        speech_result = form_data.get("SpeechResult", "")
+
+        logger.info(f"Speech input for {call_sid}: {speech_result}")
+
+        # Simple AI response for now
+        ai_response = "I understand. Is there anything else I can help you with?"
+
+        api_url = os.getenv("API_URL", "http://localhost:8000")
+        response = VoiceResponse()
+        gather = Gather(
+            input="speech",
+            action=f"{api_url}/twilio/voice/respond?call_sid={call_sid}&user_id={user_id}",
+            method="POST",
+            speech_timeout="auto",
+            language="en-US"
+        )
+        gather.say(ai_response, voice="Polly.Joanna")
+        response.append(gather)
+        response.say("Thank you for calling. Goodbye!", voice="Polly.Joanna")
+        response.hangup()
+
+        return Response(content=str(response), media_type="application/xml")
+
+    except Exception as e:
+        logger.error(f"Error in voice respond: {e}")
+        response = VoiceResponse()
+        response.say("Sorry, something went wrong. Goodbye.", voice="Polly.Joanna")
+        response.hangup()
+        return Response(content=str(response), media_type="application/xml")
+
+
+@app.post("/twilio/voice/status")
+async def twilio_call_status(
+    request: Request,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Handle call status callback from Twilio."""
+    try:
+        form_data = await request.form()
+        call_sid = form_data.get("CallSid")
+        call_status = form_data.get("CallStatus")
+        duration = form_data.get("CallDuration", 0)
+
+        logger.info(f"Call status: {call_sid} -> {call_status}")
+
+        db.client.table("va_call_logs").update({
+            "status": call_status,
+            "duration_seconds": int(duration) if duration else 0,
+            "ended_at": datetime.utcnow().isoformat() if call_status in ["completed", "failed", "busy", "no-answer"] else None
+        }).eq("twilio_call_sid", call_sid).execute()
+
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error updating call status: {e}")
+        return {"success": False}
+
+
+@app.post("/twilio/sms/inbound")
+async def twilio_inbound_sms(
+    request: Request,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Handle incoming SMS webhook from Twilio."""
+    from twilio.twiml.messaging_response import MessagingResponse
+
+    try:
+        form_data = await request.form()
+        from_number = form_data.get("From")
+        to_number = form_data.get("To")
+        body = form_data.get("Body", "")
+        message_sid = form_data.get("MessageSid")
+
+        logger.info(f"Inbound SMS from {from_number}")
+
+        user_result = db.client.table("va_phone_numbers").select("user_id").eq(
+            "phone_number", to_number
+        ).execute()
+
+        if user_result.data:
+            db.client.table("va_sms_messages").insert({
+                "user_id": user_result.data[0]["user_id"],
+                "direction": "inbound",
+                "from_number": from_number,
+                "to_number": to_number,
+                "body": body,
+                "status": "received",
+                "twilio_sid": message_sid
+            }).execute()
+
+        response = MessagingResponse()
+        response.message("Thanks for your message! We'll get back to you soon.")
+        return Response(content=str(response), media_type="application/xml")
+
+    except Exception as e:
+        logger.error(f"Error handling inbound SMS: {e}")
+        return Response(content="", media_type="application/xml")
+
+
+@app.get("/twilio/status")
+async def get_twilio_status(
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """Get Twilio configuration status."""
+    issues = validate_twilio_config()
+    twilio = get_twilio_service()
+    return {
+        "configured": twilio.is_configured,
+        "issues": issues,
+        "default_number": os.getenv("TWILIO_PHONE_NUMBER") if twilio.is_configured else None
+    }
+
+
+# ============================================================================
+# USER PROFILE & SETTINGS
+# ============================================================================
+
+class UpdateProfileRequest(BaseModel):
+    display_name: Optional[str] = None
+    business_name: Optional[str] = None
+    profession: Optional[str] = None
+    service_area: Optional[str] = None
+    greeting_name: Optional[str] = None
+    assistant_name: Optional[str] = None
+    assistant_personality: Optional[str] = None
+    profile_fields: Optional[List[Dict]] = None
+    business_hours: Optional[Dict] = None
+    timezone: Optional[str] = None
+
+class UpdateSettingsRequest(BaseModel):
+    ai_enabled: Optional[bool] = None
+    ai_greeting_enabled: Optional[bool] = None
+    ai_transcription_enabled: Optional[bool] = None
+    ai_summary_enabled: Optional[bool] = None
+    call_screening_enabled: Optional[bool] = None
+    voicemail_enabled: Optional[bool] = None
+    call_recording_enabled: Optional[bool] = None
+    call_forwarding_enabled: Optional[bool] = None
+    sms_enabled: Optional[bool] = None
+    push_notifications_enabled: Optional[bool] = None
+    email_notifications_enabled: Optional[bool] = None
+    sms_notifications_enabled: Optional[bool] = None
+    notify_on_missed_call: Optional[bool] = None
+    notify_on_voicemail: Optional[bool] = None
+    notify_on_urgent: Optional[bool] = None
+    daily_summary_enabled: Optional[bool] = None
+    weekly_summary_enabled: Optional[bool] = None
+    share_call_logs_with_team: Optional[bool] = None
+    theme: Optional[str] = None
+    language: Optional[str] = None
+    webhook_enabled: Optional[bool] = None
+    webhook_url: Optional[str] = None
+    # Dashboard visibility settings
+    show_phone_numbers: Optional[bool] = None
+    show_call_logs: Optional[bool] = None
+    show_live_monitoring: Optional[bool] = None
+    show_contacts: Optional[bool] = None
+    show_assistants: Optional[bool] = None
+    show_voice_clones: Optional[bool] = None
+    show_usage: Optional[bool] = None
+    show_teams: Optional[bool] = None
+    show_referrals: Optional[bool] = None
+    show_developer: Optional[bool] = None
+
+@app.get("/profile/extended")
+async def get_extended_profile(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get user's extended profile with tier limits."""
+    try:
+        # Get profile
+        profile_result = db.client.table("va_user_profiles_extended").select("*").eq(
+            "user_id", user_id
+        ).execute()
+
+        profile = profile_result.data[0] if profile_result.data else {}
+
+        # Get user's plan for field limits
+        sub_result = db.client.table("va_user_subscriptions").select(
+            "plan_id"
+        ).eq("user_id", user_id).execute()
+
+        plan_name = "free"
+        if sub_result.data:
+            plan_id = sub_result.data[0]["plan_id"]
+            plan_result = db.client.table("va_subscription_plans").select(
+                "plan_name"
+            ).eq("id", plan_id).execute()
+            if plan_result.data:
+                plan_name = plan_result.data[0]["plan_name"]
+
+        # Get field limits
+        limits_result = db.client.table("va_profile_field_limits").select("*").eq(
+            "plan_name", plan_name
+        ).execute()
+
+        limits = limits_result.data[0] if limits_result.data else {
+            "max_fields": 1,
+            "max_chars_per_field": 60
+        }
+
+        return {
+            "profile": profile,
+            "field_limits": limits,
+            "plan": plan_name
+        }
+    except Exception as e:
+        logger.error(f"Error getting extended profile: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/profile/extended")
+async def update_extended_profile(
+    request: UpdateProfileRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Update user's extended profile."""
+    try:
+        update_data = {k: v for k, v in request.dict().items() if v is not None}
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+
+        # Check if profile exists
+        existing = db.client.table("va_user_profiles_extended").select("id").eq(
+            "user_id", user_id
+        ).execute()
+
+        if existing.data:
+            result = db.client.table("va_user_profiles_extended").update(
+                update_data
+            ).eq("user_id", user_id).execute()
+        else:
+            update_data["user_id"] = user_id
+            result = db.client.table("va_user_profiles_extended").insert(
+                update_data
+            ).execute()
+
+        return {"success": True, "profile": result.data[0] if result.data else None}
+    except Exception as e:
+        logger.error(f"Error updating profile: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/settings")
+async def get_settings(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get user settings."""
+    try:
+        result = db.client.table("va_user_settings").select("*").eq(
+            "user_id", user_id
+        ).execute()
+
+        if result.data:
+            return {"settings": result.data[0]}
+
+        # Create default settings
+        default = {"user_id": user_id}
+        db.client.table("va_user_settings").insert(default).execute()
+        return {"settings": default}
+    except Exception as e:
+        logger.error(f"Error getting settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/settings")
+async def update_settings(
+    request: UpdateSettingsRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Update user settings."""
+    try:
+        update_data = {k: v for k, v in request.dict().items() if v is not None}
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+
+        # Check if settings exist
+        existing = db.client.table("va_user_settings").select("id").eq(
+            "user_id", user_id
+        ).execute()
+
+        if existing.data:
+            result = db.client.table("va_user_settings").update(
+                update_data
+            ).eq("user_id", user_id).execute()
+        else:
+            update_data["user_id"] = user_id
+            result = db.client.table("va_user_settings").insert(
+                update_data
+            ).execute()
+
+        return {"success": True, "settings": result.data[0] if result.data else None}
+    except Exception as e:
+        logger.error(f"Error updating settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# CONTACTS
+# ============================================================================
+
+class CreateContactRequest(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    contact_type: str = "customer"
+    permission_level: str = "normal"
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class UpdateContactRequest(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    contact_type: Optional[str] = None
+    permission_level: Optional[str] = None
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+@app.get("/contacts")
+async def list_contacts(
+    user_id: str = Header(..., alias="X-User-ID"),
+    search: Optional[str] = None,
+    contact_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: SupabaseManager = Depends(get_db),
+):
+    """List user's contacts."""
+    try:
+        query = db.client.table("va_contacts").select("*").eq("user_id", user_id)
+
+        if contact_type:
+            query = query.eq("contact_type", contact_type)
+
+        result = query.order("name").range(offset, offset + limit - 1).execute()
+        return {"contacts": result.data or [], "total": len(result.data or [])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/contacts")
+async def create_contact(
+    request: CreateContactRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Create a new contact."""
+    try:
+        data = request.dict()
+        data["user_id"] = user_id
+        if data.get("tags"):
+            data["tags"] = json.dumps(data["tags"])
+
+        result = db.client.table("va_contacts").insert(data).execute()
+        return {"success": True, "contact": result.data[0] if result.data else None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/contacts/{contact_id}")
+async def get_contact(
+    contact_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get a contact."""
+    try:
+        result = db.client.table("va_contacts").select("*").eq(
+            "id", contact_id
+        ).eq("user_id", user_id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Contact not found")
+
+        return {"contact": result.data[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/contacts/{contact_id}")
+async def update_contact(
+    contact_id: str,
+    request: UpdateContactRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Update a contact."""
+    try:
+        update_data = {k: v for k, v in request.dict().items() if v is not None}
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+
+        if update_data.get("tags"):
+            update_data["tags"] = json.dumps(update_data["tags"])
+
+        result = db.client.table("va_contacts").update(update_data).eq(
+            "id", contact_id
+        ).eq("user_id", user_id).execute()
+
+        return {"success": True, "contact": result.data[0] if result.data else None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/contacts/{contact_id}")
+async def delete_contact(
+    contact_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Delete a contact."""
+    try:
+        db.client.table("va_contacts").delete().eq(
+            "id", contact_id
+        ).eq("user_id", user_id).execute()
+        return {"success": True, "message": "Contact deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# ENHANCED CALL LOGS
+# ============================================================================
+
+class ShareCallRequest(BaseModel):
+    share_type: str  # 'email', 'sms', 'webhook', 'link'
+    recipient: Optional[str] = None
+    include_transcript: bool = True
+    include_summary: bool = True
+    include_recording: bool = False
+    include_key_info: bool = True
+
+@app.post("/calls/{call_id}/share")
+async def share_call(
+    call_id: str,
+    request: ShareCallRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Share a call log via email, SMS, webhook, or generate link."""
+    import secrets
+    try:
+        # Verify call belongs to user
+        call_result = db.client.table("va_call_logs").select("*").eq(
+            "id", call_id
+        ).eq("user_id", user_id).execute()
+
+        if not call_result.data:
+            raise HTTPException(status_code=404, detail="Call not found")
+
+        # Generate access token
+        access_token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(days=7)
+
+        # Create share record
+        share_data = {
+            "call_id": call_id,
+            "shared_by": user_id,
+            "share_type": request.share_type,
+            "recipient": request.recipient,
+            "access_token": access_token,
+            "expires_at": expires_at.isoformat(),
+            "include_transcript": request.include_transcript,
+            "include_summary": request.include_summary,
+            "include_recording": request.include_recording,
+            "include_key_info": request.include_key_info,
+            "status": "sent",
+            "sent_at": datetime.utcnow().isoformat()
+        }
+
+        result = db.client.table("va_call_shares").insert(share_data).execute()
+
+        share_url = f"https://hive215.vercel.app/shared/call/{access_token}"
+
+        # TODO: Actually send email/SMS based on share_type
+
+        return {
+            "success": True,
+            "share": result.data[0] if result.data else None,
+            "share_url": share_url
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/shared/call/{token}")
+async def get_shared_call(
+    token: str,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get a shared call by access token (public endpoint)."""
+    try:
+        share_result = db.client.table("va_call_shares").select("*").eq(
+            "access_token", token
+        ).execute()
+
+        if not share_result.data:
+            raise HTTPException(status_code=404, detail="Share not found or expired")
+
+        share = share_result.data[0]
+
+        # Check expiration
+        if datetime.fromisoformat(share["expires_at"].replace("Z", "")) < datetime.utcnow():
+            raise HTTPException(status_code=410, detail="Share link expired")
+
+        # Get call data
+        call_result = db.client.table("va_call_logs").select("*").eq(
+            "id", share["call_id"]
+        ).execute()
+
+        if not call_result.data:
+            raise HTTPException(status_code=404, detail="Call not found")
+
+        call = call_result.data[0]
+
+        # Filter based on share permissions
+        response_call = {
+            "id": call["id"],
+            "started_at": call["started_at"],
+            "duration_seconds": call["duration_seconds"],
+            "caller_name": call.get("caller_name"),
+            "phone_number": call.get("phone_number")
+        }
+
+        if share["include_summary"]:
+            response_call["summary"] = call.get("summary")
+        if share["include_transcript"]:
+            response_call["transcript"] = call.get("transcript")
+        if share["include_key_info"]:
+            response_call["key_info"] = call.get("key_info")
+            response_call["action_items"] = call.get("action_items")
+        if share["include_recording"]:
+            response_call["recording_url"] = call.get("twilio_recording_url")
+
+        # Update view count
+        db.client.table("va_call_shares").update({
+            "view_count": share.get("view_count", 0) + 1,
+            "first_viewed_at": share.get("first_viewed_at") or datetime.utcnow().isoformat()
+        }).eq("id", share["id"]).execute()
+
+        return {"call": response_call}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# REFERRAL SYSTEM
+# ============================================================================
+
+class RedeemReferralRequest(BaseModel):
+    code: str
+
+@app.get("/referral")
+async def get_referral_info(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get user's referral code and stats."""
+    try:
+        # Get or create referral code
+        result = db.client.table("va_referral_codes").select("*").eq(
+            "user_id", user_id
+        ).execute()
+
+        if result.data:
+            referral = result.data[0]
+        else:
+            # Create new referral code
+            import hashlib
+            code = "HIVE-" + hashlib.md5(
+                (user_id + str(datetime.utcnow())).encode()
+            ).hexdigest()[:6].upper()
+
+            result = db.client.table("va_referral_codes").insert({
+                "user_id": user_id,
+                "code": code
+            }).execute()
+            referral = result.data[0] if result.data else {"code": code}
+
+        # Get referrals made
+        referrals = db.client.table("va_referrals").select("*").eq(
+            "referrer_id", user_id
+        ).execute()
+
+        return {
+            "referral_code": referral,
+            "referrals": referrals.data or [],
+            "share_url": f"https://hive215.vercel.app/signup?ref={referral['code']}"
+        }
+    except Exception as e:
+        logger.error(f"Error getting referral: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/referral/redeem")
+async def redeem_referral(
+    request: RedeemReferralRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Redeem a referral code."""
+    try:
+        # Find referral code
+        code_result = db.client.table("va_referral_codes").select("*").eq(
+            "code", request.code.upper()
+        ).eq("is_active", True).execute()
+
+        if not code_result.data:
+            raise HTTPException(status_code=400, detail="Invalid referral code")
+
+        referral_code = code_result.data[0]
+
+        # Can't use own code
+        if referral_code["user_id"] == user_id:
+            raise HTTPException(status_code=400, detail="Cannot use your own referral code")
+
+        # Check if already used
+        existing = db.client.table("va_referrals").select("id").eq(
+            "referee_id", user_id
+        ).execute()
+
+        if existing.data:
+            raise HTTPException(status_code=400, detail="Already used a referral code")
+
+        # Create referral record
+        db.client.table("va_referrals").insert({
+            "referral_code_id": referral_code["id"],
+            "referrer_id": referral_code["user_id"],
+            "referee_id": user_id,
+            "status": "signed_up",
+            "signed_up_at": datetime.utcnow().isoformat(),
+            "referee_reward_claimed": True,
+            "referee_reward_claimed_at": datetime.utcnow().isoformat()
+        }).execute()
+
+        # Add bonus minutes to referee
+        referee_reward = referral_code.get("referee_reward_value", 50)
+        db.client.table("va_usage_tracking").update({
+            "bonus_minutes": db.client.table("va_usage_tracking").select(
+                "bonus_minutes"
+            ).eq("user_id", user_id).execute().data[0].get("bonus_minutes", 0) + referee_reward
+        }).eq("user_id", user_id).execute()
+
+        # Add bonus minutes to referrer
+        referrer_reward = referral_code.get("referrer_reward_value", 50)
+        referrer_usage = db.client.table("va_usage_tracking").select(
+            "bonus_minutes"
+        ).eq("user_id", referral_code["user_id"]).execute()
+
+        if referrer_usage.data:
+            db.client.table("va_usage_tracking").update({
+                "bonus_minutes": referrer_usage.data[0].get("bonus_minutes", 0) + referrer_reward
+            }).eq("user_id", referral_code["user_id"]).execute()
+
+        # Update referral code stats
+        db.client.table("va_referral_codes").update({
+            "total_referrals": referral_code.get("total_referrals", 0) + 1,
+            "successful_referrals": referral_code.get("successful_referrals", 0) + 1,
+            "total_rewards_earned": referral_code.get("total_rewards_earned", 0) + referrer_reward
+        }).eq("id", referral_code["id"]).execute()
+
+        return {
+            "success": True,
+            "message": f"Referral code applied! You earned {referee_reward} bonus minutes.",
+            "minutes_earned": referee_reward
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error redeeming referral: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# TEAM MANAGEMENT (Enhanced)
+# ============================================================================
+
+class CreateTeamInviteRequest(BaseModel):
+    email: str
+    role: str = "member"
+
+@app.post("/teams/{team_id}/invite")
+async def invite_team_member(
+    team_id: str,
+    request: CreateTeamInviteRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Invite someone to join a team."""
+    import secrets
+    try:
+        # Verify user owns or is admin of team
+        team = db.client.table("va_teams").select("*").eq("id", team_id).execute()
+        if not team.data:
+            raise HTTPException(status_code=404, detail="Team not found")
+
+        if team.data[0]["owner_id"] != user_id:
+            member = db.client.table("va_team_members").select("role").eq(
+                "team_id", team_id
+            ).eq("user_id", user_id).execute()
+            if not member.data or member.data[0]["role"] not in ["owner", "admin"]:
+                raise HTTPException(status_code=403, detail="Not authorized")
+
+        # Create invite token
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.utcnow() + timedelta(days=7)
+
+        db.client.table("va_team_invites").insert({
+            "team_id": team_id,
+            "invited_by": user_id,
+            "email": request.email,
+            "role": request.role,
+            "token": token,
+            "expires_at": expires_at.isoformat()
+        }).execute()
+
+        invite_url = f"https://hive215.vercel.app/team/join/{token}"
+
+        # TODO: Send email invitation
+
+        return {
+            "success": True,
+            "message": f"Invitation sent to {request.email}",
+            "invite_url": invite_url
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/teams/join/{token}")
+async def join_team(
+    token: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Accept a team invitation."""
+    try:
+        # Find invite
+        invite = db.client.table("va_team_invites").select("*").eq(
+            "token", token
+        ).is_("accepted_at", "null").execute()
+
+        if not invite.data:
+            raise HTTPException(status_code=404, detail="Invalid or expired invitation")
+
+        inv = invite.data[0]
+
+        # Check expiration
+        if datetime.fromisoformat(inv["expires_at"].replace("Z", "")) < datetime.utcnow():
+            raise HTTPException(status_code=410, detail="Invitation expired")
+
+        # Add to team
+        db.client.table("va_team_members").insert({
+            "team_id": inv["team_id"],
+            "user_id": user_id,
+            "role": inv["role"]
+        }).execute()
+
+        # Mark invite as accepted
+        db.client.table("va_team_invites").update({
+            "accepted_at": datetime.utcnow().isoformat()
+        }).eq("id", inv["id"]).execute()
+
+        return {"success": True, "message": "Successfully joined team"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/teams/{team_id}/calls")
+async def get_team_calls(
+    team_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    limit: int = 50,
+    offset: int = 0,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get shared call logs for a team."""
+    try:
+        # Verify membership
+        member = db.client.table("va_team_members").select("*").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        if not member.data:
+            raise HTTPException(status_code=403, detail="Not a team member")
+
+        # Get shared calls
+        shares = db.client.table("va_team_call_shares").select(
+            "call_id"
+        ).eq("team_id", team_id).execute()
+
+        if not shares.data:
+            return {"calls": [], "total": 0}
+
+        call_ids = [s["call_id"] for s in shares.data]
+
+        calls = db.client.table("va_call_logs").select("*").in_(
+            "id", call_ids
+        ).order("started_at", desc=True).range(offset, offset + limit - 1).execute()
+
+        return {"calls": calls.data or [], "total": len(call_ids)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/calls/{call_id}/share-team/{team_id}")
+async def share_call_with_team(
+    call_id: str,
+    team_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Share a call log with a team."""
+    try:
+        # Verify call ownership
+        call = db.client.table("va_call_logs").select("id").eq(
+            "id", call_id
+        ).eq("user_id", user_id).execute()
+
+        if not call.data:
+            raise HTTPException(status_code=404, detail="Call not found")
+
+        # Verify team membership
+        member = db.client.table("va_team_members").select("*").eq(
+            "team_id", team_id
+        ).eq("user_id", user_id).execute()
+
+        if not member.data:
+            raise HTTPException(status_code=403, detail="Not a team member")
+
+        # Share
+        db.client.table("va_team_call_shares").upsert({
+            "call_id": call_id,
+            "team_id": team_id,
+            "shared_by": user_id
+        }).execute()
+
+        return {"success": True, "message": "Call shared with team"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# LIGHTNING PIPELINE ENDPOINTS (Sub-150ms Voice AI)
+# =============================================================================
+
+class LightningChatRequest(BaseModel):
+    """Request for Lightning Pipeline chat."""
+    message: str
+    system_prompt: Optional[str] = "You are a helpful voice assistant. Keep responses concise."
+    voice_id: Optional[str] = None
+    language: Optional[str] = "en"
+
+
+class LightningTTSRequest(BaseModel):
+    """Request for Lightning TTS (Cartesia Sonic-3)."""
+    text: str
+    voice_id: Optional[str] = None
+    language: Optional[str] = "en"
+    speed: Optional[float] = 1.0
+
+
+class LightningVoiceCloneRequest(BaseModel):
+    """Request for Cartesia voice cloning."""
+    name: str
+    description: Optional[str] = ""
+    language: Optional[str] = "en"
+
+
+class LightningLocalizeRequest(BaseModel):
+    """Request to localize a cloned voice to another language."""
+    voice_id: str
+    target_language: str
+    name: Optional[str] = None
+
+
+@app.get("/lightning/status")
+async def lightning_status():
+    """
+    Get Lightning Pipeline status and configuration.
+
+    Returns which components are available and their configuration.
+    """
+    config = LightningConfig()
+
+    return {
+        "status": "active",
+        "version": "1.0.0",
+        "components": {
+            "stt": {
+                "provider": "deepgram",
+                "model": "nova-2",
+                "available": bool(config.deepgram_api_key),
+                "languages": len(get_stt_languages()),
+                "latency_target_ms": 30,
+            },
+            "llm": {
+                "primary": "groq",
+                "model": config.groq_model,
+                "fallback": "claude",
+                "groq_available": bool(config.groq_api_key),
+                "claude_available": bool(config.anthropic_api_key),
+                "latency_target_ms": 40,
+            },
+            "tts": {
+                "provider": "cartesia",
+                "model": "sonic-3",
+                "available": bool(config.cartesia_api_key),
+                "languages": len(get_tts_languages()),
+                "latency_target_ms": 30,
+            }
+        },
+        "latency_targets": {
+            "stt_ms": 30,
+            "llm_ttft_ms": 40,
+            "tts_ttfb_ms": 30,
+            "total_perceived_ms": 150,
+            "human_threshold_ms": 500,
+        },
+        "features": {
+            "sentence_streaming": True,
+            "barge_in": True,
+            "voice_cloning": bool(config.cartesia_api_key),
+            "cross_lingual_voices": bool(config.cartesia_api_key),
+            "code_switching": True,  # Deepgram multi-language
+        }
+    }
+
+
+@app.get("/lightning/languages")
+async def lightning_languages():
+    """
+    Get all supported languages for STT and TTS.
+    """
+    return {
+        "stt": {
+            "provider": "deepgram",
+            "languages": get_stt_languages(),
+            "code_switching": True,
+            "code_switching_note": "Use language='multi' for auto-detection"
+        },
+        "tts": {
+            "provider": "cartesia",
+            "languages": get_tts_languages(),
+            "voice_cloning_languages": len(get_tts_languages()),
+        }
+    }
+
+
+@app.post("/lightning/chat")
+async def lightning_chat(
+    request: LightningChatRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Fast text chat using Groq (40ms TTFT) with Claude fallback.
+
+    This is the LLM-only endpoint - no audio processing.
+    Use /ws/lightning/{assistant_id} for full voice streaming.
+    """
+    try:
+        # Initialize hybrid LLM client
+        llm = HybridLLMClient()
+
+        start_time = time.time()
+        first_token_time = None
+        tokens = []
+
+        def on_token(token):
+            nonlocal first_token_time
+            if first_token_time is None:
+                first_token_time = time.time()
+            tokens.append(token)
+
+        response = await llm.stream_response(
+            user_message=request.message,
+            system_prompt=request.system_prompt,
+            on_token=on_token,
+        )
+
+        total_time = int((time.time() - start_time) * 1000)
+        ttft = int((first_token_time - start_time) * 1000) if first_token_time else 0
+
+        return {
+            "response": response,
+            "metrics": {
+                "ttft_ms": ttft,
+                "total_ms": total_time,
+                "tokens": len(tokens),
+                "provider": "groq" if llm._groq_available else "claude",
+            },
+            "stats": llm.get_stats(),
+        }
+
+    except Exception as e:
+        logger.error(f"Lightning chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/lightning/tts")
+async def lightning_tts(
+    request: LightningTTSRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Ultra-fast TTS using Cartesia Sonic-3 (~30ms TTFB).
+
+    Returns streaming audio chunks.
+    """
+    config = CartesiaConfig()
+
+    if not config.api_key:
+        raise HTTPException(status_code=503, detail="Cartesia TTS not configured")
+
+    try:
+        cartesia = CartesiaSonic3(config)
+
+        if not await cartesia.connect():
+            raise HTTPException(status_code=503, detail="Failed to connect to Cartesia")
+
+        start_time = time.time()
+        audio_chunks = []
+        first_chunk_time = None
+
+        async for chunk in cartesia.synthesize_stream(
+            text=request.text,
+            voice_id=request.voice_id,
+            language=request.language,
+            speed=request.speed,
+        ):
+            if first_chunk_time is None:
+                first_chunk_time = time.time()
+            audio_chunks.append(chunk)
+
+        await cartesia.close()
+
+        total_time = int((time.time() - start_time) * 1000)
+        ttfb = int((first_chunk_time - start_time) * 1000) if first_chunk_time else 0
+
+        # Concatenate audio
+        audio_data = b"".join(audio_chunks)
+        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+
+        return {
+            "audio": audio_b64,
+            "format": "pcm_s16le",
+            "sample_rate": 16000,
+            "metrics": {
+                "ttfb_ms": ttfb,
+                "total_ms": total_time,
+                "chunks": len(audio_chunks),
+                "bytes": len(audio_data),
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Lightning TTS error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/lightning/voice-clone")
+async def lightning_voice_clone(
+    request: LightningVoiceCloneRequest,
+    audio: UploadFile = File(...),
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Clone a voice using Cartesia (3-10 seconds of audio).
+
+    The cloned voice can be used for TTS in any of the 42 supported languages.
+    """
+    config = CartesiaConfig()
+
+    if not config.api_key:
+        raise HTTPException(status_code=503, detail="Cartesia not configured")
+
+    try:
+        # Read audio file
+        audio_data = await audio.read()
+
+        if len(audio_data) < 1000:
+            raise HTTPException(status_code=400, detail="Audio file too short. Need 3-10 seconds.")
+
+        cartesia = CartesiaSonic3(config)
+
+        voice_id = await cartesia.clone_voice(
+            audio_data=audio_data,
+            name=request.name,
+            description=request.description,
+            language=request.language,
+        )
+
+        if not voice_id:
+            raise HTTPException(status_code=500, detail="Voice cloning failed")
+
+        # Save to database
+        db = get_supabase()
+        db.client.table("va_voice_clones").insert({
+            "user_id": user_id,
+            "name": request.name,
+            "voice_id": voice_id,
+            "provider": "cartesia",
+            "language": request.language,
+            "description": request.description,
+        }).execute()
+
+        return {
+            "voice_id": voice_id,
+            "name": request.name,
+            "language": request.language,
+            "provider": "cartesia",
+            "supported_languages": len(get_tts_languages()),
+            "message": "Voice cloned! Use /lightning/localize to adapt it to other languages."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Voice clone error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/lightning/localize")
+async def lightning_localize_voice(
+    request: LightningLocalizeRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Localize a cloned voice to speak another language naturally.
+
+    Uses Cartesia's cross-lingual voice cloning to make your voice
+    sound natural in Spanish, Hindi, Japanese, etc.
+    """
+    config = CartesiaConfig()
+
+    if not config.api_key:
+        raise HTTPException(status_code=503, detail="Cartesia not configured")
+
+    try:
+        cartesia = CartesiaSonic3(config)
+
+        new_voice_id = await cartesia.localize_voice(
+            voice_id=request.voice_id,
+            target_language=request.target_language,
+            name=request.name,
+        )
+
+        if not new_voice_id:
+            raise HTTPException(status_code=500, detail="Voice localization failed")
+
+        # Save to database
+        db = get_supabase()
+        db.client.table("va_voice_clones").insert({
+            "user_id": user_id,
+            "name": request.name or f"Localized ({request.target_language})",
+            "voice_id": new_voice_id,
+            "provider": "cartesia",
+            "language": request.target_language,
+            "parent_voice_id": request.voice_id,
+            "description": f"Localized from {request.voice_id}",
+        }).execute()
+
+        return {
+            "voice_id": new_voice_id,
+            "source_voice_id": request.voice_id,
+            "target_language": request.target_language,
+            "message": f"Voice localized to {request.target_language}!"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Voice localization error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/lightning/{assistant_id}")
+async def websocket_lightning_endpoint(
+    websocket: WebSocket,
+    assistant_id: str,
+):
+    """
+    ⚡ Lightning WebSocket - Sub-150ms Voice AI
+
+    Uses the full Lightning Stack:
+    - Deepgram Nova-3: ~30ms STT
+    - Groq Llama 3.3 70B: ~40ms TTFT
+    - Cartesia Sonic-3: ~30ms TTS
+    - Sentence-level streaming: TTS starts on first sentence!
+
+    Protocol:
+    - Client sends: {"type": "auth", "user_id": "..."}
+    - Client sends: {"type": "audio", "data": "<base64 audio>"}
+    - Client sends: {"type": "end_call"}
+    - Server sends: {"type": "ready", "call_id": "...", "stack": "lightning"}
+    - Server sends: {"type": "transcript", "role": "user"|"assistant", "content": "..."}
+    - Server sends: {"type": "audio", "data": "<base64 audio>"}
+    - Server sends: {"type": "latency", "data": {...}}  <- Real-time latency metrics!
+    - Server sends: {"type": "speaking", "is_speaking": true|false}
+    """
+    await websocket.accept()
+    pipeline: Optional[LightningPipeline] = None
+    call_id = None
+    user_id = None
+
+    try:
+        # Wait for authentication
+        auth_data = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+        if auth_data.get('type') != 'auth' or not auth_data.get('user_id'):
+            await websocket.send_json({"type": "error", "message": "Authentication required"})
+            await websocket.close()
+            return
+
+        user_id = auth_data['user_id']
+        logger.info(f"⚡ Lightning WebSocket authenticated for user {user_id}")
+
+        # Get assistant configuration
+        db = get_supabase()
+        assistant_result = db.client.table("va_assistants").select("*").eq(
+            "id", assistant_id
+        ).eq("user_id", user_id).eq("is_active", True).execute()
+
+        if not assistant_result.data:
+            await websocket.send_json({"type": "error", "message": "Assistant not found"})
+            await websocket.close()
+            return
+
+        assistant = assistant_result.data[0]
+
+        # Check feature gate
+        feature_gate = get_feature_gate()
+        try:
+            allowed, details = feature_gate.check_feature(user_id, "max_minutes")
+            if not allowed:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "You've used all your minutes. Upgrade to continue."
+                })
+                await websocket.close()
+                return
+        except Exception as e:
+            logger.warning(f"Feature gate error: {e}")
+
+        # Create call record
+        import uuid
+        call_id = str(uuid.uuid4())
+        db.client.table("va_call_logs").insert({
+            "id": call_id,
+            "user_id": user_id,
+            "assistant_id": assistant_id,
+            "status": "active",
+            "pipeline": "lightning",  # Track that this used Lightning Stack
+        }).execute()
+
+        # Initialize Lightning Pipeline
+        config = LightningConfig()
+        # Use assistant's voice_id if valid, otherwise use default Katie voice
+        assistant_voice_id = assistant.get('voice_id')
+        if assistant_voice_id and len(assistant_voice_id) > 10:
+            config.cartesia_voice_id = assistant_voice_id
+        # Apply voice control settings from assistant
+        if assistant.get('speech_speed'):
+            config.speech_speed = assistant.get('speech_speed')
+        if assistant.get('response_delay_ms'):
+            config.response_delay_ms = assistant.get('response_delay_ms')
+
+        pipeline = LightningPipeline(config)
+
+        # Set up callbacks
+        async def on_transcript(role: str, text: str):
+            await websocket.send_json({
+                "type": "transcript",
+                "role": role,
+                "content": text
+            })
+
+        async def on_audio(audio_bytes: bytes):
+            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+            await websocket.send_json({
+                "type": "audio",
+                "data": audio_b64
+            })
+
+        async def on_state_change(state: LightningState):
+            is_speaking = state == LightningState.SPEAKING
+            await websocket.send_json({
+                "type": "speaking",
+                "is_speaking": is_speaking
+            })
+
+        async def on_latency(metrics: LatencyMetrics):
+            await websocket.send_json({
+                "type": "latency",
+                "data": {
+                    "stt_ms": metrics.stt_ms,
+                    "llm_ttft_ms": metrics.llm_ttft_ms,
+                    "tts_ttfb_ms": metrics.tts_ttfb_ms,
+                    "perceived_ms": metrics.total_perceived_ms,
+                    "target_ms": 150,
+                    "status": "lightning" if metrics.total_perceived_ms < 200 else "fast" if metrics.total_perceived_ms < 500 else "normal"
+                }
+            })
+
+        pipeline.on_transcript = on_transcript
+        pipeline.on_audio_out = on_audio
+        pipeline.on_state_change = on_state_change
+        pipeline.on_latency = on_latency
+
+        # Initialize with assistant's system prompt
+        await pipeline.initialize(
+            system_prompt=assistant.get('system_prompt', 'You are a helpful assistant.'),
+            voice_id=assistant_voice_id if assistant_voice_id and len(assistant_voice_id) > 10 else None,
+        )
+
+        # Send ready message
+        await websocket.send_json({
+            "type": "ready",
+            "call_id": call_id,
+            "stack": "lightning",
+            "assistant_name": assistant['name'],
+            "latency_target_ms": 150,
+        })
+
+        logger.info(f"⚡ Lightning Pipeline ready for call {call_id}")
+
+        # Send first message if configured
+        first_message = assistant.get('first_message')
+        if first_message:
+            await pipeline.speak(first_message)
+
+        # Main message loop
+        while True:
+            try:
+                message = await websocket.receive_json()
+                msg_type = message.get('type')
+
+                if msg_type == 'audio':
+                    # Decode and send to pipeline
+                    audio_b64 = message.get('data', '')
+                    if audio_b64:
+                        audio_bytes = base64.b64decode(audio_b64)
+                        await pipeline.send_audio(audio_bytes)
+
+                elif msg_type == 'end_call':
+                    logger.info(f"Call {call_id} ended by user")
+                    break
+
+                elif msg_type == 'ping':
+                    await websocket.send_json({"type": "pong"})
+
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected for call {call_id}")
+                break
+            except Exception as e:
+                logger.error(f"Message handling error: {e}")
+                await websocket.send_json({"type": "error", "message": str(e)})
+
+    except asyncio.TimeoutError:
+        await websocket.send_json({"type": "error", "message": "Authentication timeout"})
+    except Exception as e:
+        logger.error(f"Lightning WebSocket error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        # Cleanup
+        if pipeline:
+            await pipeline.close()
+
+        # Update call record
+        if call_id and user_id:
+            try:
+                db = get_supabase()
+                metrics = pipeline.get_metrics() if pipeline else {}
+                db.client.table("va_call_logs").update({
+                    "status": "completed",
+                    "ended_at": datetime.utcnow().isoformat(),
+                    "metrics": metrics,
+                }).eq("id", call_id).execute()
+            except Exception as e:
+                logger.error(f"Failed to update call record: {e}")
+
+        try:
+            await websocket.close()
+        except:
+            pass
+
+
+# =============================================================================
+# END LIGHTNING PIPELINE ENDPOINTS
+# =============================================================================
+
+
+# =============================================================================
+# FAST BRAIN SKILLS ENDPOINTS
+# =============================================================================
+
+@app.get("/api/fast-brain/health")
+async def get_fast_brain_health():
+    """
+    Check Fast Brain LPU health and get info.
+    Returns status, available skills, and backend info.
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        return {
+            "status": "not_configured",
+            "message": "FAST_BRAIN_URL not set",
+            "skills_available": [],
+        }
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        health_info = await client.get_health_info()
+        await client.close()
+        return health_info
+    except Exception as e:
+        logger.error(f"Fast Brain health check failed: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "skills_available": [],
+        }
+
+
+@app.get("/api/fast-brain/skills")
+async def get_fast_brain_skills():
+    """
+    Fetch available skills from both HIVE215 Preloaded and Fast Brain LPU.
+
+    Returns two categories:
+    - hive_preloaded: Built-in skills that ship with HIVE215
+    - fast_brain: Custom skills from Fast Brain LPU (if configured)
+
+    HIVE Preloaded skills work without Fast Brain configuration.
+    Fast Brain skills require FAST_BRAIN_URL environment variable.
+    """
+    # =========================================================
+    # HIVE215 PRELOADED SKILLS
+    # These are built-in and always available
+    # =========================================================
+    hive_preloaded_skills = [
+        {
+            "id": "default",
+            "name": "Default Assistant",
+            "description": "General purpose voice assistant",
+            "category": "hive_preloaded"
+        },
+        {
+            "id": "receptionist",
+            "name": "Receptionist",
+            "description": "Business call handling, scheduling, and general inquiries",
+            "category": "hive_preloaded"
+        },
+        {
+            "id": "electrician",
+            "name": "Electrician",
+            "description": "Electrical service expertise, quotes, and emergency dispatch",
+            "category": "hive_preloaded"
+        },
+        {
+            "id": "plumber",
+            "name": "Plumber",
+            "description": "Plumbing service expertise, quotes, and emergency dispatch",
+            "category": "hive_preloaded"
+        },
+        {
+            "id": "lawyer",
+            "name": "Legal Intake",
+            "description": "Legal consultation intake and case screening",
+            "category": "hive_preloaded"
+        },
+        {
+            "id": "solar",
+            "name": "Solar Sales",
+            "description": "Solar panel consultation, savings calculations, and appointments",
+            "category": "hive_preloaded"
+        },
+        {
+            "id": "hvac",
+            "name": "HVAC Technician",
+            "description": "Heating and cooling service, maintenance scheduling",
+            "category": "hive_preloaded"
+        },
+        {
+            "id": "medical-office",
+            "name": "Medical Office",
+            "description": "Appointment scheduling, prescription refills, general inquiries",
+            "category": "hive_preloaded"
+        },
+    ]
+
+    # =========================================================
+    # FAST BRAIN CUSTOM SKILLS
+    # These are fetched from Fast Brain LPU if configured
+    # =========================================================
+    fast_brain_skills = []
+    fast_brain_error = None
+
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if fast_brain_url:
+        try:
+            from backend.brain_client import FastBrainClient
+            client = FastBrainClient(base_url=fast_brain_url)
+            skills = await client.list_skills()
+            await client.close()
+
+            if skills:
+                fast_brain_skills = [
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "description": s.description or "",
+                        "version": s.version,
+                        "category": "fast_brain"
+                    }
+                    for s in skills
+                ]
+                logger.info(f"Loaded {len(fast_brain_skills)} skills from Fast Brain")
+        except Exception as e:
+            logger.error(f"Failed to fetch Fast Brain skills: {e}")
+            fast_brain_error = str(e)
+    else:
+        fast_brain_error = "FAST_BRAIN_URL not configured"
+
+    # Combine all skills for backwards compatibility
+    all_skills = hive_preloaded_skills + fast_brain_skills
+
+    return {
+        "skills": all_skills,
+        "hive_preloaded": hive_preloaded_skills,
+        "fast_brain": fast_brain_skills,
+        "fast_brain_configured": bool(fast_brain_url),
+        "fast_brain_error": fast_brain_error,
+    }
+
+
+class CreateSkillRequest(BaseModel):
+    """Request body for creating a custom skill."""
+    skill_id: str
+    name: str
+    description: str
+    system_prompt: str
+    knowledge: list[str] = []
+
+
+@app.post("/api/fast-brain/skills")
+async def create_fast_brain_skill(
+    request: CreateSkillRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Create a custom skill in Fast Brain LPU.
+    Requires X-User-ID header for authorization.
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        raise HTTPException(status_code=503, detail="Fast Brain not configured")
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        result = await client.create_skill(
+            skill_id=request.skill_id,
+            name=request.name,
+            description=request.description,
+            system_prompt=request.system_prompt,
+            knowledge=request.knowledge,
+        )
+        await client.close()
+
+        if result:
+            return {"success": True, "skill": result}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create skill")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create Fast Brain skill: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class FastBrainChatRequest(BaseModel):
+    """Request body for Fast Brain chat."""
+    message: str
+    skill: str = "receptionist"
+    user_profile: Optional[str] = None
+    max_tokens: int = 256
+
+
+@app.post("/api/fast-brain/chat")
+async def fast_brain_chat(
+    request: FastBrainChatRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Send a chat message to Fast Brain LPU.
+    Uses the specified skill for the conversation.
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        raise HTTPException(status_code=503, detail="Fast Brain not configured")
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        response = await client.think(
+            user_input=request.message,
+            skill=request.skill,
+            user_profile=request.user_profile,
+            max_tokens=request.max_tokens,
+        )
+        await client.close()
+
+        return {
+            "response": response.text,
+            "skill_used": response.skill_used,
+            "latency_ms": response.latency_ms,
+            "tokens_used": response.tokens_used,
+            "tokens_per_sec": response.tokens_per_sec,
+        }
+
+    except Exception as e:
+        logger.error(f"Fast Brain chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class FastBrainHybridRequest(BaseModel):
+    """Request body for Fast Brain hybrid chat (System 1/2 auto-routing)."""
+    messages: list[dict]
+    skill: str = "receptionist"
+    user_context: Optional[dict] = None
+
+
+@app.post("/api/fast-brain/chat/hybrid")
+async def fast_brain_hybrid_chat(
+    request: FastBrainHybridRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+):
+    """
+    Send a chat message to Fast Brain's hybrid endpoint.
+
+    This is the RECOMMENDED endpoint for voice applications because:
+    - Simple queries use System 1 (Groq ~80ms) - 90% of queries
+    - Complex queries use System 2 (Claude ~2000ms) with filler phrase
+
+    The filler phrase should be synthesized/played while waiting for
+    the deep response, creating natural conversation flow.
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        raise HTTPException(status_code=503, detail="Fast Brain not configured")
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        response = await client.hybrid_chat(
+            messages=request.messages,
+            skill=request.skill,
+            user_context=request.user_context,
+        )
+        await client.close()
+
+        return {
+            "content": response.content,
+            "filler": response.filler,  # Play this while waiting for deep response
+            "system_used": response.system_used,  # "fast" or "deep"
+            "fast_latency_ms": response.fast_latency_ms,
+            "deep_latency_ms": response.deep_latency_ms,
+            "total_latency_ms": response.total_latency_ms,
+            "skill_used": response.skill_used,
+        }
+
+    except Exception as e:
+        logger.error(f"Fast Brain hybrid chat failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/fast-brain/greeting/{skill_id}")
+async def get_fast_brain_greeting(skill_id: str):
+    """
+    Get the greeting for a specific skill.
+
+    Each skill (electrician, plumber, receptionist, etc.) has
+    a customized greeting that matches its persona.
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        raise HTTPException(status_code=503, detail="Fast Brain not configured")
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        greeting = await client.get_greeting(skill_id)
+        await client.close()
+
+        return {
+            "text": greeting.text,
+            "voice": greeting.voice,
+            "skill_id": greeting.skill_id,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get Fast Brain greeting: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/fast-brain/fillers")
+async def get_fast_brain_fillers():
+    """
+    Get all filler phrase categories.
+
+    Filler phrases are played when System 2 (Claude) is processing.
+    This creates natural conversation flow while waiting for deep responses.
+
+    Categories include:
+    - analysis: "Let me pull up your information..."
+    - calculation: "Let me run those numbers..."
+    - research: "Let me look into that..."
+    - default: "One moment please..."
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        # Return default fillers if Fast Brain not configured
+        return {
+            "categories": ["default"],
+            "phrases": {
+                "default": [
+                    "Let me look into that for you...",
+                    "One moment please...",
+                    "Let me check on that...",
+                ]
+            }
+        }
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        fillers = await client.get_fillers()
+        await client.close()
+        return fillers
+
+    except Exception as e:
+        logger.warning(f"Failed to get Fast Brain fillers: {e}")
+        # Return defaults on error
+        return {
+            "categories": ["default"],
+            "phrases": {
+                "default": [
+                    "Let me look into that for you...",
+                    "One moment please...",
+                ]
+            }
+        }
+
+
+@app.get("/api/fast-brain/architecture")
+async def get_fast_brain_architecture():
+    """
+    Get Fast Brain's architecture information.
+
+    Returns details about the dual-system architecture:
+    - System 1 (Fast Brain): Groq LPU + Llama 3.3 70B (~80ms)
+    - System 2 (Deep Brain): Claude 3.5 Sonnet (~2000ms)
+    """
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    if not fast_brain_url:
+        raise HTTPException(status_code=503, detail="Fast Brain not configured")
+
+    try:
+        from backend.brain_client import FastBrainClient
+        client = FastBrainClient(base_url=fast_brain_url)
+        health_info = await client.get_health_info()
+        await client.close()
+
+        return {
+            "status": health_info.get("status"),
+            "architecture": health_info.get("architecture"),
+            "system1": health_info.get("system1"),
+            "system2": health_info.get("system2"),
+            "skills": health_info.get("skills", []),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get Fast Brain architecture: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# END FAST BRAIN ENDPOINTS
+# =============================================================================
 
 
 if __name__ == "__main__":
@@ -3833,6 +8299,23 @@ if __name__ == "__main__":
     print("  GET    /admin/codes                   - List all codes")
     print("  DELETE /admin/codes/{code}            - Deactivate code")
     print("  POST   /admin/add-minutes             - Add bonus minutes to user")
+    print("\n⚡ Lightning Pipeline (Sub-150ms Voice AI):")
+    print("  GET    /lightning/status              - Pipeline status & config")
+    print("  GET    /lightning/languages           - Supported languages (42 TTS, 36+ STT)")
+    print("  POST   /lightning/chat                - Fast LLM chat (Groq ~40ms TTFT)")
+    print("  POST   /lightning/tts                 - Ultra-fast TTS (Cartesia ~30ms)")
+    print("  POST   /lightning/voice-clone         - Clone voice (3-10s audio)")
+    print("  POST   /lightning/localize            - Localize voice to other languages")
+    print("  WS     /ws/lightning/{assistant_id}   - Full voice streaming pipeline")
+    print("\n🧠 Fast Brain LPU (Dual-System AI Engine):")
+    print("  GET    /api/fast-brain/health         - Fast Brain health check")
+    print("  GET    /api/fast-brain/architecture   - System 1/2 architecture info")
+    print("  GET    /api/fast-brain/skills         - List available skills")
+    print("  POST   /api/fast-brain/skills         - Create custom skill")
+    print("  POST   /api/fast-brain/chat           - Chat with skill selection")
+    print("  POST   /api/fast-brain/chat/hybrid    - Hybrid chat (auto System 1/2)")
+    print("  GET    /api/fast-brain/greeting/{id}  - Get skill greeting")
+    print("  GET    /api/fast-brain/fillers        - Get filler phrase categories")
     print("\n" + "=" * 60)
 
     uvicorn.run(

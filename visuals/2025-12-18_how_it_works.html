@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HIVE215 - How Everything Works</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --bg-code: #1a1a24;
+            --accent-blue: #00d4ff;
+            --accent-purple: #9b59b6;
+            --accent-green: #00ff88;
+            --accent-orange: #ff6b35;
+            --accent-pink: #ff4081;
+            --accent-yellow: #ffd700;
+            --text-primary: #ffffff;
+            --text-secondary: #8892b0;
+            --border-color: #1e2a3a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+
+        /* Navigation */
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 280px;
+            height: 100vh;
+            background: var(--bg-card);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .nav-logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 30px;
+        }
+
+        .nav-section {
+            margin-bottom: 25px;
+        }
+
+        .nav-section-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        .nav-link {
+            display: block;
+            padding: 8px 12px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            background: rgba(0,212,255,0.1);
+            color: var(--accent-blue);
+        }
+
+        /* Main Content */
+        .main {
+            margin-left: 280px;
+            padding: 40px 60px;
+            max-width: 1000px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h2 {
+            font-size: 1.8rem;
+            margin-top: 60px;
+            margin-bottom: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        h3 {
+            font-size: 1.3rem;
+            margin-top: 40px;
+            margin-bottom: 15px;
+            color: var(--accent-blue);
+        }
+
+        h4 {
+            font-size: 1.1rem;
+            margin-top: 25px;
+            margin-bottom: 10px;
+            color: var(--accent-purple);
+        }
+
+        p {
+            margin-bottom: 15px;
+            color: var(--text-secondary);
+        }
+
+        strong {
+            color: var(--text-primary);
+        }
+
+        /* Code blocks */
+        pre {
+            background: var(--bg-code);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-x: auto;
+            margin: 20px 0;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+        }
+
+        code {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: var(--bg-code);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            color: var(--accent-green);
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+        }
+
+        /* Info boxes */
+        .info-box {
+            background: rgba(0,212,255,0.1);
+            border: 1px solid var(--accent-blue);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .info-box.warning {
+            background: rgba(255,107,53,0.1);
+            border-color: var(--accent-orange);
+        }
+
+        .info-box.success {
+            background: rgba(0,255,136,0.1);
+            border-color: var(--accent-green);
+        }
+
+        .info-box-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: var(--bg-code);
+            color: var(--accent-blue);
+            font-weight: 600;
+        }
+
+        tr:hover td {
+            background: rgba(0,212,255,0.05);
+        }
+
+        /* Lists */
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 25px;
+            color: var(--text-secondary);
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        /* Diagrams */
+        .diagram {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 30px;
+            margin: 25px 0;
+            font-family: 'Consolas', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            white-space: pre;
+            line-height: 1.4;
+            color: var(--text-secondary);
+        }
+
+        .diagram .highlight {
+            color: var(--accent-blue);
+        }
+
+        /* Flow visualization */
+        .flow-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin: 25px 0;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .flow-box {
+            padding: 15px 25px;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: 500;
+            min-width: 120px;
+        }
+
+        .flow-box.user { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .flow-box.frontend { background: linear-gradient(135deg, #1a1a2e, #16213e); border: 2px solid #fff; }
+        .flow-box.webrtc { background: linear-gradient(135deg, #0088cc, #00d4ff); }
+        .flow-box.worker { background: linear-gradient(135deg, #6b21a8, #9b59b6); }
+        .flow-box.stt { background: linear-gradient(135deg, #059669, #10b981); }
+        .flow-box.llm { background: linear-gradient(135deg, #d97706, #fbbf24); color: #000; }
+        .flow-box.tts { background: linear-gradient(135deg, #be185d, #ec4899); }
+        .flow-box.db { background: linear-gradient(135deg, #3ecf8e, #1c7c54); }
+
+        .flow-arrow {
+            font-size: 1.5rem;
+            color: var(--accent-blue);
+        }
+
+        /* Timeline */
+        .timeline {
+            position: relative;
+            padding-left: 30px;
+            margin: 25px 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 8px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--border-color);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 25px;
+            padding-left: 20px;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -26px;
+            top: 5px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+        }
+
+        .timeline-time {
+            font-size: 0.85rem;
+            color: var(--accent-green);
+            font-family: monospace;
+        }
+
+        .timeline-title {
+            font-weight: 600;
+            margin: 5px 0;
+        }
+
+        .timeline-desc {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Package breakdown */
+        .package-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .package-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .package-name {
+            font-weight: 600;
+            color: var(--accent-green);
+            font-family: monospace;
+            margin-bottom: 8px;
+        }
+
+        .package-size {
+            font-size: 0.85rem;
+            color: var(--accent-orange);
+            margin-bottom: 8px;
+        }
+
+        .package-desc {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .nav {
+                display: none;
+            }
+            .main {
+                margin-left: 0;
+                padding: 20px;
+            }
+        }
+
+        /* Scroll margin for anchors */
+        h2[id], h3[id] {
+            scroll-margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="nav">
+        <div class="nav-logo">⬡ HIVE215 Docs</div>
+
+        <div class="nav-section">
+            <div class="nav-section-title">Overview</div>
+            <a href="#intro" class="nav-link">Introduction</a>
+            <a href="#architecture" class="nav-link">System Architecture</a>
+            <a href="#why-livekit" class="nav-link">Why LiveKit?</a>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-section-title">Voice Pipeline</div>
+            <a href="#voice-flow" class="nav-link">Voice Flow Explained</a>
+            <a href="#stt" class="nav-link">Speech-to-Text (Deepgram)</a>
+            <a href="#llm" class="nav-link">LLM Chain</a>
+            <a href="#tts" class="nav-link">Text-to-Speech (Cartesia)</a>
+            <a href="#vad" class="nav-link">Voice Activity Detection</a>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-section-title">Infrastructure</div>
+            <a href="#railway" class="nav-link">Railway Deployment</a>
+            <a href="#docker-image" class="nav-link">Why 5GB Image?</a>
+            <a href="#build-process" class="nav-link">Build Process</a>
+            <a href="#env-vars" class="nav-link">Environment Variables</a>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-section-title">Services</div>
+            <a href="#livekit-cloud" class="nav-link">LiveKit Cloud</a>
+            <a href="#modal" class="nav-link">Modal (Fast Brain)</a>
+            <a href="#supabase" class="nav-link">Supabase</a>
+            <a href="#vercel" class="nav-link">Vercel Frontend</a>
+        </div>
+
+        <div class="nav-section">
+            <div class="nav-section-title">Deep Dives</div>
+            <a href="#latency" class="nav-link">Latency Optimization</a>
+            <a href="#fallback" class="nav-link">LLM Fallback Chain</a>
+            <a href="#nixpacks" class="nav-link">Nixpacks & venv</a>
+            <a href="#costs" class="nav-link">Cost Breakdown</a>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main">
+        <h1>How Everything Works</h1>
+        <p>A complete technical guide to the HIVE215 Voice AI Platform - from user speech to AI response in ~200ms.</p>
+
+        <!-- Introduction -->
+        <h2 id="intro">Introduction</h2>
+        <p>HIVE215 is a real-time voice AI platform that enables natural conversations with AI assistants. When a user speaks, their voice is processed through a pipeline that transcribes speech, generates an intelligent response, and speaks it back - all in under 300 milliseconds.</p>
+
+        <div class="info-box">
+            <div class="info-box-title">💡 Key Concept</div>
+            <p>Unlike chatbots where you type and wait, voice AI requires <strong>real-time streaming</strong> at every step. You can't wait for the full sentence - you process as audio arrives.</p>
+        </div>
+
+        <h3>The Core Components</h3>
+        <ul>
+            <li><strong>LiveKit Cloud</strong> - Managed WebRTC infrastructure for real-time audio</li>
+            <li><strong>Railway Worker</strong> - Your AI agent that processes voice</li>
+            <li><strong>Deepgram</strong> - Speech-to-text in ~30ms</li>
+            <li><strong>LLM Chain</strong> - Fast Brain → Groq → Claude for intelligence</li>
+            <li><strong>Cartesia</strong> - Text-to-speech in ~30ms</li>
+            <li><strong>Supabase</strong> - Database, auth, and storage</li>
+        </ul>
+
+        <!-- Architecture -->
+        <h2 id="architecture">System Architecture</h2>
+
+        <div class="diagram">
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           HIVE215 VOICE AI STACK                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│    ┌──────────┐         ┌──────────────┐         ┌──────────────┐          │
+│    │   USER   │ ──────► │   VERCEL     │ ──────► │   LIVEKIT    │          │
+│    │ (Browser)│ WebRTC  │  (Next.js)   │  HTTP   │    CLOUD     │          │
+│    └──────────┘         └──────────────┘         └──────┬───────┘          │
+│                                                         │                   │
+│                                                         │ Agent Dispatch    │
+│                                                         ▼                   │
+│    ┌──────────────────────────────────────────────────────────────────┐    │
+│    │                      RAILWAY WORKER                               │    │
+│    │  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐       │    │
+│    │  │ SILERO  │───►│DEEPGRAM │───►│   LLM   │───►│CARTESIA │       │    │
+│    │  │   VAD   │    │   STT   │    │  CHAIN  │    │   TTS   │       │    │
+│    │  └─────────┘    └─────────┘    └─────────┘    └─────────┘       │    │
+│    └──────────────────────────────────────────────────────────────────┘    │
+│                                        │                                    │
+│                         ┌──────────────┼──────────────┐                    │
+│                         ▼              ▼              ▼                    │
+│                  ┌──────────┐   ┌──────────┐   ┌──────────┐               │
+│                  │FAST BRAIN│   │   GROQ   │   │  CLAUDE  │               │
+│                  │ (Modal)  │   │(Fallback)│   │(Fallback)│               │
+│                  └──────────┘   └──────────┘   └──────────┘               │
+│                                                                             │
+│    ┌──────────────┐                                                        │
+│    │   SUPABASE   │  PostgreSQL + Auth + Storage                           │
+│    └──────────────┘                                                        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+        </div>
+
+        <h3>Data Flow Overview</h3>
+        <div class="flow-container">
+            <div class="flow-box user">👤 User Speaks</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box webrtc">🎙️ LiveKit</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box worker">🚂 Worker</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box stt">👂 STT</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box llm">🧠 LLM</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box tts">🔊 TTS</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box user">🔊 User Hears</div>
+        </div>
+
+        <!-- Why LiveKit -->
+        <h2 id="why-livekit">Why LiveKit?</h2>
+        <p>LiveKit is a managed WebRTC platform. Here's why we use it instead of raw WebRTC:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Feature</th>
+                    <th>Raw WebRTC</th>
+                    <th>LiveKit Cloud</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Setup complexity</td>
+                    <td>Weeks of work</td>
+                    <td>5 minutes</td>
+                </tr>
+                <tr>
+                    <td>TURN servers</td>
+                    <td>You manage</td>
+                    <td>Included globally</td>
+                </tr>
+                <tr>
+                    <td>Scaling</td>
+                    <td>Build yourself</td>
+                    <td>Automatic</td>
+                </tr>
+                <tr>
+                    <td>Agent framework</td>
+                    <td>Build yourself</td>
+                    <td>livekit-agents SDK</td>
+                </tr>
+                <tr>
+                    <td>Latency</td>
+                    <td>~50-100ms</td>
+                    <td>~10-20ms</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-box success">
+            <div class="info-box-title">✅ Key Point</div>
+            <p><strong>You don't host LiveKit.</strong> LiveKit Cloud is a managed service. Your Railway worker <em>connects to</em> LiveKit Cloud - it doesn't run LiveKit itself.</p>
+        </div>
+
+        <!-- Voice Flow -->
+        <h2 id="voice-flow">Voice Flow Explained</h2>
+        <p>Here's exactly what happens when a user speaks:</p>
+
+        <div class="timeline">
+            <div class="timeline-item">
+                <div class="timeline-time">0ms</div>
+                <div class="timeline-title">User starts speaking</div>
+                <div class="timeline-desc">Browser captures audio via WebRTC, streams to LiveKit Cloud</div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-time">~10ms</div>
+                <div class="timeline-title">LiveKit receives audio</div>
+                <div class="timeline-desc">Audio packets arrive at LiveKit's edge servers globally</div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-time">~20ms</div>
+                <div class="timeline-title">Worker receives audio</div>
+                <div class="timeline-desc">Railway worker (subscribed to the room) gets the audio stream</div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-time">~30ms</div>
+                <div class="timeline-title">Silero VAD detects speech</div>
+                <div class="timeline-desc">Voice Activity Detection confirms "user is speaking"</div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-time">~50ms</div>
+                <div class="timeline-title">Deepgram transcribes</div>
+                <div class="timeline-desc">Streaming STT converts audio to text as it arrives</div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-time">User stops + ~100ms</div>
+                <div class="timeline-title">LLM generates response</div>
+                <div class="timeline-desc">Fast Brain/Groq/Claude processes the transcribed text</div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-time">+ ~30ms</div>
+                <div class="timeline-title">Cartesia synthesizes speech</div>
+                <div class="timeline-desc">TTS starts streaming audio back immediately</div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-time">+ ~20ms</div>
+                <div class="timeline-title">User hears response</div>
+                <div class="timeline-desc">Audio streams through LiveKit back to browser</div>
+            </div>
+        </div>
+
+        <p><strong>Total: ~200-300ms</strong> from user stops speaking to hearing AI response.</p>
+
+        <!-- STT -->
+        <h2 id="stt">Speech-to-Text (Deepgram)</h2>
+        <p>Deepgram's Nova-2 model provides streaming transcription with ~30ms latency.</p>
+
+        <h4>How Streaming STT Works</h4>
+        <pre><code># Traditional STT (slow)
+audio_complete = record_until_silence()  # Wait for full audio
+text = transcribe(audio_complete)        # Then transcribe
+# Total: 2-3 seconds
+
+# Streaming STT (fast)
+for audio_chunk in audio_stream:
+    partial_text = transcribe_chunk(audio_chunk)  # Transcribe as it arrives
+    # Each chunk: ~30ms
+# Total: Real-time!</code></pre>
+
+        <h4>Why Deepgram?</h4>
+        <ul>
+            <li><strong>Speed</strong> - Fastest production STT available (~30ms)</li>
+            <li><strong>Accuracy</strong> - Nova-2 model optimized for real-time</li>
+            <li><strong>Streaming</strong> - True streaming, not chunked batch</li>
+            <li><strong>Cost</strong> - $0.0043/minute (very affordable)</li>
+        </ul>
+
+        <!-- LLM -->
+        <h2 id="llm">LLM Chain</h2>
+        <p>The intelligence layer uses a fallback chain for reliability:</p>
+
+        <pre><code>LLM Priority Chain:
+1. Fast Brain (Modal)  → Your custom LPU, lowest latency
+2. Groq Llama 3.3      → ~50ms, ultra-fast fallback
+3. Anthropic Claude    → ~100ms, most capable fallback</code></pre>
+
+        <h4>Why a Fallback Chain?</h4>
+        <ul>
+            <li><strong>Reliability</strong> - If Fast Brain is cold/down, Groq responds</li>
+            <li><strong>Latency optimization</strong> - Always use fastest available</li>
+            <li><strong>Cost control</strong> - Fast Brain is cheapest, Claude most expensive</li>
+        </ul>
+
+        <div class="info-box">
+            <div class="info-box-title">💡 Health Checks</div>
+            <p>The agent checks <code>/health</code> on Fast Brain before each request. If it fails, instantly falls back to Groq without timeout delay.</p>
+        </div>
+
+        <!-- TTS -->
+        <h2 id="tts">Text-to-Speech (Cartesia)</h2>
+        <p>Cartesia's Sonic model provides natural speech synthesis with ~30ms latency.</p>
+
+        <h4>Why Cartesia?</h4>
+        <ul>
+            <li><strong>Streaming</strong> - Starts speaking before full text is generated</li>
+            <li><strong>Quality</strong> - Natural, expressive voices</li>
+            <li><strong>Latency</strong> - ~30ms to first audio byte</li>
+            <li><strong>Voice cloning</strong> - Custom voices from samples</li>
+        </ul>
+
+        <h4>Streaming TTS Flow</h4>
+        <pre><code># As LLM generates tokens:
+LLM: "Hello"         → TTS starts: "Hel-"
+LLM: "Hello, how"    → TTS continues: "-lo, how"
+LLM: "Hello, how are"→ TTS continues: " are"
+# User hears speech BEFORE LLM finishes generating!</code></pre>
+
+        <!-- VAD -->
+        <h2 id="vad">Voice Activity Detection (Silero)</h2>
+        <p>Silero VAD is a neural network that detects when users start/stop speaking.</p>
+
+        <h4>Why VAD Matters</h4>
+        <ul>
+            <li><strong>Turn-taking</strong> - Know when user finished speaking</li>
+            <li><strong>Interruption handling</strong> - Stop AI when user interrupts</li>
+            <li><strong>Silence filtering</strong> - Don't process background noise</li>
+        </ul>
+
+        <div class="info-box warning">
+            <div class="info-box-title">⚠️ Why the image is 5GB</div>
+            <p>Silero VAD requires <strong>PyTorch</strong> (~1.5GB). This is the main reason your Docker image is large. The tradeoff is worth it - Silero provides the most accurate real-time VAD available.</p>
+        </div>
+
+        <!-- Railway -->
+        <h2 id="railway">Railway Deployment</h2>
+        <p>Railway hosts two services from this repo:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Process</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Web</td>
+                    <td><code>/app/venv/bin/uvicorn backend.main:app</code></td>
+                    <td>FastAPI REST API (63 endpoints)</td>
+                </tr>
+                <tr>
+                    <td>Worker</td>
+                    <td><code>/app/venv/bin/python backend/livekit_worker.py start</code></td>
+                    <td>LiveKit agent process</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h4>The Procfile</h4>
+        <pre><code>web: /app/venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}
+worker: /app/venv/bin/python backend/livekit_worker.py start</code></pre>
+
+        <!-- Docker Image -->
+        <h2 id="docker-image">Why the 5GB Docker Image?</h2>
+        <p>The image is large because of ML/AI dependencies. Here's the breakdown:</p>
+
+        <div class="package-grid">
+            <div class="package-card">
+                <div class="package-name">PyTorch (via Silero)</div>
+                <div class="package-size">~1.5 GB</div>
+                <div class="package-desc">Neural network framework for VAD</div>
+            </div>
+            <div class="package-card">
+                <div class="package-name">livekit-agents</div>
+                <div class="package-size">~500 MB</div>
+                <div class="package-desc">Agent SDK + all extras (deepgram, cartesia, silero, openai)</div>
+            </div>
+            <div class="package-card">
+                <div class="package-name">Nix Python + libs</div>
+                <div class="package-size">~800 MB</div>
+                <div class="package-desc">Python 3.11, ffmpeg, libopus, system deps</div>
+            </div>
+            <div class="package-card">
+                <div class="package-name">Other pip packages</div>
+                <div class="package-size">~500 MB</div>
+                <div class="package-desc">FastAPI, httpx, websockets, supabase, etc.</div>
+            </div>
+        </div>
+
+        <h4>Can We Make It Smaller?</h4>
+        <ul>
+            <li><strong>Remove Silero</strong> - Use server-side VAD (~3GB smaller, but less accurate)</li>
+            <li><strong>Pre-built image</strong> - Build once, push to Docker Hub</li>
+            <li><strong>Multi-stage build</strong> - Separate build and runtime layers</li>
+        </ul>
+
+        <!-- Build Process -->
+        <h2 id="build-process">Build Process (nixpacks)</h2>
+        <p>Railway uses nixpacks to build the Docker image. Here's what happens:</p>
+
+        <h4>nixpacks.toml</h4>
+        <pre><code>[phases.setup]
+nixPkgs = ["python311", "python311Packages.pip", "python311Packages.virtualenv", "ffmpeg", "libopus"]
+
+[phases.install]
+cmds = [
+    "python -m venv /app/venv",
+    "/app/venv/bin/pip install --upgrade pip",
+    "/app/venv/bin/pip install --no-cache-dir -r requirements.txt",
+    "/app/venv/bin/pip install --no-cache-dir 'livekit-agents[deepgram,cartesia,openai,silero]==1.1.7'"
+]
+
+[start]
+cmd = "/app/venv/bin/python backend/livekit_worker.py start"</code></pre>
+
+        <h4>Why the Virtual Environment?</h4>
+        <p>Nix-managed Python has <strong>PEP 668</strong> protection - you can't pip install directly. The venv bypasses this:</p>
+
+        <pre><code># This fails (PEP 668):
+pip install package
+❌ error: externally-managed-environment
+
+# This works:
+python -m venv /app/venv
+/app/venv/bin/pip install package
+✅ Success!</code></pre>
+
+        <!-- Environment Variables -->
+        <h2 id="env-vars">Environment Variables</h2>
+        <p>All secrets are configured in Railway's environment settings:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Variable</th>
+                    <th>Service</th>
+                    <th>Required</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>LIVEKIT_URL</code></td>
+                    <td>LiveKit Cloud</td>
+                    <td>Yes</td>
+                </tr>
+                <tr>
+                    <td><code>LIVEKIT_API_KEY</code></td>
+                    <td>LiveKit Cloud</td>
+                    <td>Yes</td>
+                </tr>
+                <tr>
+                    <td><code>LIVEKIT_API_SECRET</code></td>
+                    <td>LiveKit Cloud</td>
+                    <td>Yes</td>
+                </tr>
+                <tr>
+                    <td><code>DEEPGRAM_API_KEY</code></td>
+                    <td>Deepgram</td>
+                    <td>Yes</td>
+                </tr>
+                <tr>
+                    <td><code>CARTESIA_API_KEY</code></td>
+                    <td>Cartesia</td>
+                    <td>Yes</td>
+                </tr>
+                <tr>
+                    <td><code>GROQ_API_KEY</code></td>
+                    <td>Groq</td>
+                    <td>Recommended</td>
+                </tr>
+                <tr>
+                    <td><code>ANTHROPIC_API_KEY</code></td>
+                    <td>Claude</td>
+                    <td>Optional</td>
+                </tr>
+                <tr>
+                    <td><code>FAST_BRAIN_URL</code></td>
+                    <td>Modal</td>
+                    <td>Optional</td>
+                </tr>
+                <tr>
+                    <td><code>SUPABASE_URL</code></td>
+                    <td>Supabase</td>
+                    <td>Yes</td>
+                </tr>
+                <tr>
+                    <td><code>SUPABASE_SERVICE_ROLE_KEY</code></td>
+                    <td>Supabase</td>
+                    <td>Yes</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- LiveKit Cloud -->
+        <h2 id="livekit-cloud">LiveKit Cloud</h2>
+        <p>LiveKit Cloud is a managed WebRTC infrastructure service.</p>
+
+        <h4>What It Does</h4>
+        <ul>
+            <li><strong>Room management</strong> - Creates/destroys voice chat rooms</li>
+            <li><strong>WebRTC routing</strong> - Routes audio between participants</li>
+            <li><strong>Agent dispatch</strong> - Notifies your worker when users join</li>
+            <li><strong>Global edge</strong> - Low-latency connections worldwide</li>
+        </ul>
+
+        <h4>Connection Flow</h4>
+        <pre><code>1. Frontend calls POST /livekit/rooms
+2. Backend creates room in LiveKit Cloud
+3. Backend returns token to frontend
+4. Frontend connects to LiveKit Cloud with token
+5. LiveKit notifies Railway worker "user joined room X"
+6. Worker joins room and starts voice pipeline</code></pre>
+
+        <!-- Modal -->
+        <h2 id="modal">Modal (Fast Brain LPU)</h2>
+        <p>Modal hosts your custom Fast Brain LLM service on GPU.</p>
+
+        <h4>Your Modal Apps</h4>
+        <ul>
+            <li><code>jenkintownelectricity--fast-brain-lpu-fastapi-app.modal.run</code> - LLM inference</li>
+            <li><code>jenkintownelectricity--hive215-dashboard-flask-app.modal.run</code> - Dashboard</li>
+        </ul>
+
+        <h4>Why Modal?</h4>
+        <ul>
+            <li><strong>Serverless GPUs</strong> - Pay only when running</li>
+            <li><strong>Cold start</strong> - ~10 seconds (that's why we have fallbacks)</li>
+            <li><strong>Free tier</strong> - $30/month credit</li>
+        </ul>
+
+        <!-- Supabase -->
+        <h2 id="supabase">Supabase</h2>
+        <p>Supabase provides PostgreSQL database, authentication, and file storage.</p>
+
+        <h4>Database Tables</h4>
+        <table>
+            <thead>
+                <tr>
+                    <th>Table</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>va_assistants</code></td>
+                    <td>AI assistant configurations</td>
+                </tr>
+                <tr>
+                    <td><code>va_call_logs</code></td>
+                    <td>Voice call history and transcripts</td>
+                </tr>
+                <tr>
+                    <td><code>va_user_profiles</code></td>
+                    <td>User preferences and settings</td>
+                </tr>
+                <tr>
+                    <td><code>va_usage_metrics</code></td>
+                    <td>Usage analytics and billing</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Vercel -->
+        <h2 id="vercel">Vercel Frontend</h2>
+        <p>Vercel hosts the Next.js 14 frontend application.</p>
+
+        <h4>Key Components</h4>
+        <ul>
+            <li><code>LiveKitVoiceCall.tsx</code> - WebRTC voice call UI</li>
+            <li>Supabase Auth integration</li>
+            <li>Real-time room management</li>
+        </ul>
+
+        <!-- Latency -->
+        <h2 id="latency">Latency Optimization</h2>
+        <p>Every millisecond matters in voice AI. Here's how we optimize:</p>
+
+        <h4>Latency Budget</h4>
+        <table>
+            <thead>
+                <tr>
+                    <th>Component</th>
+                    <th>Target</th>
+                    <th>Technique</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>WebRTC</td>
+                    <td>~20ms</td>
+                    <td>LiveKit edge servers</td>
+                </tr>
+                <tr>
+                    <td>STT</td>
+                    <td>~30ms</td>
+                    <td>Deepgram streaming</td>
+                </tr>
+                <tr>
+                    <td>LLM</td>
+                    <td>~50-100ms</td>
+                    <td>Groq LPU, streaming tokens</td>
+                </tr>
+                <tr>
+                    <td>TTS</td>
+                    <td>~30ms</td>
+                    <td>Cartesia streaming</td>
+                </tr>
+                <tr>
+                    <td><strong>Total</strong></td>
+                    <td><strong>~200ms</strong></td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h4>Key Optimizations</h4>
+        <ul>
+            <li><strong>Streaming everything</strong> - Never wait for complete data</li>
+            <li><strong>Groq over Claude</strong> - 50ms vs 100ms for LLM</li>
+            <li><strong>Health checks</strong> - Skip unhealthy services instantly</li>
+            <li><strong>Warm containers</strong> - Modal keep-alive for Fast Brain</li>
+        </ul>
+
+        <!-- Fallback Chain -->
+        <h2 id="fallback">LLM Fallback Chain</h2>
+        <p>The agent tries LLMs in order until one responds:</p>
+
+        <pre><code>async def get_llm_response(text):
+    # 1. Try Fast Brain (custom LPU)
+    if fast_brain.is_healthy():
+        try:
+            return await fast_brain.generate(text)
+        except:
+            pass
+
+    # 2. Fallback to Groq (ultra-fast)
+    if groq_api_key:
+        try:
+            return await groq.generate(text)
+        except:
+            pass
+
+    # 3. Final fallback to Claude
+    if anthropic_api_key:
+        return await claude.generate(text)
+
+    # No LLM available
+    raise NoLLMAvailableError()</code></pre>
+
+        <!-- Nixpacks -->
+        <h2 id="nixpacks">Nixpacks & venv Explained</h2>
+        <p>Why we use a virtual environment in the build:</p>
+
+        <h4>The Problem</h4>
+        <pre><code># Nix-managed Python has PEP 668 protection
+$ pip install fastapi
+error: externally-managed-environment
+× This environment is externally managed</code></pre>
+
+        <h4>The Solution</h4>
+        <pre><code># Create isolated venv, install there
+$ python -m venv /app/venv
+$ /app/venv/bin/pip install fastapi
+✅ Successfully installed</code></pre>
+
+        <h4>Important: Use venv Paths Everywhere</h4>
+        <pre><code># Wrong (won't find packages):
+python backend/main.py
+
+# Correct (finds venv packages):
+/app/venv/bin/python backend/main.py</code></pre>
+
+        <!-- Costs -->
+        <h2 id="costs">Cost Breakdown</h2>
+        <p>Estimated monthly costs for moderate usage (~1000 voice calls/month):</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Free Tier</th>
+                    <th>Est. Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Vercel</td>
+                    <td>Hobby free</td>
+                    <td>$0</td>
+                </tr>
+                <tr>
+                    <td>Railway</td>
+                    <td>$5 credit</td>
+                    <td>$5-20</td>
+                </tr>
+                <tr>
+                    <td>LiveKit Cloud</td>
+                    <td>Free tier</td>
+                    <td>$0-20</td>
+                </tr>
+                <tr>
+                    <td>Modal</td>
+                    <td>$30 credit</td>
+                    <td>$10-30</td>
+                </tr>
+                <tr>
+                    <td>Deepgram</td>
+                    <td>$200 credit</td>
+                    <td>$10-50</td>
+                </tr>
+                <tr>
+                    <td>Cartesia</td>
+                    <td>Free tier</td>
+                    <td>$10-30</td>
+                </tr>
+                <tr>
+                    <td>Supabase</td>
+                    <td>Free tier</td>
+                    <td>$0-25</td>
+                </tr>
+                <tr style="background: rgba(0,212,255,0.1); font-weight: bold;">
+                    <td>Total</td>
+                    <td></td>
+                    <td>$35-175/mo</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-box success">
+            <div class="info-box-title">✅ Cost Optimization Tips</div>
+            <ul style="margin-top: 10px;">
+                <li>Use Groq as primary LLM (cheaper than Claude)</li>
+                <li>Enable Claude prompt caching (90% cost reduction)</li>
+                <li>Keep Modal containers warm to avoid cold start charges</li>
+                <li>Use Deepgram's $200 credit while starting</li>
+            </ul>
+        </div>
+
+        <footer style="margin-top: 80px; padding-top: 40px; border-top: 1px solid var(--border-color); text-align: center; color: var(--text-secondary);">
+            <p>HIVE215 Voice AI Platform Documentation</p>
+            <p style="font-size: 0.85rem; margin-top: 10px;">December 2025</p>
+        </footer>
+    </main>
+
+    <script>
+        // Highlight active nav link on scroll
+        const sections = document.querySelectorAll('h2[id], h3[id]');
+        const navLinks = document.querySelectorAll('.nav-link');
+
+        window.addEventListener('scroll', () => {
+            let current = '';
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                if (scrollY >= sectionTop - 100) {
+                    current = section.getAttribute('id');
+                }
+            });
+
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === '#' + current) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

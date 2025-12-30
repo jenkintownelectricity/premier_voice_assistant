@@ -45,6 +45,14 @@ from livekit import rtc
 # LiveKit Plugins
 from livekit.plugins import silero, deepgram, cartesia, openai, anthropic
 
+# ElevenLabs TTS (optional - premium quality)
+try:
+    from livekit.plugins import elevenlabs
+    ELEVENLABS_AVAILABLE = True
+except ImportError:
+    ELEVENLABS_AVAILABLE = False
+    elevenlabs = None
+
 # Turn Detector - Uses language model to predict when user is done speaking
 # Much smarter than VAD alone - understands pauses mid-thought vs. end of turn
 # EnglishModel: 66 MB, ~15-45ms latency, 98.8% accuracy
@@ -74,10 +82,17 @@ except (ImportError, ValueError) as e:
 
 # Brain client for Fast Brain integration
 try:
-    from backend.brain_client import FastBrainClient, TurnAction
+    from backend.brain_client import (
+        FastBrainClient,
+        TurnAction,
+        HybridResponse,
+        SkillGreeting,
+    )
     BRAIN_CLIENT_AVAILABLE = True
 except ImportError:
     BRAIN_CLIENT_AVAILABLE = False
+    HybridResponse = None
+    SkillGreeting = None
 
 logger = logging.getLogger(__name__)
 
@@ -361,11 +376,21 @@ class LiveKitAgentConfig:
     max_tokens: int = 150
     temperature: float = 0.7
 
-    # TTS (Cartesia)
-    cartesia_api_key: str = field(default_factory=lambda: os.getenv("CARTESIA_API_KEY", ""))
-    cartesia_voice_id: str = field(default_factory=lambda: os.getenv("CARTESIA_VOICE_ID", "a0e99841-438c-4a64-b679-ae501e7d6091"))
-    cartesia_model: str = "sonic-english"
+    # TTS Provider (cartesia, elevenlabs, deepgram, openai, playht, rime)
+    tts_provider: str = field(default_factory=lambda: os.getenv("TTS_PROVIDER", "cartesia"))
+    tts_voice_id: str = field(default_factory=lambda: os.getenv("TTS_VOICE_ID", "f786b574-daa5-4673-aa0c-cbe3e8534c02"))
     speech_speed: float = 1.0
+
+    # TTS (Cartesia) - Recommended, ~30ms TTFB
+    cartesia_api_key: str = field(default_factory=lambda: os.getenv("CARTESIA_API_KEY", ""))
+    cartesia_voice_id: str = field(default_factory=lambda: os.getenv("CARTESIA_VOICE_ID", "f786b574-daa5-4673-aa0c-cbe3e8534c02"))
+    cartesia_model: str = "sonic-english"
+
+    # TTS (ElevenLabs) - Premium quality, ~150ms TTFB
+    elevenlabs_api_key: str = field(default_factory=lambda: os.getenv("ELEVENLABS_API_KEY", ""))
+
+    # Modal-hosted TTS (Free tier) - Kokoro and Coqui
+    modal_tts_url: str = field(default_factory=lambda: os.getenv("MODAL_TTS_URL", "https://jenkintownelectricity--hive215-kokoro-tts-synthesize-web.modal.run"))
 
     # Fallback LLM (Anthropic/OpenAI)
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
@@ -387,10 +412,17 @@ class LiveKitAgentConfig:
 
 class BrainLLMStream(lk_llm.LLMStream):
     """
-    LLM stream that pulls tokens from Fast Brain API.
+    LLM stream that pulls tokens from Fast Brain's hybrid API.
 
-    Implements the LiveKit v1.x LLMStream interface by streaming
-    tokens from our Brain client and emitting ChatChunks.
+    Implements the LiveKit v1.x LLMStream interface with special
+    handling for Fast Brain's dual-system architecture:
+
+    1. Uses /v1/chat/hybrid endpoint (auto-routes Fast vs Deep Brain)
+    2. When System 2 (Claude) is needed, yields filler phrase first
+    3. Filler plays via TTS while Claude processes (~2s)
+    4. Then yields the main response
+
+    This creates natural conversation flow with sub-second perceived latency.
     """
 
     def __init__(
@@ -400,33 +432,86 @@ class BrainLLMStream(lk_llm.LLMStream):
         chat_ctx: lk_llm.ChatContext,
         tools: list,
         conn_options,
-        user_message: str,
+        messages: list,
         skill: str,
+        user_context: Optional[Dict[str, Any]] = None,
     ):
         super().__init__(llm, chat_ctx=chat_ctx, tools=tools, conn_options=conn_options)
-        self._user_message = user_message
+        self._messages = messages
         self._skill = skill
+        self._user_context = user_context
         self._brain = llm.brain
+        self._room = llm._room  # For publishing latency data
 
     async def _run(self) -> None:
         """
-        Stream tokens from Brain and emit as ChatChunks.
-        This is the abstract method required by LLMStream.
+        Get response from Fast Brain hybrid endpoint and emit as ChatChunks.
+
+        Key innovation: When System 2 (Claude) is used, we emit the filler
+        phrase first. This filler plays via TTS (~2-3s) while Claude is
+        thinking, creating seamless conversation flow.
         """
         request_id = f"brain-{id(self)}"
 
         try:
-            async for token in self._brain.stream(self._user_message, skill=self._skill):
-                chunk = lk_llm.ChatChunk(
-                    id=request_id,
+            # Use hybrid endpoint - auto-routes Fast (Groq) vs Deep (Claude)
+            response = await self._brain.hybrid_chat(
+                self._messages,
+                skill=self._skill,
+                user_context=self._user_context,
+            )
+
+            # Log which system was used
+            logger.info(
+                f"Brain response: system={response.system_used}, "
+                f"fast={response.fast_latency_ms:.0f}ms, "
+                f"deep={response.deep_latency_ms:.0f}ms" if response.deep_latency_ms else
+                f"Brain response: system={response.system_used}, fast={response.fast_latency_ms:.0f}ms"
+            )
+
+            # Publish latency data to frontend if room is available
+            if self._room:
+                try:
+                    latency_data = json.dumps({
+                        "type": "brain_latency",
+                        "system_used": response.system_used,
+                        "fast_latency_ms": response.fast_latency_ms,
+                        "deep_latency_ms": response.deep_latency_ms,
+                        "total_latency_ms": response.total_latency_ms,
+                        "had_filler": response.filler is not None,
+                    }).encode()
+                    await self._room.local_participant.publish_data(
+                        latency_data, topic="brain_latency", reliable=True
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to publish brain latency: {e}")
+
+            # If filler was provided (System 2 was used), emit it first
+            # The TTS will synthesize and play the filler (~2-3s)
+            # which matches Claude's processing time perfectly
+            if response.filler:
+                logger.info(f"Playing filler: {response.filler[:50]}...")
+                filler_chunk = lk_llm.ChatChunk(
+                    id=f"{request_id}-filler",
                     delta=lk_llm.ChoiceDelta(
                         role="assistant",
-                        content=token,
+                        content=response.filler + " ",  # Space separates filler from response
                     ),
                 )
-                self._event_ch.send_nowait(chunk)
+                self._event_ch.send_nowait(filler_chunk)
+
+            # Emit the main response content
+            chunk = lk_llm.ChatChunk(
+                id=request_id,
+                delta=lk_llm.ChoiceDelta(
+                    role="assistant",
+                    content=response.content,
+                ),
+            )
+            self._event_ch.send_nowait(chunk)
+
         except Exception as e:
-            logger.error(f"Brain streaming error: {e}")
+            logger.error(f"Brain hybrid chat error: {e}")
             # Emit a fallback response
             fallback = "I apologize, but I'm having trouble processing that right now."
             chunk = lk_llm.ChatChunk(
@@ -441,23 +526,32 @@ class BrainLLMStream(lk_llm.LLMStream):
 
 class BrainLLM(lk_llm.LLM):
     """
-    LiveKit v1.x compatible LLM that connects to Fast Brain API.
+    LiveKit v1.x compatible LLM that connects to Fast Brain's hybrid API.
 
-    Properly implements the abstract LLM interface with:
-    - chat() method returning an LLMStream
-    - Streaming tokens via BrainLLMStream
-    - Fallback handling on errors
+    Fast Brain uses dual-system architecture (Kahneman's "Thinking, Fast and Slow"):
+    - System 1 (Fast Brain): Groq LPU + Llama 3.3 70B (~80ms) - 90% of queries
+    - System 2 (Deep Brain): Claude 3.5 Sonnet (~2000ms) - Complex analysis
+
+    Key features:
+    - Automatic routing between System 1 and System 2
+    - Filler phrases for natural conversation when System 2 is needed
+    - Skill-based customization (electrician, plumber, lawyer, etc.)
+    - Greeting retrieval per skill
     """
 
     def __init__(
         self,
         brain_client: "FastBrainClient",
         skill: str = "default",
+        user_context: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
         self.brain = brain_client
         self.skill = skill
-        self._model_name = "fast-brain"
+        self.user_context = user_context or {}
+        self._model_name = "fast-brain-hybrid"
+        self._room = None  # Set by session for latency publishing
+        self._greeting_cache: Dict[str, SkillGreeting] = {}
 
     @property
     def model(self) -> str:
@@ -466,6 +560,10 @@ class BrainLLM(lk_llm.LLM):
     @property
     def provider(self) -> str:
         return "fast-brain"
+
+    def set_room(self, room):
+        """Set the LiveKit room for publishing latency data."""
+        self._room = room
 
     def chat(
         self,
@@ -480,36 +578,77 @@ class BrainLLM(lk_llm.LLM):
         """
         Generate a response given conversation context.
         Returns an LLMStream that yields ChatChunks.
+
+        Uses the hybrid endpoint for automatic System 1/2 routing
+        with filler phrase support for natural conversation.
         """
         from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 
-        # Get the latest user message from chat context
-        user_message = ""
-        for msg in reversed(chat_ctx.items):
-            if hasattr(msg, 'role') and msg.role == "user":
+        # Build messages from chat context
+        messages = []
+        for msg in chat_ctx.items:
+            if hasattr(msg, 'role'):
+                role = msg.role
                 # Handle different message formats
                 if hasattr(msg, 'text'):
-                    user_message = msg.text
+                    content = msg.text
                 elif hasattr(msg, 'content'):
-                    user_message = str(msg.content)
-                break
+                    content = str(msg.content)
+                else:
+                    content = str(msg)
 
-        if not user_message:
-            user_message = "Hello"  # Fallback
+                if content.strip():
+                    messages.append({"role": role, "content": content})
+
+        # Ensure we have at least one message
+        if not messages:
+            messages = [{"role": "user", "content": "Hello"}]
 
         return BrainLLMStream(
             self,
             chat_ctx=chat_ctx,
             tools=tools or [],
             conn_options=conn_options or DEFAULT_API_CONNECT_OPTIONS,
-            user_message=user_message,
+            messages=messages,
             skill=self.skill,
+            user_context=self.user_context,
         )
 
     def set_skill(self, skill: str):
         """Change the skill adapter mid-conversation."""
         self.skill = skill
         logger.info(f"Switched to skill: {skill}")
+
+    def set_user_context(self, context: Dict[str, Any]):
+        """Update user context (business_name, caller_name, etc.)."""
+        self.user_context.update(context)
+        logger.info(f"Updated user context: {list(context.keys())}")
+
+    async def get_greeting(self, skill: Optional[str] = None) -> str:
+        """
+        Get the greeting for a skill.
+        Caches greetings to avoid repeated API calls.
+
+        Args:
+            skill: Skill ID (defaults to self.skill)
+
+        Returns:
+            Greeting text
+        """
+        skill = skill or self.skill
+
+        # Check cache
+        if skill in self._greeting_cache:
+            return self._greeting_cache[skill].text
+
+        # Fetch from API
+        try:
+            greeting = await self.brain.get_greeting(skill)
+            self._greeting_cache[skill] = greeting
+            return greeting.text
+        except Exception as e:
+            logger.warning(f"Failed to get greeting for {skill}: {e}")
+            return "Hello! How can I help you today?"
 
     async def aclose(self) -> None:
         """Cleanup resources."""
@@ -527,7 +666,7 @@ async def load_assistant_config(assistant_id: str) -> Dict[str, Any]:
         logger.warning("Supabase not available, using default assistant config")
         return {}
     try:
-        supabase = get_supabase().client
+        supabase = get_supabase().client.client
         result = supabase.table("va_assistants").select("*").eq("id", assistant_id).single().execute()
 
         if result.data:
@@ -538,6 +677,80 @@ async def load_assistant_config(assistant_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to load assistant config: {e}")
         return {}
+
+
+async def save_call_message(
+    call_id: str,
+    user_id: str,
+    role: str,
+    content: str,
+    sequence_number: int,
+    metadata: Dict = None,
+) -> Optional[str]:
+    """
+    Save a single message to the database in real-time.
+    This ensures messages are captured even if the call ends unexpectedly.
+
+    Uses RPC function which handles both:
+    - Insert into va_call_messages table
+    - Update transcript array in va_call_logs for backwards compatibility
+    """
+    if not SUPABASE_AVAILABLE:
+        logger.debug("Supabase not available, skipping message save")
+        return None
+
+    if not call_id or not user_id:
+        logger.debug(f"Missing call_id ({call_id}) or user_id ({user_id}), skipping message save")
+        return None
+
+    try:
+        supabase = get_supabase().client.client
+
+        # Try to use the RPC function first (handles both tables)
+        try:
+            result = supabase.rpc("va_add_call_message", {
+                "p_call_id": call_id,
+                "p_user_id": user_id,
+                "p_role": role,
+                "p_content": content,
+                "p_sequence_number": sequence_number,
+                "p_metadata": metadata or {},
+            }).execute()
+
+            if result.data:
+                logger.info(f"[MESSAGE SAVED] {role}: {content[:50]}... (seq={sequence_number})")
+                return str(result.data)
+        except Exception as rpc_error:
+            # RPC might not exist yet, fall back to direct update of call_logs
+            logger.debug(f"RPC not available ({rpc_error}), falling back to transcript update")
+
+            # Fallback: just update the transcript array in call_logs
+            try:
+                # Get current transcript
+                current = supabase.table("va_call_logs").select("transcript").eq("id", call_id).single().execute()
+                current_transcript = current.data.get("transcript", []) if current.data else []
+
+                # Append new message
+                current_transcript.append({
+                    "role": role,
+                    "content": content,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                })
+
+                # Update
+                supabase.table("va_call_logs").update({
+                    "transcript": current_transcript
+                }).eq("id", call_id).execute()
+
+                logger.info(f"[MESSAGE SAVED to transcript] {role}: {content[:50]}...")
+                return call_id
+            except Exception as fallback_error:
+                logger.warning(f"Fallback transcript update also failed: {fallback_error}")
+
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to save call message: {e}")
+        return None
 
 
 async def save_call_log(
@@ -553,7 +766,7 @@ async def save_call_log(
         logger.warning("Supabase not available, call log not saved")
         return None
     try:
-        supabase = get_supabase().client
+        supabase = get_supabase().client.client
         result = supabase.table("va_call_logs").insert({
             "user_id": user_id,
             "assistant_id": assistant_id,
@@ -608,7 +821,7 @@ class HiveVoiceAgent:
         self._vad: Optional[silero.VAD] = None
         self._stt: Optional[deepgram.STT] = None
         self._llm: Optional[Any] = None
-        self._tts: Optional[cartesia.TTS] = None
+        self._tts: Optional[Any] = None  # Supports multiple TTS providers
         self._session: Optional[AgentSession] = None
 
     async def initialize(self) -> bool:
@@ -621,8 +834,17 @@ class HiveVoiceAgent:
 
         # Override config with assistant settings
         if self.assistant_config:
+            # TTS Provider selection
+            if self.assistant_config.get("tts_provider"):
+                self.config.tts_provider = self.assistant_config["tts_provider"]
+                logger.info(f"Using TTS provider: {self.config.tts_provider}")
+
+            # Voice ID (for the selected TTS provider)
             if self.assistant_config.get("voice_id"):
+                self.config.tts_voice_id = self.assistant_config["voice_id"]
+                # Also update Cartesia-specific field for backwards compatibility
                 self.config.cartesia_voice_id = self.assistant_config["voice_id"]
+
             if self.assistant_config.get("model"):
                 # Map model names to Groq models
                 model_map = {
@@ -634,6 +856,15 @@ class HiveVoiceAgent:
                     self.assistant_config["model"],
                     self.assistant_config["model"]
                 )
+            # Per-assistant voice (tts_voice_id takes priority for legacy support)
+            if self.assistant_config.get("tts_voice_id"):
+                self.config.tts_voice_id = self.assistant_config["tts_voice_id"]
+                self.config.cartesia_voice_id = self.assistant_config["tts_voice_id"]
+            # Per-assistant skill
+            if self.assistant_config.get("fast_brain_skill"):
+                self.config.default_skill = self.assistant_config["fast_brain_skill"]
+                logger.info(f"Using assistant skill: {self.config.default_skill}")
+                
 
         try:
             # Initialize VAD (Silero)
@@ -688,16 +919,10 @@ class HiveVoiceAgent:
                 logger.error("No LLM configured (Fast Brain, Groq, or OpenAI)")
                 return False
 
-            # Initialize TTS (Cartesia)
-            if self.config.cartesia_api_key:
-                self._tts = cartesia.TTS(
-                    model=self.config.cartesia_model,
-                    voice=self.config.cartesia_voice_id,
-                    speed=self.config.speech_speed,
-                )
-                logger.info(f"Cartesia TTS initialized (voice={self.config.cartesia_voice_id[:8]}...)")
-            else:
-                logger.error("Cartesia API key not configured")
+            # Initialize TTS based on provider selection
+            tts_initialized = await self._initialize_tts()
+            if not tts_initialized:
+                logger.error(f"Failed to initialize TTS provider: {self.config.tts_provider}")
                 return False
 
             return True
@@ -705,6 +930,135 @@ class HiveVoiceAgent:
         except Exception as e:
             logger.error(f"Failed to initialize agent: {e}")
             return False
+
+    async def _initialize_tts(self) -> bool:
+        """
+        Initialize TTS based on the selected provider.
+
+        Supported providers:
+        - cartesia: Cartesia Sonic-3 (~30ms TTFB) - Recommended
+        - elevenlabs: ElevenLabs (~150ms TTFB) - Premium quality
+        - deepgram: Deepgram Aura (~80ms TTFB) - Fast
+        - openai: OpenAI TTS (~200ms TTFB)
+        - rime: Rime AI (~60ms TTFB) - Free tier friendly
+        - playht: PlayHT (~100ms TTFB)
+        """
+        provider = self.config.tts_provider.lower()
+        voice_id = self.config.tts_voice_id
+
+        try:
+            if provider == "cartesia":
+                # Cartesia Sonic-3 - Recommended for low latency
+                if not self.config.cartesia_api_key:
+                    logger.warning("Cartesia API key not configured, trying fallback")
+                    return await self._try_fallback_tts()
+
+                self._tts = cartesia.TTS(
+                    model=self.config.cartesia_model,
+                    voice=voice_id or self.config.cartesia_voice_id,
+                    speed=self.config.speech_speed,
+                )
+                logger.info(f"Cartesia TTS initialized (voice={voice_id[:8] if voice_id else 'default'}...)")
+                return True
+
+            elif provider == "elevenlabs":
+                # ElevenLabs - Premium quality
+                if not ELEVENLABS_AVAILABLE:
+                    logger.warning("ElevenLabs plugin not available, trying fallback")
+                    return await self._try_fallback_tts()
+
+                if not self.config.elevenlabs_api_key:
+                    logger.warning("ElevenLabs API key not configured, trying fallback")
+                    return await self._try_fallback_tts()
+
+                self._tts = elevenlabs.TTS(
+                    voice=voice_id or "21m00Tcm4TlvDq8ikWAM",  # Default: Rachel
+                    model="eleven_turbo_v2_5",  # Fastest model
+                )
+                logger.info(f"ElevenLabs TTS initialized (voice={voice_id[:8] if voice_id else 'default'}...)")
+                return True
+
+            elif provider == "deepgram":
+                # Deepgram Aura TTS
+                if not self.config.deepgram_api_key:
+                    logger.warning("Deepgram API key not configured, trying fallback")
+                    return await self._try_fallback_tts()
+
+                self._tts = deepgram.TTS(
+                    model=voice_id or "aura-asteria-en",  # Default: Asteria
+                )
+                logger.info(f"Deepgram TTS initialized (voice={voice_id or 'aura-asteria-en'})")
+                return True
+
+            elif provider == "openai":
+                # OpenAI TTS
+                if not self.config.openai_api_key:
+                    logger.warning("OpenAI API key not configured, trying fallback")
+                    return await self._try_fallback_tts()
+
+                self._tts = openai.TTS(
+                    model="tts-1",  # Or "tts-1-hd" for higher quality
+                    voice=voice_id or "alloy",
+                )
+                logger.info(f"OpenAI TTS initialized (voice={voice_id or 'alloy'})")
+                return True
+
+            else:
+                # Unknown provider, try fallback
+                logger.warning(f"Unknown TTS provider: {provider}, trying fallback")
+                return await self._try_fallback_tts()
+
+        except Exception as e:
+            logger.error(f"Error initializing {provider} TTS: {e}")
+            return await self._try_fallback_tts()
+
+    async def _try_fallback_tts(self) -> bool:
+        """Try fallback TTS providers in order of preference."""
+        # Try Cartesia first (recommended)
+        if self.config.cartesia_api_key:
+            try:
+                self._tts = cartesia.TTS(
+                    model=self.config.cartesia_model,
+                    voice=self.config.cartesia_voice_id,
+                    speed=self.config.speech_speed,
+                )
+                logger.info("Fallback to Cartesia TTS")
+                return True
+            except Exception as e:
+                logger.warning(f"Cartesia fallback failed: {e}")
+
+        # Try ElevenLabs
+        if ELEVENLABS_AVAILABLE and self.config.elevenlabs_api_key:
+            try:
+                self._tts = elevenlabs.TTS(
+                    voice="21m00Tcm4TlvDq8ikWAM",
+                    model="eleven_turbo_v2_5",
+                )
+                logger.info("Fallback to ElevenLabs TTS")
+                return True
+            except Exception as e:
+                logger.warning(f"ElevenLabs fallback failed: {e}")
+
+        # Try Deepgram
+        if self.config.deepgram_api_key:
+            try:
+                self._tts = deepgram.TTS(model="aura-asteria-en")
+                logger.info("Fallback to Deepgram TTS")
+                return True
+            except Exception as e:
+                logger.warning(f"Deepgram fallback failed: {e}")
+
+        # Try OpenAI
+        if self.config.openai_api_key:
+            try:
+                self._tts = openai.TTS(model="tts-1", voice="alloy")
+                logger.info("Fallback to OpenAI TTS")
+                return True
+            except Exception as e:
+                logger.warning(f"OpenAI fallback failed: {e}")
+
+        logger.error("No TTS provider available")
+        return False
 
     def get_system_prompt(self) -> str:
         """Get system prompt from assistant config or use default."""
@@ -868,9 +1222,21 @@ async def entrypoint(ctx: JobContext):
             logger.info(f"Room metadata: call_id={call_id}, user_id={user_id}, assistant_id={assistant_id}")
     except Exception as e:
         logger.warning(f"Could not parse room metadata: {e}")
-
+    # Load assistant config from database to get fast_brain_skill
+    assistant_skill = config.default_skill
+    if assistant_id:
+        try:
+            from backend.supabase_client import get_supabase
+            supabase = get_supabase().client
+            result = supabase.table("va_assistants").select("fast_brain_skill").eq("id", assistant_id).single().execute()
+            if result.data and result.data.get("fast_brain_skill"):
+                assistant_skill = result.data["fast_brain_skill"]
+                logger.info(f"Using assistant skill from DB: {assistant_skill}")
+        except Exception as e:
+            logger.warning(f"Could not load assistant skill: {e}")
     # Track transcript
     transcript: List[Dict[str, str]] = []
+    message_sequence = [0]  # Use list to allow mutation in closures
     call_start_time = time.time()
 
     # Initialize STT (Deepgram)
@@ -883,18 +1249,38 @@ async def entrypoint(ctx: JobContext):
     # Initialize LLM with fallback chain: Fast Brain -> Groq -> OpenAI
     llm = None
     llm_name = "unknown"
+    brain_llm = None  # Keep reference for skill greeting
 
-    # Try Fast Brain first (custom BitNet LPU)
+    # Try Fast Brain first (custom BitNet LPU with hybrid System 1/2)
     if config.fast_brain_url and BRAIN_CLIENT_AVAILABLE:
         try:
             brain_client = FastBrainClient(
                 base_url=config.fast_brain_url,
-                default_skill=config.default_skill,
+                default_skill=assistant_skill,
             )
             if await brain_client.is_healthy():
-                llm = BrainLLM(brain_client, skill=config.default_skill)
-                llm_name = "fast-brain"
-                logger.info(f"Fast Brain LLM initialized: {config.fast_brain_url[:40]}... (skill={config.default_skill})")
+                # Get health info for logging
+                health_info = await brain_client.get_health_info()
+                system1 = health_info.get("system1", {}).get("model", "unknown")
+                system2 = health_info.get("system2", {}).get("model", "unknown")
+
+                brain_llm = BrainLLM(
+                    brain_client,
+                    skill=assistant_skill,
+                    user_context={
+                        "session_id": call_id,
+                        "user_id": user_id,
+                    }
+                )
+                brain_llm.set_room(ctx.room)  # Enable latency publishing
+                llm = brain_llm
+                llm_name = "fast-brain-hybrid"
+                logger.info(
+                    f"Fast Brain initialized: {config.fast_brain_url[:40]}...\n"
+                    f"  System 1 (Fast): {system1}\n"
+                    f"  System 2 (Deep): {system2}\n"
+                    f"  Skill: {assistant_skill}"
+                )
             else:
                 logger.warning("Fast Brain not healthy, trying fallback...")
         except Exception as e:
@@ -1008,12 +1394,22 @@ Be natural and engaging, like talking to a friend."""
             logger.info(f"[USER TRANSCRIPT] text='{text[:50]}...', is_final={is_final}")
 
             if is_final and text.strip():
+                message_sequence[0] += 1
                 transcript.append({
                     "role": "user",
                     "content": text,
                     "timestamp": time.strftime("%H:%M:%S")
                 })
                 logger.info(f"[TRANSCRIPT SAVED] User: {text[:50]}...")
+                # Save message to database in real-time
+                if call_id and user_id:
+                    asyncio.create_task(save_call_message(
+                        call_id=call_id,
+                        user_id=user_id,
+                        role="user",
+                        content=text,
+                        sequence_number=message_sequence[0],
+                    ))
                 # Publish transcript update
                 asyncio.create_task(_publish_transcript(ctx.room, "user", text))
                 # Analyze and publish sentiment
@@ -1066,12 +1462,22 @@ Be natural and engaging, like talking to a friend."""
                     logger.warning(f"[CONVERSATION ITEM] Unknown format: {dir(item)}")
 
                 if content.strip():
+                    message_sequence[0] += 1
                     transcript.append({
                         "role": "assistant",
                         "content": content,
                         "timestamp": time.strftime("%H:%M:%S")
                     })
                     logger.info(f"[TRANSCRIPT SAVED] Assistant: {content[:50]}...")
+                    # Save message to database in real-time
+                    if call_id and user_id:
+                        asyncio.create_task(save_call_message(
+                            call_id=call_id,
+                            user_id=user_id,
+                            role="assistant",
+                            content=content,
+                            sequence_number=message_sequence[0],
+                        ))
                     asyncio.create_task(_publish_transcript(ctx.room, "assistant", content))
         except Exception as e:
             logger.warning(f"[CONVERSATION ITEM ERROR] {e}")
@@ -1127,10 +1533,23 @@ Be natural and engaging, like talking to a friend."""
     except Exception as e:
         logger.warning(f"Failed to publish config: {e}")
 
-    # Generate initial greeting
-    await session.generate_reply(
-        instructions="Greet the user warmly and ask how you can help them today."
-    )
+    # Generate initial greeting (use skill-specific greeting if Fast Brain is available)
+    greeting_text = None
+    if brain_llm:
+        try:
+            greeting_text = await brain_llm.get_greeting()
+            logger.info(f"Using Fast Brain greeting for skill '{assistant_skill}': {greeting_text[:50]}...")
+        except Exception as e:
+            logger.warning(f"Failed to get Fast Brain greeting: {e}")
+
+    if greeting_text:
+        await session.generate_reply(
+            instructions=f"Say exactly this greeting: {greeting_text}"
+        )
+    else:
+        await session.generate_reply(
+            instructions="Greet the user warmly and ask how you can help them today."
+        )
 
     # Wait for the session to end (room closes)
     try:
@@ -1156,7 +1575,7 @@ Be natural and engaging, like talking to a friend."""
                 duration = int(time.time() - call_start_time)
                 avg_metrics = latency.get_average_metrics()
                 sentiment_data = sentiment.get_overall()
-                supabase = get_supabase().client
+                supabase = get_supabase().client.client
                 # Determine overall sentiment
                 overall_sentiment = "neutral"
                 if sentiment_data.get("average", 0) > 0.2:

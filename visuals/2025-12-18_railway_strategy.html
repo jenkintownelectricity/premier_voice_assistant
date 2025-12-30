@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Railway Deployment Strategy Decision Guide</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --accent-blue: #00d4ff;
+            --accent-green: #00ff88;
+            --accent-orange: #ff6b35;
+            --accent-red: #ff4444;
+            --accent-purple: #9b59b6;
+            --text-primary: #ffffff;
+            --text-secondary: #8892b0;
+            --border-color: #1e2a3a;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            padding: 30px;
+            line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 {
+            font-size: 2rem;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        .subtitle { color: var(--text-secondary); margin-bottom: 30px; }
+
+        /* Problem Section */
+        .problem-box {
+            background: rgba(255,68,68,0.1);
+            border: 2px solid var(--accent-red);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+        }
+        .problem-box h2 { color: var(--accent-red); margin-bottom: 15px; }
+
+        /* Current State */
+        .current-state {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+        }
+        .current-state h2 { color: var(--accent-blue); margin-bottom: 20px; }
+
+        .file-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .file-card {
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 4px solid var(--accent-blue);
+        }
+        .file-name {
+            font-family: monospace;
+            color: var(--accent-green);
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+        .file-content {
+            font-family: monospace;
+            font-size: 0.8rem;
+            background: rgba(0,0,0,0.4);
+            padding: 10px;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+        .file-status {
+            margin-top: 10px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            display: inline-block;
+        }
+        .status-ignored { background: rgba(255,68,68,0.2); color: var(--accent-red); }
+        .status-used { background: rgba(0,255,136,0.2); color: var(--accent-green); }
+        .status-partial { background: rgba(255,107,53,0.2); color: var(--accent-orange); }
+
+        /* Flow Diagram */
+        .flow-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+        }
+        .flow-section h2 { color: var(--accent-purple); margin-bottom: 20px; }
+        .flow-diagram {
+            font-family: monospace;
+            font-size: 0.85rem;
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            white-space: pre;
+            line-height: 1.4;
+        }
+
+        /* Options */
+        .options-section { margin-bottom: 30px; }
+        .options-section h2 { color: var(--accent-green); margin-bottom: 20px; }
+
+        .option-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+        .option-card:hover {
+            border-color: var(--accent-blue);
+        }
+        .option-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .option-title {
+            font-size: 1.3rem;
+            color: var(--text-primary);
+        }
+        .option-badge {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .badge-recommended { background: rgba(0,255,136,0.2); color: var(--accent-green); }
+        .badge-complex { background: rgba(255,107,53,0.2); color: var(--accent-orange); }
+        .badge-workaround { background: rgba(155,89,182,0.2); color: var(--accent-purple); }
+
+        .option-desc { color: var(--text-secondary); margin-bottom: 15px; }
+
+        .pros-cons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .pros, .cons {
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .pros h4 { color: var(--accent-green); margin-bottom: 10px; }
+        .cons h4 { color: var(--accent-red); margin-bottom: 10px; }
+        .pros ul, .cons ul {
+            padding-left: 20px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .code-preview {
+            background: rgba(0,0,0,0.4);
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+        }
+        .code-preview .filename {
+            color: var(--accent-blue);
+            margin-bottom: 5px;
+        }
+        .code-preview pre {
+            color: var(--accent-green);
+            white-space: pre-wrap;
+        }
+
+        /* Comparison Table */
+        .comparison {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+            overflow-x: auto;
+        }
+        .comparison h2 { margin-bottom: 20px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        th { background: rgba(0,0,0,0.3); color: var(--accent-blue); }
+        tr:hover td { background: rgba(0,212,255,0.05); }
+        .check { color: var(--accent-green); }
+        .cross { color: var(--accent-red); }
+        .partial { color: var(--accent-orange); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Railway Deployment Strategy</h1>
+        <p class="subtitle">Decision guide for fixing the venv/start command issue</p>
+
+        <!-- Problem Statement -->
+        <div class="problem-box">
+            <h2>🚨 The Problem</h2>
+            <p><strong>Root Cause:</strong> Nixpacks auto-detects FastAPI and generates its own start command (<code>uvicorn backend.main:app</code>), completely ignoring the Procfile.</p>
+            <p style="margin-top: 10px;"><strong>Result:</strong> The start command runs without the venv activated, so <code>uvicorn</code> and <code>python-dotenv</code> aren't found.</p>
+            <p style="margin-top: 10px;"><strong>Evidence from build log:</strong></p>
+            <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; margin-top: 10px; font-family: monospace; font-size: 0.85rem;">
+                ║ start      │ uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}    ║<br>
+                <span style="color: var(--accent-red);">↑ Auto-generated by nixpacks, NOT from Procfile!</span>
+            </div>
+        </div>
+
+        <!-- Current State -->
+        <div class="current-state">
+            <h2>📁 Current File State</h2>
+            <div class="file-grid">
+                <div class="file-card">
+                    <div class="file-name">Procfile</div>
+                    <div class="file-content">web: . /app/venv/bin/activate && uvicorn ...
+worker: . /app/venv/bin/activate && python ...</div>
+                    <div class="file-status status-ignored">❌ IGNORED by nixpacks</div>
+                </div>
+                <div class="file-card">
+                    <div class="file-name">nixpacks.toml</div>
+                    <div class="file-content">[phases.install] ✅ Creates venv
+[variables] PATH includes venv
+[start] ❌ Removed (hoping Procfile works)</div>
+                    <div class="file-status status-partial">⚠️ Partial - no [start]</div>
+                </div>
+                <div class="file-card">
+                    <div class="file-name">railway.toml</div>
+                    <div class="file-content">[build] builder = "nixpacks"
+[deploy] restartPolicy only</div>
+                    <div class="file-status status-used">✅ Used for build config</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Why Procfile is Ignored -->
+        <div class="flow-section">
+            <h2>🔍 Why Nixpacks Ignores Procfile</h2>
+            <div class="flow-diagram">
+Nixpacks Start Command Detection Order:
+─────────────────────────────────────────────────────────────────────
+
+1. [start] in nixpacks.toml     → ❌ We removed it
+                                      ↓
+2. Procfile detection           → ⚠️ SKIPPED because...
+                                      ↓
+3. Framework auto-detection     → ✅ WINS! Nixpacks sees:
+                                   • uvicorn in requirements.txt
+                                   • backend/main.py with FastAPI app
+                                   • Generates: uvicorn backend.main:app
+
+<span style="color: #ff4444;">THE PROBLEM: Nixpacks Python provider has AGGRESSIVE auto-detection.
+It generates uvicorn command BEFORE checking Procfile if it detects FastAPI.</span>
+            </div>
+        </div>
+
+        <!-- Options -->
+        <div class="options-section">
+            <h2>🎯 Solution Options</h2>
+
+            <!-- Option A -->
+            <div class="option-card">
+                <div class="option-header">
+                    <div class="option-title">Option A: Start Script with Environment Variable</div>
+                    <span class="option-badge badge-recommended">✅ RECOMMENDED</span>
+                </div>
+                <div class="option-desc">
+                    Create a single start script that checks <code>RAILWAY_SERVICE_NAME</code> (auto-set by Railway) to run the correct command. Add <code>[start]</code> back to nixpacks.toml pointing to this script.
+                </div>
+                <div class="pros-cons">
+                    <div class="pros">
+                        <h4>✅ Pros</h4>
+                        <ul>
+                            <li>All config in files (no UI changes)</li>
+                            <li>Single source of truth</li>
+                            <li>Works with Railway's multi-service model</li>
+                            <li>Venv activation guaranteed</li>
+                        </ul>
+                    </div>
+                    <div class="cons">
+                        <h4>❌ Cons</h4>
+                        <ul>
+                            <li>Extra start.sh file</li>
+                            <li>Relies on RAILWAY_SERVICE_NAME env var</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="code-preview">
+                    <div class="filename">scripts/start.sh (new file)</div>
+<pre>#!/bin/bash
+source /app/venv/bin/activate
+
+if [ "$SERVICE_TYPE" = "worker" ]; then
+    exec python backend/livekit_worker.py start
+else
+    exec uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}
+fi</pre>
+                    <div class="filename" style="margin-top: 15px;">nixpacks.toml (add [start])</div>
+<pre>[start]
+cmd = "bash scripts/start.sh"</pre>
+                    <div class="filename" style="margin-top: 15px;">Railway UI: Set SERVICE_TYPE env var</div>
+<pre>Web service:    SERVICE_TYPE=web
+Worker service: SERVICE_TYPE=worker</pre>
+                </div>
+            </div>
+
+            <!-- Option B -->
+            <div class="option-card">
+                <div class="option-header">
+                    <div class="option-title">Option B: Custom Dockerfile (Replace Nixpacks)</div>
+                    <span class="option-badge badge-complex">⚙️ MORE CONTROL</span>
+                </div>
+                <div class="option-desc">
+                    Ditch nixpacks entirely. Create a Dockerfile with full control over the build and start process. Railway will auto-detect and use it.
+                </div>
+                <div class="pros-cons">
+                    <div class="pros">
+                        <h4>✅ Pros</h4>
+                        <ul>
+                            <li>Complete control over everything</li>
+                            <li>No nixpacks quirks</li>
+                            <li>Industry standard</li>
+                            <li>Can use Procfile properly via honcho/foreman</li>
+                        </ul>
+                    </div>
+                    <div class="cons">
+                        <h4>❌ Cons</h4>
+                        <ul>
+                            <li>More complex setup</li>
+                            <li>Need to manage base images</li>
+                            <li>Longer initial setup time</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="code-preview">
+                    <div class="filename">Dockerfile (new file)</div>
+<pre>FROM python:3.11-slim
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y ffmpeg libopus0
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install 'livekit-agents[deepgram,cartesia,openai,silero]==1.1.7'
+
+COPY . .
+
+# Use environment variable to determine which service to run
+CMD ["bash", "scripts/start.sh"]</pre>
+                </div>
+            </div>
+
+            <!-- Option C -->
+            <div class="option-card">
+                <div class="option-header">
+                    <div class="option-title">Option C: Force Nixpacks [start] Per Service</div>
+                    <span class="option-badge badge-workaround">🔧 WORKAROUND</span>
+                </div>
+                <div class="option-desc">
+                    Add <code>[start]</code> back to nixpacks.toml for the web service. Create a separate branch or use Railway's "Root Directory" feature for the worker with a different nixpacks.toml.
+                </div>
+                <div class="pros-cons">
+                    <div class="pros">
+                        <h4>✅ Pros</h4>
+                        <ul>
+                            <li>Simple config change</li>
+                            <li>No new files needed</li>
+                        </ul>
+                    </div>
+                    <div class="cons">
+                        <h4>❌ Cons</h4>
+                        <ul>
+                            <li>Requires branch/directory tricks</li>
+                            <li>Hard to maintain</li>
+                            <li>Not truly "in files"</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Option D -->
+            <div class="option-card">
+                <div class="option-header">
+                    <div class="option-title">Option D: Monorepo with Service Directories</div>
+                    <span class="option-badge badge-complex">📁 RESTRUCTURE</span>
+                </div>
+                <div class="option-desc">
+                    Restructure the repo with separate directories for web and worker, each with their own nixpacks.toml. Use Railway's "Root Directory" feature to point each service to its directory.
+                </div>
+                <div class="pros-cons">
+                    <div class="pros">
+                        <h4>✅ Pros</h4>
+                        <ul>
+                            <li>Clean separation</li>
+                            <li>Each service fully independent</li>
+                            <li>Standard monorepo pattern</li>
+                        </ul>
+                    </div>
+                    <div class="cons">
+                        <h4>❌ Cons</h4>
+                        <ul>
+                            <li>Major repo restructure</li>
+                            <li>Duplicate config files</li>
+                            <li>More maintenance overhead</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Comparison Table -->
+        <div class="comparison">
+            <h2>📊 Quick Comparison</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Criteria</th>
+                        <th>A: Start Script</th>
+                        <th>B: Dockerfile</th>
+                        <th>C: Branch/Dir</th>
+                        <th>D: Monorepo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>All config in files</td>
+                        <td class="check">✅</td>
+                        <td class="check">✅</td>
+                        <td class="partial">⚠️</td>
+                        <td class="check">✅</td>
+                    </tr>
+                    <tr>
+                        <td>No repo restructure</td>
+                        <td class="check">✅</td>
+                        <td class="check">✅</td>
+                        <td class="check">✅</td>
+                        <td class="cross">❌</td>
+                    </tr>
+                    <tr>
+                        <td>Easy to maintain</td>
+                        <td class="check">✅</td>
+                        <td class="partial">⚠️</td>
+                        <td class="cross">❌</td>
+                        <td class="partial">⚠️</td>
+                    </tr>
+                    <tr>
+                        <td>Production ready</td>
+                        <td class="check">✅</td>
+                        <td class="check">✅</td>
+                        <td class="partial">⚠️</td>
+                        <td class="check">✅</td>
+                    </tr>
+                    <tr>
+                        <td>Implementation time</td>
+                        <td>~10 min</td>
+                        <td>~30 min</td>
+                        <td>~15 min</td>
+                        <td>~2 hours</td>
+                    </tr>
+                    <tr>
+                        <td>Future flexibility</td>
+                        <td class="check">✅</td>
+                        <td class="check">✅✅</td>
+                        <td class="cross">❌</td>
+                        <td class="check">✅</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Recommendation -->
+        <div style="background: linear-gradient(135deg, rgba(0,255,136,0.1), rgba(0,212,255,0.1)); border: 2px solid var(--accent-green); border-radius: 12px; padding: 25px;">
+            <h2 style="color: var(--accent-green); margin-bottom: 15px;">💡 My Recommendation: Option A</h2>
+            <p style="color: var(--text-secondary);">
+                <strong>Option A (Start Script)</strong> is the best balance of:
+            </p>
+            <ul style="color: var(--text-secondary); margin-top: 10px; padding-left: 25px;">
+                <li>All configuration in version-controlled files</li>
+                <li>No major repo changes</li>
+                <li>Works with Railway's existing multi-service architecture</li>
+                <li>Easy to understand and maintain</li>
+                <li>Quick to implement (~10 minutes)</li>
+            </ul>
+            <p style="color: var(--text-secondary); margin-top: 15px;">
+                The only requirement is setting <code>SERVICE_TYPE=web</code> or <code>SERVICE_TYPE=worker</code> as an environment variable in each Railway service. This is a one-time UI change, and after that everything is controlled by files.
+            </p>
+        </div>
+
+        <footer style="text-align: center; padding: 40px 0; color: var(--text-secondary);">
+            <p>Railway Deployment Strategy Guide</p>
+            <p style="font-size: 0.85rem; margin-top: 10px;">December 2025</p>
+        </footer>
+    </div>
+</body>
+</html>

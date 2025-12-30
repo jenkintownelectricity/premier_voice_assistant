@@ -3,35 +3,49 @@ HIVE215 Brain Client - Connect to Fast Brain LPU API
 
 This module provides a clean interface for HIVE215 to communicate
 with the Fast Brain service deployed on Modal. It handles:
-- OpenAI-compatible chat completions
+- Hybrid chat (auto-routes System 1 Fast Brain vs System 2 Deep Brain)
+- Voice chat with TTS hints
+- Filler phrase handling for natural conversation flow
 - Skills management and selection
 - Automatic fallback if Brain is unavailable
-- Turn-taking via local logic (Fast Brain doesn't have this endpoint)
+- Turn-taking via local logic
 
-Fast Brain API:
-- GET /health - Health check
-- GET /v1/skills - List available skills
+Fast Brain API (Dual-System Architecture):
+- GET  /health - Health check with architecture info
+- GET  /v1/skills - List available skills
 - POST /v1/skills - Create custom skill
-- POST /v1/chat/completions - Chat completion (OpenAI-compatible)
+- GET  /v1/greeting/{skill_id} - Get skill-specific greeting
+- GET  /v1/fillers - Get filler phrase categories
+- POST /v1/chat/completions - OpenAI-compatible chat (direct)
+- POST /v1/chat/hybrid - Auto-routes Fast (Groq ~80ms) vs Deep (Claude ~2s)
+- POST /v1/chat/voice - Returns text + voice hints for TTS
+
+System Architecture:
+- System 1 (Fast Brain): Groq LPU + Llama 3.3 70B (~80ms) - 90% of queries
+- System 2 (Deep Brain): Claude 3.5 Sonnet (~2000ms) - Complex analysis
+- When System 2 is needed, returns a filler phrase to play while waiting
 
 Usage:
     from brain_client import FastBrainClient
 
     brain = FastBrainClient(
-        base_url="https://jenkintownelectricity--fast-brain-lpu-fastbrainlpu-serve.modal.run",
+        base_url="https://jenkintownelectricity--fast-brain-lpu-fastapi-app.modal.run",
         default_skill="receptionist"
     )
 
-    # Simple request
-    response = await brain.think("What are your hours?")
-    print(response.text)
+    # Hybrid chat (recommended for voice)
+    response = await brain.hybrid_chat("What are your hours?")
+    if response.filler:
+        # Play filler while waiting for deep response
+        await tts.speak(response.filler)
+    await tts.speak(response.content)
 
-    # With conversation history
-    response = await brain.chat([
-        {"role": "user", "content": "I need a plumber"},
-        {"role": "assistant", "content": "I can help with that!"},
-        {"role": "user", "content": "What are your hours?"}
-    ], skill="plumber")
+    # Voice chat with TTS hints
+    voice_response = await brain.voice_chat("I need a plumber")
+    # voice_response.voice contains voice description for Parler TTS
+
+    # Get skill-specific greeting
+    greeting = await brain.get_greeting("electrician")
 """
 
 import asyncio
@@ -88,6 +102,93 @@ class ThinkResponse:
             latency_ms=latency_ms,
             skill_used=skill_used,
             tokens_per_sec=tokens_per_sec,
+        )
+
+
+@dataclass
+class HybridResponse:
+    """
+    Response from Fast Brain's hybrid endpoint.
+
+    The hybrid endpoint auto-routes between:
+    - System 1 (Fast Brain): Groq ~80ms for simple queries
+    - System 2 (Deep Brain): Claude ~2000ms for complex analysis
+
+    When System 2 is used, a filler phrase is returned to play
+    while waiting for the deep response.
+    """
+    content: str
+    filler: Optional[str]  # Filler phrase to play while waiting (only if System 2 used)
+    system_used: str  # "fast" or "deep"
+    fast_latency_ms: float
+    deep_latency_ms: Optional[float] = None
+    skill_used: str = "default"
+
+    @property
+    def used_deep_brain(self) -> bool:
+        """Check if System 2 (Claude) was used."""
+        return self.system_used == "deep"
+
+    @property
+    def total_latency_ms(self) -> float:
+        """Get total latency (fast + deep if applicable)."""
+        if self.deep_latency_ms:
+            return self.fast_latency_ms + self.deep_latency_ms
+        return self.fast_latency_ms
+
+    @classmethod
+    def from_api_response(cls, data: dict) -> "HybridResponse":
+        """Parse hybrid endpoint response."""
+        return cls(
+            content=data.get("content", ""),
+            filler=data.get("filler"),  # None if System 1 was used
+            system_used=data.get("system_used", "fast"),
+            fast_latency_ms=data.get("fast_latency_ms", 0.0),
+            deep_latency_ms=data.get("deep_latency_ms"),
+            skill_used=data.get("skill_used", "default"),
+        )
+
+
+@dataclass
+class VoiceResponse:
+    """
+    Response from Fast Brain's voice endpoint.
+
+    Includes text + voice descriptions for TTS systems like Parler TTS
+    that can interpret voice personality descriptions.
+    """
+    text: str
+    voice: str  # Voice description (e.g., "A warm, friendly female voice")
+    filler_text: Optional[str] = None
+    filler_voice: Optional[str] = None
+    system_used: str = "fast"
+
+    @classmethod
+    def from_api_response(cls, data: dict) -> "VoiceResponse":
+        """Parse voice endpoint response."""
+        return cls(
+            text=data.get("text", ""),
+            voice=data.get("voice", "A clear, professional voice"),
+            filler_text=data.get("filler_text"),
+            filler_voice=data.get("filler_voice"),
+            system_used=data.get("system_used", "fast"),
+        )
+
+
+@dataclass
+class SkillGreeting:
+    """Greeting for a specific skill."""
+    text: str
+    voice: str  # Voice description for TTS
+    skill_id: str
+
+    @classmethod
+    def from_api_response(cls, data: dict, skill_id: str) -> "SkillGreeting":
+        """Parse greeting endpoint response."""
+        return cls(
+            text=data.get("text", "Hello, how can I help you?"),
+            voice=data.get("voice", "A warm, friendly voice"),
+            skill_id=skill_id,
         )
 
 
@@ -351,7 +452,235 @@ class FastBrainClient:
             )
 
         raise BrainUnavailableError("Brain service unavailable and no fallback configured")
-    
+
+    # =========================================================================
+    # HYBRID CHAT (Recommended for Voice - Auto System 1/2 Routing)
+    # =========================================================================
+
+    async def hybrid_chat(
+        self,
+        messages: list[Dict[str, str]],
+        skill: Optional[str] = None,
+        user_context: Optional[Dict[str, Any]] = None,
+    ) -> HybridResponse:
+        """
+        Send chat to hybrid endpoint (auto-routes Fast vs Deep Brain).
+
+        This is the RECOMMENDED endpoint for voice agents because:
+        1. Simple queries get ~80ms responses (System 1 / Groq)
+        2. Complex queries use Claude but return a filler phrase first
+        3. The filler can be synthesized while waiting for the deep response
+
+        Args:
+            messages: List of messages [{"role": "user", "content": "..."}]
+            skill: Skill adapter to use (defaults to self.default_skill)
+            user_context: Optional context (business_name, caller_name, etc.)
+
+        Returns:
+            HybridResponse with content, filler (if System 2), and latencies
+        """
+        skill = skill or self.default_skill
+
+        request_data = {
+            "messages": messages,
+            "skill": skill,
+        }
+
+        if user_context:
+            request_data["user_context"] = user_context
+
+        for attempt in range(self.max_retries):
+            try:
+                client = await self._get_http_client()
+                response = await client.post(
+                    f"{self.base_url}/v1/chat/hybrid",
+                    json=request_data,
+                    timeout=15.0,  # Allow time for System 2
+                )
+
+                if response.status_code == 200:
+                    return HybridResponse.from_api_response(response.json())
+                elif response.status_code == 503:
+                    logger.warning("Brain service unavailable")
+                    break
+                else:
+                    logger.error(f"Hybrid chat error: {response.status_code} - {response.text}")
+
+            except httpx.TimeoutException:
+                logger.warning(f"Hybrid chat timeout (attempt {attempt + 1}/{self.max_retries})")
+            except Exception as e:
+                logger.error(f"Hybrid chat failed: {e}")
+
+        # Use fallback - return as HybridResponse
+        if self.fallback_handler:
+            logger.info("Using fallback handler for hybrid chat")
+            last_user_msg = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    last_user_msg = msg.get("content", "")
+                    break
+            fallback_text = await self.fallback_handler(last_user_msg, skill)
+            return HybridResponse(
+                content=fallback_text,
+                filler=None,
+                system_used="fallback",
+                fast_latency_ms=0,
+                skill_used="fallback",
+            )
+
+        raise BrainUnavailableError("Hybrid chat unavailable and no fallback configured")
+
+    async def hybrid_think(
+        self,
+        user_input: str,
+        skill: Optional[str] = None,
+        user_context: Optional[Dict[str, Any]] = None,
+    ) -> HybridResponse:
+        """
+        Single-turn wrapper for hybrid_chat.
+
+        Args:
+            user_input: What the user said
+            skill: Skill adapter to use
+            user_context: Optional context
+
+        Returns:
+            HybridResponse
+        """
+        messages = [{"role": "user", "content": user_input}]
+        return await self.hybrid_chat(messages, skill=skill, user_context=user_context)
+
+    # =========================================================================
+    # VOICE CHAT (With TTS Voice Hints)
+    # =========================================================================
+
+    async def voice_chat(
+        self,
+        messages: list[Dict[str, str]],
+        skill: Optional[str] = None,
+        user_context: Optional[Dict[str, Any]] = None,
+    ) -> VoiceResponse:
+        """
+        Send chat to voice endpoint (returns text + voice hints for TTS).
+
+        Use this endpoint if your TTS system can interpret voice descriptions
+        (like Parler TTS). Otherwise, use hybrid_chat.
+
+        Args:
+            messages: List of messages
+            skill: Skill adapter to use
+            user_context: Optional context
+
+        Returns:
+            VoiceResponse with text, voice description, and filler info
+        """
+        skill = skill or self.default_skill
+
+        request_data = {
+            "messages": messages,
+            "skill": skill,
+        }
+
+        if user_context:
+            request_data["user_context"] = user_context
+
+        try:
+            client = await self._get_http_client()
+            response = await client.post(
+                f"{self.base_url}/v1/chat/voice",
+                json=request_data,
+                timeout=15.0,
+            )
+
+            if response.status_code == 200:
+                return VoiceResponse.from_api_response(response.json())
+            else:
+                logger.error(f"Voice chat error: {response.status_code}")
+
+        except Exception as e:
+            logger.error(f"Voice chat failed: {e}")
+
+        # Fallback
+        return VoiceResponse(
+            text="I apologize, but I'm having trouble processing that right now.",
+            voice="A calm, apologetic voice",
+            system_used="fallback",
+        )
+
+    # =========================================================================
+    # GREETING (Skill-Specific)
+    # =========================================================================
+
+    async def get_greeting(self, skill: Optional[str] = None) -> SkillGreeting:
+        """
+        Get the greeting for a specific skill.
+
+        Args:
+            skill: Skill ID (defaults to self.default_skill)
+
+        Returns:
+            SkillGreeting with text and voice description
+        """
+        skill = skill or self.default_skill
+
+        try:
+            client = await self._get_http_client()
+            response = await client.get(
+                f"{self.base_url}/v1/greeting/{skill}",
+                timeout=5.0,
+            )
+
+            if response.status_code == 200:
+                return SkillGreeting.from_api_response(response.json(), skill)
+            else:
+                logger.warning(f"Greeting not found for skill: {skill}")
+
+        except Exception as e:
+            logger.error(f"Failed to get greeting: {e}")
+
+        # Default greeting
+        return SkillGreeting(
+            text="Hello! How can I help you today?",
+            voice="A warm, friendly voice",
+            skill_id=skill,
+        )
+
+    # =========================================================================
+    # FILLER PHRASES
+    # =========================================================================
+
+    async def get_fillers(self) -> Dict[str, Any]:
+        """
+        Get all filler phrase categories.
+
+        Returns:
+            Dict with categories and phrases for custom handling
+        """
+        try:
+            client = await self._get_http_client()
+            response = await client.get(
+                f"{self.base_url}/v1/fillers",
+                timeout=5.0,
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+        except Exception as e:
+            logger.warning(f"Failed to get fillers: {e}")
+
+        # Default fillers
+        return {
+            "categories": ["default"],
+            "phrases": {
+                "default": [
+                    "Let me look into that for you...",
+                    "One moment please...",
+                    "Let me check on that...",
+                ]
+            }
+        }
+
     # =========================================================================
     # STREAM (Currently falls back to HTTP)
     # =========================================================================
@@ -681,7 +1010,7 @@ async def test_client():
 
     url = os.environ.get(
         "FAST_BRAIN_URL",
-        "https://jenkintownelectricity--fast-brain-lpu-fastbrainlpu-serve.modal.run"
+        "https://jenkintownelectricity--fast-brain-lpu-fastapi-app.modal.run"
     )
     print(f"Testing Brain client against: {url}")
 
@@ -700,24 +1029,50 @@ async def test_client():
 
     # Get full health info
     health_info = await client.get_health_info()
-    print(f"   Backend: {health_info.get('backend', 'unknown')}")
-    print(f"   Skills available: {health_info.get('skills_available', [])}")
+    print(f"   Architecture: {health_info.get('architecture', 'unknown')}")
+    print(f"   System 1: {health_info.get('system1', {}).get('model', 'unknown')}")
+    print(f"   System 2: {health_info.get('system2', {}).get('model', 'unknown')}")
+    print(f"   Skills: {health_info.get('skills', [])}")
 
     # Test skills list
     print("\n2. List skills...")
     skills = await client.list_skills()
     print(f"   Available: {[s.name for s in skills]}")
 
-    # Test chat
-    print("\n3. Chat (receptionist skill)...")
-    response = await client.think("Hello, I need to schedule an appointment", skill="receptionist")
-    print(f"   Response: {response.text[:150]}...")
-    print(f"   TTFB: {response.latency_ms:.0f}ms")
-    print(f"   Tokens/sec: {response.tokens_per_sec:.0f}")
-    print(f"   Skill used: {response.skill_used}")
+    # Test greeting
+    print("\n3. Get skill greeting...")
+    greeting = await client.get_greeting("electrician")
+    print(f"   Text: {greeting.text[:80]}...")
+    print(f"   Voice: {greeting.voice}")
+
+    # Test hybrid chat (simple query - System 1)
+    print("\n4. Hybrid chat (simple query - should use System 1)...")
+    response = await client.hybrid_think("What are your hours?", skill="electrician")
+    print(f"   Response: {response.content[:100]}...")
+    print(f"   System used: {response.system_used}")
+    print(f"   Fast latency: {response.fast_latency_ms:.0f}ms")
+    print(f"   Filler: {response.filler}")
+
+    # Test hybrid chat (complex query - System 2)
+    print("\n5. Hybrid chat (complex query - should use System 2)...")
+    response = await client.hybrid_think(
+        "Can you analyze my 850 kWh usage and predict next month's bill at $0.12/kWh?",
+        skill="electrician"
+    )
+    print(f"   Response: {response.content[:150]}...")
+    print(f"   System used: {response.system_used}")
+    print(f"   Fast latency: {response.fast_latency_ms:.0f}ms")
+    print(f"   Deep latency: {response.deep_latency_ms}ms" if response.deep_latency_ms else "   Deep latency: N/A")
+    print(f"   Filler: {response.filler}")
+
+    # Test fillers
+    print("\n6. Get filler phrases...")
+    fillers = await client.get_fillers()
+    print(f"   Categories: {fillers.get('categories', [])}")
+    print(f"   Sample: {list(fillers.get('phrases', {}).values())[0][0] if fillers.get('phrases') else 'N/A'}")
 
     # Test turn analysis (local)
-    print("\n4. Turn analysis (local)...")
+    print("\n7. Turn analysis (local)...")
     result = await client.analyze_turn("Yeah so I was wondering...", silence_ms=300)
     print(f"   Action: {result.action}")
     print(f"   Confidence: {result.confidence}")

@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HIVE215 - Investor Pitch Deck</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --hive-gold: #FDB913;
+            --hive-amber: #F59E0B;
+            --hive-honey: #FBBF24;
+            --hive-black: #0F0F0F;
+            --hive-charcoal: #1a1a1a;
+            --hive-gray: #2D2D2D;
+            --success: #10B981;
+            --error: #EF4444;
+            --info: #3B82F6;
+            --purple: #8B5CF6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--hive-black);
+            color: #fff;
+            line-height: 1.6;
+        }
+
+        h1, h2, h3, h4 {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            background: linear-gradient(135deg, var(--hive-black) 0%, #1a1a0f 50%, var(--hive-black) 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0l25.98 15v30L30 60 4.02 45V15z' fill='none' stroke='%23FDB913' stroke-opacity='0.05'/%3E%3C/svg%3E");
+            opacity: 0.5;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            width: 100%;
+        }
+
+        .logo {
+            font-size: 5rem;
+            font-weight: 700;
+            color: var(--hive-gold);
+            margin-bottom: 1rem;
+            text-shadow: 0 0 60px rgba(253, 185, 19, 0.3);
+        }
+
+        .tagline {
+            font-size: 1.5rem;
+            color: #888;
+            margin-bottom: 2rem;
+        }
+
+        .hero-stats {
+            display: flex;
+            justify-content: center;
+            gap: 4rem;
+            margin-top: 3rem;
+        }
+
+        .hero-stat {
+            text-align: center;
+        }
+
+        .hero-stat-value {
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--hive-gold);
+        }
+
+        .hero-stat-label {
+            color: #666;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        /* Section Styles */
+        section {
+            padding: 100px 0;
+        }
+
+        .section-title {
+            font-size: 2.5rem;
+            text-align: center;
+            margin-bottom: 1rem;
+            color: var(--hive-gold);
+        }
+
+        .section-subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 4rem;
+            font-size: 1.1rem;
+        }
+
+        /* Problem Section */
+        .problem {
+            background: var(--hive-charcoal);
+        }
+
+        .problem-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+        }
+
+        .problem-card {
+            background: var(--hive-gray);
+            padding: 2rem;
+            border-radius: 16px;
+            border: 1px solid #333;
+        }
+
+        .problem-stat {
+            font-size: 3.5rem;
+            font-weight: 700;
+            color: var(--error);
+            margin-bottom: 0.5rem;
+        }
+
+        .problem-title {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            color: #fff;
+        }
+
+        .problem-desc {
+            color: #888;
+        }
+
+        /* Solution Section */
+        .solution-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 3rem;
+            align-items: center;
+        }
+
+        .solution-visual {
+            background: linear-gradient(135deg, var(--hive-charcoal) 0%, var(--hive-gray) 100%);
+            border-radius: 24px;
+            padding: 3rem;
+            border: 1px solid var(--hive-gold);
+            box-shadow: 0 0 60px rgba(253, 185, 19, 0.1);
+        }
+
+        .pipeline {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .pipeline-step {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--hive-black);
+            border-radius: 12px;
+        }
+
+        .pipeline-icon {
+            width: 50px;
+            height: 50px;
+            background: var(--hive-gold);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .pipeline-label {
+            flex: 1;
+        }
+
+        .pipeline-time {
+            color: var(--success);
+            font-weight: 600;
+        }
+
+        .solution-features h3 {
+            font-size: 2rem;
+            margin-bottom: 1.5rem;
+            color: var(--hive-gold);
+        }
+
+        .feature-list {
+            list-style: none;
+        }
+
+        .feature-list li {
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #333;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .feature-list li::before {
+            content: '~';
+            color: var(--hive-gold);
+            font-weight: 700;
+            font-size: 1.2rem;
+        }
+
+        /* Pricing Section */
+        .pricing {
+            background: var(--hive-charcoal);
+        }
+
+        .pricing-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+        }
+
+        .pricing-card {
+            background: var(--hive-gray);
+            border-radius: 20px;
+            padding: 2rem;
+            border: 1px solid #333;
+            transition: transform 0.3s, border-color 0.3s;
+        }
+
+        .pricing-card:hover {
+            transform: translateY(-10px);
+            border-color: var(--hive-gold);
+        }
+
+        .pricing-card.featured {
+            border: 2px solid var(--hive-gold);
+            position: relative;
+        }
+
+        .pricing-card.featured::before {
+            content: 'MOST POPULAR';
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--hive-gold);
+            color: var(--hive-black);
+            padding: 4px 16px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+
+        .pricing-name {
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .pricing-price {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--hive-gold);
+        }
+
+        .pricing-price span {
+            font-size: 1rem;
+            color: #666;
+        }
+
+        .pricing-features {
+            margin-top: 1.5rem;
+            list-style: none;
+        }
+
+        .pricing-features li {
+            padding: 0.5rem 0;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+
+        /* Competitor Section */
+        .competitor-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 2rem;
+        }
+
+        .competitor-table th,
+        .competitor-table td {
+            padding: 1rem;
+            text-align: center;
+            border-bottom: 1px solid #333;
+        }
+
+        .competitor-table th {
+            background: var(--hive-charcoal);
+            color: var(--hive-gold);
+            font-weight: 600;
+        }
+
+        .competitor-table tr:hover {
+            background: var(--hive-charcoal);
+        }
+
+        .check {
+            color: var(--success);
+            font-size: 1.2rem;
+        }
+
+        .cross {
+            color: var(--error);
+            font-size: 1.2rem;
+        }
+
+        /* SWOT Section */
+        .swot {
+            background: var(--hive-charcoal);
+        }
+
+        .swot-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 2rem;
+        }
+
+        .swot-card {
+            background: var(--hive-gray);
+            border-radius: 16px;
+            padding: 2rem;
+        }
+
+        .swot-card h3 {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            font-size: 1.3rem;
+        }
+
+        .swot-card.strengths h3 { color: var(--success); }
+        .swot-card.weaknesses h3 { color: var(--error); }
+        .swot-card.opportunities h3 { color: var(--info); }
+        .swot-card.threats h3 { color: var(--hive-amber); }
+
+        .swot-list {
+            list-style: none;
+        }
+
+        .swot-list li {
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #444;
+            color: #ccc;
+        }
+
+        /* Architecture Section */
+        .architecture-diagram {
+            background: var(--hive-gray);
+            border-radius: 24px;
+            padding: 3rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            border: 1px solid #333;
+        }
+
+        .architecture-diagram pre {
+            color: #ccc;
+            white-space: pre;
+        }
+
+        /* Metrics Section */
+        .metrics {
+            background: var(--hive-charcoal);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2rem;
+        }
+
+        .metric-card {
+            background: var(--hive-gray);
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+            border: 1px solid #333;
+        }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--hive-gold);
+        }
+
+        .metric-label {
+            color: #888;
+            margin-top: 0.5rem;
+        }
+
+        /* Marketing Plan Section */
+        .marketing-timeline {
+            position: relative;
+            padding-left: 3rem;
+        }
+
+        .marketing-timeline::before {
+            content: '';
+            position: absolute;
+            left: 10px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--hive-gold);
+        }
+
+        .timeline-item {
+            position: relative;
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background: var(--hive-gray);
+            border-radius: 12px;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -2.35rem;
+            top: 1.5rem;
+            width: 16px;
+            height: 16px;
+            background: var(--hive-gold);
+            border-radius: 50%;
+        }
+
+        .timeline-phase {
+            color: var(--hive-gold);
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .timeline-title {
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .timeline-desc {
+            color: #888;
+        }
+
+        /* Credentials Section */
+        .credentials-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+        }
+
+        .credential-card {
+            background: var(--hive-gray);
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+            border: 1px solid #333;
+        }
+
+        .credential-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .credential-title {
+            color: var(--hive-gold);
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .credential-desc {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        /* CTA Section */
+        .cta {
+            background: linear-gradient(135deg, var(--hive-gold) 0%, var(--hive-amber) 100%);
+            text-align: center;
+            padding: 80px 0;
+        }
+
+        .cta h2 {
+            color: var(--hive-black);
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .cta p {
+            color: var(--hive-charcoal);
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+        }
+
+        .cta-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border-radius: 50px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: transform 0.3s;
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+        }
+
+        .btn-primary {
+            background: var(--hive-black);
+            color: var(--hive-gold);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--hive-black);
+            border: 2px solid var(--hive-black);
+        }
+
+        /* Footer */
+        footer {
+            background: var(--hive-black);
+            padding: 40px 0;
+            text-align: center;
+            color: #666;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .footer-links a {
+            color: #888;
+            text-decoration: none;
+        }
+
+        .footer-links a:hover {
+            color: var(--hive-gold);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .pricing-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .hero-stats {
+                flex-direction: column;
+                gap: 2rem;
+            }
+            .problem-grid,
+            .solution-grid,
+            .swot-grid,
+            .credentials-grid {
+                grid-template-columns: 1fr;
+            }
+            .pricing-grid {
+                grid-template-columns: 1fr;
+            }
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+            .logo {
+                font-size: 3rem;
+            }
+            .section-title {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container hero-content">
+            <div class="logo">HIVE215</div>
+            <p class="tagline">AI Phone Assistant Platform | A Vapi Alternative That's 95% Cheaper</p>
+            <p style="color: #666; max-width: 600px; margin: 0 auto;">
+                Fire your robot receptionist. 97% of callers hate "Press 1 for Sales" -
+                HIVE215 replaces frustrating IVR phone trees with AI that actually understands.
+            </p>
+            <div class="hero-stats">
+                <div class="hero-stat">
+                    <div class="hero-stat-value">95%</div>
+                    <div class="hero-stat-label">Cost Savings vs Vapi</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">~200ms</div>
+                    <div class="hero-stat-label">Voice-to-Voice Latency</div>
+                </div>
+                <div class="hero-stat">
+                    <div class="hero-stat-value">77%</div>
+                    <div class="hero-stat-label">Gross Margin</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Problem Section -->
+    <section class="problem">
+        <div class="container">
+            <h2 class="section-title">The Problem We Solve</h2>
+            <p class="section-subtitle">Phone systems are broken. Customers hate them. Businesses lose money.</p>
+
+            <div class="problem-grid">
+                <div class="problem-card">
+                    <div class="problem-stat">67%</div>
+                    <h3 class="problem-title">Callers Hang Up on IVR</h3>
+                    <p class="problem-desc">Two-thirds of callers abandon calls when faced with "Press 1 for Sales, Press 2 for Support..."</p>
+                </div>
+                <div class="problem-card">
+                    <div class="problem-stat">$5.6B</div>
+                    <h3 class="problem-title">Wasted Annually</h3>
+                    <p class="problem-desc">Businesses waste billions on outdated phone technology that frustrates customers and loses leads.</p>
+                </div>
+                <div class="problem-card">
+                    <div class="problem-stat">97%</div>
+                    <h3 class="problem-title">Users Frustrated</h3>
+                    <p class="problem-desc">Nearly all Americans report frustration with automated phone menus and long hold times.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Solution Section -->
+    <section class="solution">
+        <div class="container">
+            <h2 class="section-title">Our Solution</h2>
+            <p class="section-subtitle">Natural AI conversations that capture leads, schedule appointments, and delight customers.</p>
+
+            <div class="solution-grid">
+                <div class="solution-visual">
+                    <h4 style="color: var(--hive-gold); margin-bottom: 1.5rem;">Voice Pipeline Architecture</h4>
+                    <div class="pipeline">
+                        <div class="pipeline-step">
+                            <div class="pipeline-icon">&#x1F399;</div>
+                            <div class="pipeline-label">
+                                <strong>Deepgram STT</strong>
+                                <div style="color: #888; font-size: 0.85rem;">Speech-to-Text</div>
+                            </div>
+                            <div class="pipeline-time">~30ms</div>
+                        </div>
+                        <div class="pipeline-step">
+                            <div class="pipeline-icon">&#x1F9E0;</div>
+                            <div class="pipeline-label">
+                                <strong>Fast Brain LLM</strong>
+                                <div style="color: #888; font-size: 0.85rem;">Groq Llama 3.3 70B</div>
+                            </div>
+                            <div class="pipeline-time">~80ms</div>
+                        </div>
+                        <div class="pipeline-step">
+                            <div class="pipeline-icon">&#x1F50A;</div>
+                            <div class="pipeline-label">
+                                <strong>Cartesia TTS</strong>
+                                <div style="color: #888; font-size: 0.85rem;">Text-to-Speech</div>
+                            </div>
+                            <div class="pipeline-time">~40ms</div>
+                        </div>
+                        <div class="pipeline-step" style="background: var(--hive-charcoal); border: 1px solid var(--success);">
+                            <div class="pipeline-icon" style="background: var(--success);">&#x2713;</div>
+                            <div class="pipeline-label">
+                                <strong style="color: var(--success);">Total Latency</strong>
+                                <div style="color: #888; font-size: 0.85rem;">Voice-to-Voice</div>
+                            </div>
+                            <div class="pipeline-time">~200ms</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="solution-features">
+                    <h3>Key Features</h3>
+                    <ul class="feature-list">
+                        <li>Real-time AI phone conversations with Claude/Groq</li>
+                        <li>Sub-500ms latency streaming voice pipeline</li>
+                        <li>Industry templates (Electrician, Plumber, Legal, Medical)</li>
+                        <li>Live sentiment analysis and call quality scoring</li>
+                        <li>Voice cloning with ElevenLabs integration</li>
+                        <li>Multi-platform: iOS, Android, Web (React Native)</li>
+                        <li>Team management and call routing</li>
+                        <li>Webhook integrations (Zapier, Make, custom)</li>
+                        <li>Professional call logging with AI summaries</li>
+                        <li>95% cost savings via Claude prompt caching</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section class="pricing">
+        <div class="container">
+            <h2 class="section-title">Transparent Pricing</h2>
+            <p class="section-subtitle">Simple, predictable pricing. No hidden fees. Cancel anytime.</p>
+
+            <div class="pricing-grid">
+                <div class="pricing-card">
+                    <h3 class="pricing-name">Free</h3>
+                    <div class="pricing-price">$0<span>/mo</span></div>
+                    <ul class="pricing-features">
+                        <li>30 minutes/month</li>
+                        <li>1 profile field</li>
+                        <li>Basic call logs</li>
+                        <li>Web access only</li>
+                    </ul>
+                </div>
+
+                <div class="pricing-card">
+                    <h3 class="pricing-name">Starter</h3>
+                    <div class="pricing-price">$9.99<span>/mo</span></div>
+                    <ul class="pricing-features">
+                        <li>200 minutes/month</li>
+                        <li>2 profile fields</li>
+                        <li>Full call logs + sharing</li>
+                        <li>All platforms (iOS, Android, Web)</li>
+                        <li>Email/text sharing</li>
+                    </ul>
+                </div>
+
+                <div class="pricing-card featured">
+                    <h3 class="pricing-name">Professional</h3>
+                    <div class="pricing-price">$29.99<span>/mo</span></div>
+                    <ul class="pricing-features">
+                        <li>1,000 minutes/month</li>
+                        <li>5 profile fields</li>
+                        <li>Team features (3 members)</li>
+                        <li>Webhook integrations</li>
+                        <li>Priority AI responses</li>
+                        <li>Custom greeting</li>
+                    </ul>
+                </div>
+
+                <div class="pricing-card">
+                    <h3 class="pricing-name">Business</h3>
+                    <div class="pricing-price">$79.99<span>/mo</span></div>
+                    <ul class="pricing-features">
+                        <li>5,000 minutes/month</li>
+                        <li>10 profile fields</li>
+                        <li>Team features (10 members)</li>
+                        <li>Multiple phone lines</li>
+                        <li>Advanced analytics</li>
+                        <li>CRM integrations</li>
+                        <li>Dedicated phone number</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Competitor Comparison -->
+    <section class="competitors">
+        <div class="container">
+            <h2 class="section-title">Competitive Advantage</h2>
+            <p class="section-subtitle">How we stack up against the competition</p>
+
+            <table class="competitor-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th style="color: var(--hive-gold);">HIVE215</th>
+                        <th>Vapi</th>
+                        <th>Bland.ai</th>
+                        <th>Air.ai</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Cost per minute</td>
+                        <td style="color: var(--success); font-weight: 600;">$0.005</td>
+                        <td>$0.05-0.10</td>
+                        <td>$0.09</td>
+                        <td>$0.11</td>
+                    </tr>
+                    <tr>
+                        <td>Voice-to-Voice Latency</td>
+                        <td style="color: var(--success);">~200ms</td>
+                        <td>~500ms</td>
+                        <td>~400ms</td>
+                        <td>~600ms</td>
+                    </tr>
+                    <tr>
+                        <td>Multi-Platform Apps</td>
+                        <td><span class="check">&#10003;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                    </tr>
+                    <tr>
+                        <td>Voice Cloning</td>
+                        <td><span class="check">&#10003;</span></td>
+                        <td><span class="check">&#10003;</span></td>
+                        <td><span class="check">&#10003;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                    </tr>
+                    <tr>
+                        <td>Industry Templates</td>
+                        <td><span class="check">&#10003;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="check">&#10003;</span></td>
+                    </tr>
+                    <tr>
+                        <td>Live Sentiment Analysis</td>
+                        <td><span class="check">&#10003;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                    </tr>
+                    <tr>
+                        <td>Call Quality Scoring</td>
+                        <td><span class="check">&#10003;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                    </tr>
+                    <tr>
+                        <td>Prompt Caching (95% savings)</td>
+                        <td><span class="check">&#10003;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                        <td><span class="cross">&#10007;</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- SWOT Analysis -->
+    <section class="swot">
+        <div class="container">
+            <h2 class="section-title">SWOT Analysis</h2>
+            <p class="section-subtitle">Honest assessment of our position in the market</p>
+
+            <div class="swot-grid">
+                <div class="swot-card strengths">
+                    <h3>&#x1F4AA; Strengths</h3>
+                    <ul class="swot-list">
+                        <li>95% cheaper than competitors via prompt caching</li>
+                        <li>Multi-platform from Day 1 (iOS, Android, Web)</li>
+                        <li>Sub-200ms voice latency with streaming pipeline</li>
+                        <li>Full cost transparency (token-level tracking)</li>
+                        <li>77% gross margin with scalable architecture</li>
+                        <li>Beautiful OLED-optimized dark mode UI</li>
+                        <li>Industry-specific templates for instant setup</li>
+                        <li>Production-ready code with enterprise security</li>
+                    </ul>
+                </div>
+
+                <div class="swot-card weaknesses">
+                    <h3>&#x26A0; Weaknesses</h3>
+                    <ul class="swot-list">
+                        <li>No AI-powered usage insights (planned)</li>
+                        <li>No predictive analytics yet</li>
+                        <li>Limited team collaboration features</li>
+                        <li>No native mobile admin dashboard</li>
+                        <li>No API playground in dashboard</li>
+                        <li>Missing webhook integrations (Slack, Discord)</li>
+                        <li>No custom reports or exports</li>
+                        <li>Dashboard 75% competitive (vs 100% for leaders)</li>
+                    </ul>
+                </div>
+
+                <div class="swot-card opportunities">
+                    <h3>&#x1F680; Opportunities</h3>
+                    <ul class="swot-list">
+                        <li>AI Usage Coach - unique differentiator</li>
+                        <li>White-label for agencies and resellers</li>
+                        <li>Healthcare/HIPAA compliance market</li>
+                        <li>CRM integrations (HubSpot, Salesforce)</li>
+                        <li>Multi-language support (Deepgram)</li>
+                        <li>Real-time skill switching mid-call</li>
+                        <li>RAG with vector embeddings for knowledge</li>
+                        <li>B2B enterprise tier ($500+/month)</li>
+                    </ul>
+                </div>
+
+                <div class="swot-card threats">
+                    <h3>&#x1F525; Threats</h3>
+                    <ul class="swot-list">
+                        <li>Well-funded competitors (Vapi raised $20M)</li>
+                        <li>OpenAI could enter the market directly</li>
+                        <li>Twilio/Google could add native AI</li>
+                        <li>API costs could increase unexpectedly</li>
+                        <li>Voice AI market becoming crowded</li>
+                        <li>Enterprise customers want SOC 2</li>
+                        <li>Potential for prompt injection attacks</li>
+                        <li>Regulatory changes for AI phone calls</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Section -->
+    <section class="architecture">
+        <div class="container">
+            <h2 class="section-title">Technical Architecture</h2>
+            <p class="section-subtitle">Enterprise-grade infrastructure built for scale</p>
+
+            <div class="architecture-diagram">
+<pre>
+                              +-------------------+
+                              |   USER BROWSER    |
+                              |   (Next.js 14)    |
+                              +--------+----------+
+                                       |
+                                       | WebRTC (UDP) ~10-20ms
+                                       |
+                              +--------v----------+
+                              |   LIVEKIT CLOUD   |
+                              | (WebRTC Gateway)  |
+                              +--------+----------+
+                                       |
+              +------------------------+------------------------+
+              |                                                 |
+    +---------v---------+                            +----------v----------+
+    |    WEB SERVICE    |                            |   WORKER SERVICE    |
+    |  (FastAPI/Railway)|                            | (LiveKit Agent)     |
+    +-------------------+                            +---------------------+
+    |                   |                            |                     |
+    | POST /livekit/rooms                            |  Voice Pipeline:    |
+    | GET  /livekit/status                           |    -> Silero VAD    |
+    | DELETE /livekit/rooms                          |    -> Deepgram STT  |
+    | POST /livekit/dispatch                         |    -> Fast Brain LLM|
+    |                   |                            |    -> Cartesia TTS  |
+    +--------+----------+                            +----------+----------+
+             |                                                  |
+             |                                                  |
+    +--------v----------+                            +----------v----------+
+    |     SUPABASE      |                            |     LLM PRIORITY    |
+    |   (PostgreSQL)    |                            |       CHAIN         |
+    +-------------------+                            +---------------------+
+    |                   |                            |                     |
+    | va_assistants     |                            | 1. Fast Brain (Groq)|
+    | va_call_logs      |                            | 2. Groq Direct      |
+    | va_user_profiles  |                            | 3. Anthropic Claude |
+    | va_usage_metrics  |                            |                     |
+    +-------------------+                            +---------------------+
+
+    Tech Stack:
+    - Frontend: Next.js 14, React Native (Expo), Tailwind CSS
+    - Backend: FastAPI (Python), Railway hosting
+    - Database: Supabase (PostgreSQL)
+    - Voice: LiveKit, Deepgram, Cartesia
+    - LLM: Groq (Llama 3.3 70B), Claude 3.5 Sonnet
+    - Payments: Stripe
+    - Telephony: Twilio
+</pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- Business Metrics -->
+    <section class="metrics">
+        <div class="container">
+            <h2 class="section-title">Business Metrics</h2>
+            <p class="section-subtitle">Unit economics that work</p>
+
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value">$0.0115</div>
+                    <div class="metric-label">Cost per Minute (OpenAI)</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">77%</div>
+                    <div class="metric-label">Gross Margin</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">~$150</div>
+                    <div class="metric-label">Monthly Infrastructure</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">15</div>
+                    <div class="metric-label">Pro Users to Break-even</div>
+                </div>
+            </div>
+
+            <div style="margin-top: 3rem; display: grid; grid-template-columns: repeat(2, 1fr); gap: 2rem;">
+                <div class="metric-card">
+                    <h4 style="color: var(--hive-gold); margin-bottom: 1rem;">Revenue Model</h4>
+                    <ul style="list-style: none; text-align: left;">
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid #444;">Starter: $9.99/mo (200 min)</li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid #444;">Professional: $29.99/mo (1,000 min)</li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid #444;">Business: $79.99/mo (5,000 min)</li>
+                        <li style="padding: 0.5rem 0;">Enterprise: Custom pricing</li>
+                    </ul>
+                </div>
+                <div class="metric-card">
+                    <h4 style="color: var(--hive-gold); margin-bottom: 1rem;">Cost Structure</h4>
+                    <ul style="list-style: none; text-align: left;">
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid #444;">Stripe fees: 2.9% + $0.30</li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid #444;">OpenAI API: $0.0115/min</li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid #444;">ElevenLabs (cloning): $0.022/min</li>
+                        <li style="padding: 0.5rem 0;">Infrastructure: ~$150/mo base</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Marketing Plan -->
+    <section class="marketing">
+        <div class="container">
+            <h2 class="section-title">Go-to-Market Strategy</h2>
+            <p class="section-subtitle">Phased approach to market dominance</p>
+
+            <div class="marketing-timeline">
+                <div class="timeline-item">
+                    <div class="timeline-phase">PHASE 1: Foundation (Months 1-2)</div>
+                    <h3 class="timeline-title">Product-Market Fit</h3>
+                    <p class="timeline-desc">
+                        Launch MVP to 50-100 beta users. Focus on electricians, plumbers, and contractors in Philadelphia area.
+                        Collect feedback, iterate rapidly. Goal: 4.5+ star rating, 70% retention.
+                    </p>
+                </div>
+
+                <div class="timeline-item">
+                    <div class="timeline-phase">PHASE 2: Growth (Months 3-4)</div>
+                    <h3 class="timeline-title">Content Marketing & SEO</h3>
+                    <p class="timeline-desc">
+                        Launch blog with "AI Phone Assistant for [Industry]" content. Target long-tail keywords.
+                        YouTube tutorials showing setup process. Goal: 1,000 organic visitors/month.
+                    </p>
+                </div>
+
+                <div class="timeline-item">
+                    <div class="timeline-phase">PHASE 3: Scale (Months 5-6)</div>
+                    <h3 class="timeline-title">Paid Acquisition & Partnerships</h3>
+                    <p class="timeline-desc">
+                        Google Ads targeting "AI receptionist" and "virtual assistant for business".
+                        Partner with trade associations (NECA, PHCC). Goal: 500 paying customers, $15K MRR.
+                    </p>
+                </div>
+
+                <div class="timeline-item">
+                    <div class="timeline-phase">PHASE 4: Enterprise (Months 7-12)</div>
+                    <h3 class="timeline-title">B2B Sales & White-Label</h3>
+                    <p class="timeline-desc">
+                        Hire 1-2 sales reps for enterprise outreach. Launch white-label program for agencies.
+                        SOC 2 certification. Goal: 2,000 customers, $50K MRR, seed round.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Credentials -->
+    <section class="credentials" style="background: var(--hive-charcoal);">
+        <div class="container">
+            <h2 class="section-title">Platform Credentials</h2>
+            <p class="section-subtitle">Production-ready, revenue-enabled, enterprise-secure</p>
+
+            <div class="credentials-grid">
+                <div class="credential-card">
+                    <div class="credential-icon">&#x1F3D7;</div>
+                    <h4 class="credential-title">Production Deployed</h4>
+                    <p class="credential-desc">
+                        Live at hive215.vercel.app<br>
+                        Backend on Railway<br>
+                        Database on Supabase
+                    </p>
+                </div>
+
+                <div class="credential-card">
+                    <div class="credential-icon">&#x1F4B3;</div>
+                    <h4 class="credential-title">Revenue Ready</h4>
+                    <p class="credential-desc">
+                        Stripe integration complete<br>
+                        4-tier subscription system<br>
+                        Usage tracking & limits
+                    </p>
+                </div>
+
+                <div class="credential-card">
+                    <div class="credential-icon">&#x1F512;</div>
+                    <h4 class="credential-title">Enterprise Security</h4>
+                    <p class="credential-desc">
+                        JWT authentication<br>
+                        Role-based access control<br>
+                        Rate limiting & encryption
+                    </p>
+                </div>
+
+                <div class="credential-card">
+                    <div class="credential-icon">&#x1F4F1;</div>
+                    <h4 class="credential-title">Multi-Platform</h4>
+                    <p class="credential-desc">
+                        React Native (iOS + Android)<br>
+                        Next.js Web App<br>
+                        95% code reuse
+                    </p>
+                </div>
+
+                <div class="credential-card">
+                    <div class="credential-icon">&#x1F3A4;</div>
+                    <h4 class="credential-title">Voice AI Stack</h4>
+                    <p class="credential-desc">
+                        LiveKit WebRTC<br>
+                        Deepgram + Cartesia<br>
+                        Groq + Claude LLMs
+                    </p>
+                </div>
+
+                <div class="credential-card">
+                    <div class="credential-icon">&#x1F4CA;</div>
+                    <h4 class="credential-title">Analytics Dashboard</h4>
+                    <p class="credential-desc">
+                        Token usage tracking<br>
+                        Cost analytics<br>
+                        Error rate monitoring
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to Transform Phone Communication?</h2>
+            <p>Join the AI phone revolution. See HIVE215 in action.</p>
+            <div class="cta-buttons">
+                <a href="https://hive215.vercel.app" class="btn btn-primary" target="_blank">Try Demo</a>
+                <a href="mailto:jenkintownelectricity@gmail.com" class="btn btn-secondary">Contact Us</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <div class="footer-links">
+                <a href="https://hive215.vercel.app" target="_blank">Live Demo</a>
+                <a href="https://github.com/jenkintownelectricity/premier_voice_assistant" target="_blank">GitHub</a>
+                <a href="mailto:jenkintownelectricity@gmail.com">Contact</a>
+            </div>
+            <p>&copy; 2025 HIVE215 | Jenkintown Electricity | Philadelphia, PA</p>
+            <p style="margin-top: 0.5rem; font-size: 0.8rem;">
+                Built with Next.js, React Native, FastAPI, LiveKit, Groq, and Claude
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

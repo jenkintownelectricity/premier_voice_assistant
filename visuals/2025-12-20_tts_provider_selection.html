@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS Provider Selection - HIVE215 Voice AI</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --accent-gold: #ffd700;
+            --accent-blue: #00d4ff;
+            --accent-green: #00ff88;
+            --accent-orange: #ff8c00;
+            --accent-purple: #9b59b6;
+            --text-primary: #ffffff;
+            --text-secondary: #8892b0;
+            --border-color: #1e2a3a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 40px;
+        }
+
+        .container { max-width: 1100px; margin: 0 auto; }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, var(--accent-gold), var(--accent-orange));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: 40px;
+        }
+
+        .section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .section h2 {
+            color: var(--accent-gold);
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        .section h3 {
+            color: var(--accent-blue);
+            margin: 25px 0 15px 0;
+            font-size: 1.2rem;
+        }
+
+        /* Provider Grid */
+        .provider-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .provider-card {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .provider-card:hover {
+            border-color: var(--accent-gold);
+            transform: translateY(-3px);
+        }
+
+        .provider-card.recommended {
+            border-color: var(--accent-green);
+            box-shadow: 0 0 20px rgba(0,255,136,0.1);
+        }
+
+        .provider-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .provider-name {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .latency-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-family: monospace;
+        }
+
+        .latency-fast { background: rgba(0,255,136,0.2); color: var(--accent-green); }
+        .latency-medium { background: rgba(255,220,0,0.2); color: #ffd700; }
+        .latency-slow { background: rgba(255,140,0,0.2); color: var(--accent-orange); }
+
+        .provider-desc {
+            color: var(--text-secondary);
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+        }
+
+        .voice-count {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--accent-blue);
+        }
+
+        /* Flow Diagram */
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            padding: 30px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            overflow-x: auto;
+        }
+
+        .flow-box {
+            background: var(--bg-card);
+            border: 2px solid var(--accent-blue);
+            border-radius: 8px;
+            padding: 15px 20px;
+            text-align: center;
+            min-width: 120px;
+        }
+
+        .flow-box.highlight {
+            border-color: var(--accent-gold);
+            box-shadow: 0 0 15px rgba(255,215,0,0.3);
+        }
+
+        .flow-arrow {
+            color: var(--accent-blue);
+            font-size: 1.5rem;
+        }
+
+        /* Code Block */
+        .code-block {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+
+        .code-comment { color: #6a9955; }
+        .code-keyword { color: #569cd6; }
+        .code-string { color: #ce9178; }
+        .code-function { color: #dcdcaa; }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background: rgba(255,215,0,0.1);
+            color: var(--accent-gold);
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background: rgba(0,212,255,0.05);
+        }
+
+        /* Decision Tree */
+        .decision-tree {
+            padding: 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+        }
+
+        .decision-node {
+            background: var(--bg-card);
+            border: 1px solid var(--accent-purple);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+
+        .decision-node.result {
+            border-color: var(--accent-green);
+            background: rgba(0,255,136,0.1);
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 30px;
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        .back-link:hover {
+            color: var(--accent-gold);
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-left: 8px;
+        }
+
+        .badge-new {
+            background: rgba(0,255,136,0.2);
+            color: var(--accent-green);
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px 0;
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border-color);
+            margin-top: 40px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TTS Provider Selection</h1>
+        <p class="subtitle">Multi-provider Text-to-Speech architecture for HIVE215 Voice AI Platform</p>
+
+        <!-- Version Note -->
+        <div class="section" style="border-color: var(--accent-orange); background: rgba(255,140,0,0.05);">
+            <h2 style="color: var(--accent-orange);">Second Generation Implementation</h2>
+            <p style="margin-bottom: 10px;">
+                <strong>Note:</strong> This is the <strong>rebuilt version (Take 2)</strong> of TTS provider selection.
+                The first implementation broke the existing TTS code, requiring a backtrack and complete rebuild.
+            </p>
+            <p style="color: var(--text-secondary); font-size: 0.9rem;">
+                This version maintains backwards compatibility with existing Cartesia-only assistants while
+                adding multi-provider support through the new <code>tts_provider</code> field.
+            </p>
+        </div>
+
+        <!-- Overview -->
+        <div class="section">
+            <h2>Feature Overview</h2>
+            <p style="margin-bottom: 20px;">
+                HIVE215 now supports <strong>6 TTS providers</strong> with per-assistant configuration.
+                Users can select the optimal provider based on latency requirements, voice quality preferences,
+                and cost considerations.
+            </p>
+
+            <div class="flow-diagram">
+                <div class="flow-box">
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">Assistant Config</div>
+                    <div style="font-weight: bold;">tts_provider</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box highlight">
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">Worker</div>
+                    <div style="font-weight: bold;">_initialize_tts()</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">Provider Plugin</div>
+                    <div style="font-weight: bold;">LiveKit TTS</div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box">
+                    <div style="font-size: 0.8rem; color: var(--text-secondary);">Output</div>
+                    <div style="font-weight: bold;">Audio Stream</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Provider Comparison -->
+        <div class="section">
+            <h2>Supported Providers</h2>
+
+            <div class="provider-grid">
+                <div class="provider-card recommended">
+                    <div class="provider-header">
+                        <span class="provider-name">Cartesia <span class="badge badge-new">Recommended</span></span>
+                        <span class="latency-badge latency-fast">~30ms TTFB</span>
+                    </div>
+                    <p class="provider-desc">Ultra-low latency streaming TTS. Sonic-3 model with 42 language support, voice cloning, and emotion controls.</p>
+                    <div class="voice-count">12 preset voices + custom clones</div>
+                </div>
+
+                <div class="provider-card">
+                    <div class="provider-header">
+                        <span class="provider-name">Rime AI</span>
+                        <span class="latency-badge latency-fast">~60ms TTFB</span>
+                    </div>
+                    <p class="provider-desc">Fast, affordable TTS with natural prosody. Good free tier for development and testing.</p>
+                    <div class="voice-count">8 voices available</div>
+                </div>
+
+                <div class="provider-card">
+                    <div class="provider-header">
+                        <span class="provider-name">Deepgram Aura</span>
+                        <span class="latency-badge latency-fast">~80ms TTFB</span>
+                    </div>
+                    <p class="provider-desc">Fast, natural voices optimized for conversational AI. Same provider as STT for unified billing.</p>
+                    <div class="voice-count">12 voices (mythological names)</div>
+                </div>
+
+                <div class="provider-card">
+                    <div class="provider-header">
+                        <span class="provider-name">PlayHT</span>
+                        <span class="latency-badge latency-medium">~100ms TTFB</span>
+                    </div>
+                    <p class="provider-desc">Voice cloning specialists with many accents. Great for custom branded voices.</p>
+                    <div class="voice-count">8 preset voices + cloning</div>
+                </div>
+
+                <div class="provider-card">
+                    <div class="provider-header">
+                        <span class="provider-name">ElevenLabs</span>
+                        <span class="latency-badge latency-slow">~150ms TTFB</span>
+                    </div>
+                    <p class="provider-desc">Premium quality with thousands of expressive voices. Best for high-fidelity requirements.</p>
+                    <div class="voice-count">16 preset voices + cloning</div>
+                </div>
+
+                <div class="provider-card">
+                    <div class="provider-header">
+                        <span class="provider-name">OpenAI TTS</span>
+                        <span class="latency-badge latency-slow">~200ms TTFB</span>
+                    </div>
+                    <p class="provider-desc">GPT-powered voice synthesis with consistent quality. Simple pricing model.</p>
+                    <div class="voice-count">6 voices (alloy, echo, fable...)</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Architecture -->
+        <div class="section">
+            <h2>Technical Architecture</h2>
+
+            <h3>Database Schema</h3>
+            <div class="code-block">
+<span class="code-comment">-- Migration 011: Add TTS Provider Selection</span>
+<span class="code-keyword">ALTER TABLE</span> public.va_assistants
+<span class="code-keyword">ADD COLUMN IF NOT EXISTS</span> tts_provider <span class="code-keyword">VARCHAR</span>(50) <span class="code-keyword">DEFAULT</span> <span class="code-string">'cartesia'</span>;
+
+<span class="code-comment">-- Supported values: cartesia, elevenlabs, deepgram, openai, playht, rime</span>
+            </div>
+
+            <h3>Worker Initialization</h3>
+            <div class="code-block">
+<span class="code-keyword">async def</span> <span class="code-function">_initialize_tts</span>(self) -> <span class="code-keyword">bool</span>:
+    provider = self.config.tts_provider.lower()
+    voice_id = self.config.tts_voice_id
+
+    <span class="code-keyword">if</span> provider == <span class="code-string">"cartesia"</span>:
+        self._tts = cartesia.TTS(model=<span class="code-string">"sonic-english"</span>, voice=voice_id)
+
+    <span class="code-keyword">elif</span> provider == <span class="code-string">"elevenlabs"</span>:
+        self._tts = elevenlabs.TTS(voice=voice_id, model=<span class="code-string">"eleven_turbo_v2_5"</span>)
+
+    <span class="code-keyword">elif</span> provider == <span class="code-string">"deepgram"</span>:
+        self._tts = deepgram.TTS(model=voice_id)
+
+    <span class="code-keyword">elif</span> provider == <span class="code-string">"openai"</span>:
+        self._tts = openai.TTS(model=<span class="code-string">"tts-1"</span>, voice=voice_id)
+
+    <span class="code-comment"># Fallback chain if primary fails</span>
+    <span class="code-keyword">return await</span> self._try_fallback_tts()
+            </div>
+
+            <h3>Fallback Strategy</h3>
+            <p style="margin-bottom: 15px;">If the selected TTS provider fails (missing API key, service down), the worker tries providers in this order:</p>
+            <ol style="margin-left: 25px; color: var(--text-secondary);">
+                <li>Cartesia (if API key available)</li>
+                <li>ElevenLabs (if API key available)</li>
+                <li>Deepgram (reuses STT API key)</li>
+                <li>OpenAI (if API key available)</li>
+            </ol>
+        </div>
+
+        <!-- Environment Variables -->
+        <div class="section">
+            <h2>Environment Variables</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Variable</th>
+                        <th>Provider</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>CARTESIA_API_KEY</code></td>
+                        <td>Cartesia</td>
+                        <td>Yes (default)</td>
+                        <td>Cartesia Sonic-3 API key</td>
+                    </tr>
+                    <tr>
+                        <td><code>ELEVENLABS_API_KEY</code></td>
+                        <td>ElevenLabs</td>
+                        <td>If using ElevenLabs</td>
+                        <td>ElevenLabs API key</td>
+                    </tr>
+                    <tr>
+                        <td><code>DEEPGRAM_API_KEY</code></td>
+                        <td>Deepgram</td>
+                        <td>Yes (for STT)</td>
+                        <td>Also enables Deepgram TTS</td>
+                    </tr>
+                    <tr>
+                        <td><code>OPENAI_API_KEY</code></td>
+                        <td>OpenAI</td>
+                        <td>If using OpenAI TTS</td>
+                        <td>OpenAI API key</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Decision Guide -->
+        <div class="section">
+            <h2>Which Provider Should I Use?</h2>
+
+            <div class="decision-tree">
+                <div class="decision-node">
+                    <strong>Priority: Lowest Latency?</strong>
+                    <p style="color: var(--text-secondary); margin-top: 5px;">Need sub-50ms time to first byte for real-time conversation</p>
+                </div>
+                <div class="decision-node result" style="margin-left: 30px;">
+                    → <strong>Cartesia</strong> (~30ms TTFB) - Industry-leading latency
+                </div>
+
+                <div class="decision-node" style="margin-top: 20px;">
+                    <strong>Priority: Free/Low Cost?</strong>
+                    <p style="color: var(--text-secondary); margin-top: 5px;">Development, testing, or cost-sensitive deployments</p>
+                </div>
+                <div class="decision-node result" style="margin-left: 30px;">
+                    → <strong>Rime AI</strong> (~60ms TTFB) - Generous free tier
+                </div>
+
+                <div class="decision-node" style="margin-top: 20px;">
+                    <strong>Priority: Voice Quality?</strong>
+                    <p style="color: var(--text-secondary); margin-top: 5px;">Premium, expressive voices for customer-facing apps</p>
+                </div>
+                <div class="decision-node result" style="margin-left: 30px;">
+                    → <strong>ElevenLabs</strong> (~150ms TTFB) - Best voice quality
+                </div>
+
+                <div class="decision-node" style="margin-top: 20px;">
+                    <strong>Priority: Unified Billing?</strong>
+                    <p style="color: var(--text-secondary); margin-top: 5px;">Same provider for STT and TTS to simplify billing</p>
+                </div>
+                <div class="decision-node result" style="margin-left: 30px;">
+                    → <strong>Deepgram Aura</strong> (~80ms TTFB) - One API key for both
+                </div>
+            </div>
+        </div>
+
+        <!-- Files Changed -->
+        <div class="section">
+            <h2>Files Changed</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Change</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>web/src/app/dashboard/assistants/page.tsx</code></td>
+                        <td>Added TTS_PROVIDERS config, provider dropdown, voice dropdown</td>
+                    </tr>
+                    <tr>
+                        <td><code>backend/main.py</code></td>
+                        <td>Added tts_provider to request models and endpoints</td>
+                    </tr>
+                    <tr>
+                        <td><code>backend/livekit_agent.py</code></td>
+                        <td>Added _initialize_tts() and _try_fallback_tts() methods</td>
+                    </tr>
+                    <tr>
+                        <td><code>requirements.txt</code></td>
+                        <td>Added livekit-plugins-elevenlabs==1.3.8</td>
+                    </tr>
+                    <tr>
+                        <td><code>supabase/migrations/011_add_tts_provider.sql</code></td>
+                        <td>New migration for tts_provider column</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <a href="index.html" class="back-link">← Back to Documentation Timeline</a>
+
+        <footer>
+            <p>HIVE215 Voice AI Platform</p>
+            <p style="font-size: 0.85rem; margin-top: 10px;">December 20, 2025 - TTS Provider Selection Feature</p>
+        </footer>
+    </div>
+</body>
+</html>
