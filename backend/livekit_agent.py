@@ -23,12 +23,16 @@ This is the next evolution of the Lightning Pipeline - now with WebRTC!
 """
 
 import os
+import sys
 import logging
 import asyncio
 import time
 import json
 from typing import Optional, Dict, Any, List, AsyncGenerator
 from dataclasses import dataclass, field
+
+# Add root directory to python path for worker module imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # LiveKit Agents SDK v1.x
 from livekit.agents import (
@@ -93,6 +97,17 @@ except ImportError:
     BRAIN_CLIENT_AVAILABLE = False
     HybridResponse = None
     SkillGreeting = None
+
+# Voice Agent with latency masking and turn-taking
+try:
+    from worker.voice_agent import VoiceAgent
+    from worker.turn_taking import TurnState
+    VOICE_AGENT_AVAILABLE = True
+except ImportError as e:
+    VOICE_AGENT_AVAILABLE = False
+    VoiceAgent = None
+    TurnState = None
+    logging.getLogger(__name__).warning(f"VoiceAgent not available: {e}")
 
 logger = logging.getLogger(__name__)
 
@@ -1209,6 +1224,14 @@ async def entrypoint(ctx: JobContext):
     sentiment = SentimentAnalyzer()
     sentiment.set_room(ctx.room)
 
+    # Initialize VoiceAgent for latency masking and turn-taking
+    voice_runtime = None
+    if VOICE_AGENT_AVAILABLE and VoiceAgent:
+        voice_runtime = VoiceAgent(skill_type="customer_service")
+        logger.info("VoiceAgent initialized with latency masking and turn-taking")
+    else:
+        logger.warning("VoiceAgent not available, running without latency masking")
+
     # Parse room metadata for call info
     call_id = None
     user_id = None
@@ -1234,6 +1257,12 @@ async def entrypoint(ctx: JobContext):
                 logger.info(f"Using assistant skill from DB: {assistant_skill}")
         except Exception as e:
             logger.warning(f"Could not load assistant skill: {e}")
+
+    # Update VoiceAgent with the correct skill type
+    if voice_runtime:
+        voice_runtime.set_skill_type(assistant_skill)
+        logger.info(f"VoiceAgent skill updated to: {assistant_skill}")
+
     # Track transcript
     transcript: List[Dict[str, str]] = []
     message_sequence = [0]  # Use list to allow mutation in closures
@@ -1362,13 +1391,19 @@ Be natural and engaging, like talking to a friend."""
 
     @session.on("user_state_changed")
     def on_user_state_changed(event):
-        """Track user state changes for latency."""
+        """Track user state changes for latency and turn-taking."""
         state = event.state if hasattr(event, 'state') else str(event)
         logger.info(f"[USER STATE] Changed to: {state}")
         if state == "speaking":
             latency.start_stt()
+            # Update turn manager
+            if voice_runtime:
+                voice_runtime.process_audio_frame(is_speech=True)
         elif state == "listening":
             latency.end_stt()
+            # Update turn manager
+            if voice_runtime:
+                voice_runtime.process_audio_frame(is_speech=False)
 
     @session.on("user_input_transcribed")
     def on_user_input_transcribed(event):
@@ -1420,7 +1455,7 @@ Be natural and engaging, like talking to a friend."""
 
     @session.on("agent_state_changed")
     def on_agent_state_changed(event):
-        """Track agent state changes."""
+        """Track agent state changes and turn-taking."""
         state = event.state if hasattr(event, 'state') else str(event)
         logger.info(f"[AGENT STATE] Changed to: {state}")
         if state == "speaking":
@@ -1429,10 +1464,16 @@ Be natural and engaging, like talking to a friend."""
             latency.end_tts_first_byte()
             asyncio.create_task(latency.publish_metrics())
             logger.info("[LATENCY] Publishing metrics")
+            # Notify turn manager agent is speaking
+            if voice_runtime:
+                voice_runtime.start_agent_turn()
         elif state == "listening":
             latency.end_tts()
             latency.end_llm()
             latency.finalize_turn()
+            # Notify turn manager agent finished speaking
+            if voice_runtime:
+                voice_runtime.finish_agent_turn()
 
     @session.on("conversation_item_added")
     def on_conversation_item_added(event):
