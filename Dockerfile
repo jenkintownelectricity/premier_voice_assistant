@@ -1,10 +1,14 @@
 FROM python:3.11-slim
 
-# Build cache buster: 2025-12-18-v2
+# Build cache buster: 2025-12-31-v1 (add gcc for webrtcvad)
 WORKDIR /app
 
 # Install system dependencies
+# - build-essential, gcc: Required for compiling webrtcvad (resemblyzer dependency)
+# - ffmpeg, libopus0: Audio processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
     ffmpeg \
     libopus0 \
     && rm -rf /var/lib/apt/lists/*
