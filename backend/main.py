@@ -7653,6 +7653,187 @@ async def fast_brain_chat(
 
 
 # =============================================================================
+# TTS VOICE PROVIDER ENDPOINTS
+# =============================================================================
+
+# Static voice configurations for each TTS provider
+TTS_PROVIDER_VOICES = {
+    "cartesia": {
+        "name": "Cartesia",
+        "description": "Ultra-low latency, recommended for real-time voice",
+        "latency": "~30ms TTFB",
+        "voices": [
+            {"id": "a0e99841-438c-4a64-b679-ae501e7d6091", "name": "Barbershop Man", "gender": "male", "accent": "US"},
+            {"id": "156fb8d2-335b-4950-9cb3-a2d33f91d3f1", "name": "Classy British Man", "gender": "male", "accent": "UK"},
+            {"id": "638efaaa-4d0c-442e-b701-3fae16aad012", "name": "Confident British Man", "gender": "male", "accent": "UK"},
+            {"id": "ee7ea9f8-c0c1-498c-9f62-dc2f7b5dc78f", "name": "Doctor Mischief", "gender": "male", "accent": "US"},
+            {"id": "95856005-0332-41b0-935f-352e296aa0df", "name": "Movieman", "gender": "male", "accent": "US"},
+            {"id": "36b42fcb-60c5-4bec-b077-cb1a00a92ec6", "name": "Newsman", "gender": "male", "accent": "US"},
+            {"id": "726d5ae5-055f-4c3d-8355-d9677de68571", "name": "Nonfiction Man", "gender": "male", "accent": "US"},
+            {"id": "5c42302c-194b-4d0c-ba1a-8cb485c84ab9", "name": "Reading Man", "gender": "male", "accent": "US"},
+            {"id": "fb26447f-308b-471e-8b00-8b39d669f8d6", "name": "Sportsman", "gender": "male", "accent": "US"},
+            {"id": "d46abd1d-2571-4e77-a5c1-ca0ad9382e28", "name": "Teacher Lady", "gender": "female", "accent": "US"},
+            {"id": "c45bc5ec-dc68-4feb-8829-6e6b2748095d", "name": "Wise Lady", "gender": "female", "accent": "US"},
+            {"id": "c2ac25f9-ecc4-4f56-9095-651354df60c0", "name": "Commercial Lady", "gender": "female", "accent": "US"},
+            {"id": "e00d0e4c-a5c8-443f-a8a3-473eb9a62355", "name": "Maria", "gender": "female", "accent": "US"},
+            {"id": "f786b574-daa5-4673-aa0c-cbe3e8534c02", "name": "Katie (Default)", "gender": "female", "accent": "US"},
+        ],
+    },
+    "elevenlabs": {
+        "name": "ElevenLabs",
+        "description": "Premium quality, expressive voices",
+        "latency": "~150ms TTFB",
+        "voices": [
+            {"id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel", "gender": "female", "accent": "US"},
+            {"id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi", "gender": "female", "accent": "US"},
+            {"id": "EXAVITQu4vr4xnSDxMaL", "name": "Bella", "gender": "female", "accent": "US"},
+            {"id": "ErXwobaYiN019PkySvjV", "name": "Antoni", "gender": "male", "accent": "US"},
+            {"id": "MF3mGyEYCl7XYWbV9V6O", "name": "Elli", "gender": "female", "accent": "US"},
+            {"id": "TxGEqnHWrfWFTfGW9XjX", "name": "Josh", "gender": "male", "accent": "US"},
+            {"id": "VR6AewLTigWG4xSOukaG", "name": "Arnold", "gender": "male", "accent": "US"},
+            {"id": "pNInz6obpgDQGcFmaJgB", "name": "Adam", "gender": "male", "accent": "US"},
+            {"id": "yoZ06aMxZJJ28mfd3POQ", "name": "Sam", "gender": "male", "accent": "US"},
+            {"id": "jBpfuIE2acCO8z3wKNLl", "name": "Gigi", "gender": "female", "accent": "US"},
+            {"id": "oWAxZDx7w5VEj9dCyTzz", "name": "Grace", "gender": "female", "accent": "US"},
+            {"id": "onwK4e9ZLuTAKqWW03F9", "name": "Daniel", "gender": "male", "accent": "UK"},
+            {"id": "pqHfZKP75CvOlQylNhV4", "name": "Bill", "gender": "male", "accent": "US"},
+            {"id": "nPczCjzI2devNBz1zQrb", "name": "Brian", "gender": "male", "accent": "US"},
+            {"id": "N2lVS1w4EtoT3dr4eOWO", "name": "Callum", "gender": "male", "accent": "UK"},
+            {"id": "IKne3meq5aSn9XLyUdCD", "name": "Charlie", "gender": "male", "accent": "AU"},
+        ],
+    },
+    "deepgram": {
+        "name": "Deepgram Aura",
+        "description": "Fast, natural voices (same provider as STT)",
+        "latency": "~80ms TTFB",
+        "voices": [
+            {"id": "aura-asteria-en", "name": "Asteria", "gender": "female", "accent": "US"},
+            {"id": "aura-luna-en", "name": "Luna", "gender": "female", "accent": "US"},
+            {"id": "aura-stella-en", "name": "Stella", "gender": "female", "accent": "US"},
+            {"id": "aura-athena-en", "name": "Athena", "gender": "female", "accent": "UK"},
+            {"id": "aura-hera-en", "name": "Hera", "gender": "female", "accent": "US"},
+            {"id": "aura-orion-en", "name": "Orion", "gender": "male", "accent": "US"},
+            {"id": "aura-arcas-en", "name": "Arcas", "gender": "male", "accent": "US"},
+            {"id": "aura-perseus-en", "name": "Perseus", "gender": "male", "accent": "US"},
+            {"id": "aura-angus-en", "name": "Angus", "gender": "male", "accent": "Ireland"},
+            {"id": "aura-orpheus-en", "name": "Orpheus", "gender": "male", "accent": "US"},
+            {"id": "aura-helios-en", "name": "Helios", "gender": "male", "accent": "UK"},
+            {"id": "aura-zeus-en", "name": "Zeus", "gender": "male", "accent": "US"},
+        ],
+    },
+    "openai": {
+        "name": "OpenAI",
+        "description": "GPT-powered synthesis, consistent quality",
+        "latency": "~200ms TTFB",
+        "voices": [
+            {"id": "alloy", "name": "Alloy", "gender": "neutral", "accent": "US"},
+            {"id": "echo", "name": "Echo", "gender": "male", "accent": "US"},
+            {"id": "fable", "name": "Fable", "gender": "male", "accent": "UK"},
+            {"id": "onyx", "name": "Onyx", "gender": "male", "accent": "US"},
+            {"id": "nova", "name": "Nova", "gender": "female", "accent": "US"},
+            {"id": "shimmer", "name": "Shimmer", "gender": "female", "accent": "US"},
+        ],
+    },
+    "playht": {
+        "name": "PlayHT",
+        "description": "Voice cloning, many accents",
+        "latency": "~100ms TTFB",
+        "voices": [
+            {"id": "s3://voice-cloning-zero-shot/d9ff78ba-d016-47f6-b0ef-dd630f59414e/female-cs/manifest.json", "name": "Female CS", "gender": "female", "accent": "US"},
+        ],
+    },
+    "rime": {
+        "name": "Rime AI",
+        "description": "Fast, affordable TTS (Free Tier Friendly)",
+        "latency": "~60ms TTFB",
+        "voices": [
+            {"id": "mist", "name": "Mist", "gender": "female", "accent": "US"},
+            {"id": "grove", "name": "Grove", "gender": "male", "accent": "US"},
+        ],
+    },
+}
+
+
+@app.get("/api/tts/providers")
+async def get_tts_providers():
+    """
+    Get list of available TTS providers with metadata.
+    Returns provider names, descriptions, and latency info.
+    """
+    return {
+        "providers": [
+            {
+                "id": provider_id,
+                "name": provider["name"],
+                "description": provider["description"],
+                "latency": provider["latency"],
+                "voice_count": len(provider["voices"]),
+            }
+            for provider_id, provider in TTS_PROVIDER_VOICES.items()
+        ]
+    }
+
+
+@app.get("/api/tts/voices/{provider}")
+async def get_tts_voices(
+    provider: str,
+    user_id: str = Header(None, alias="X-User-ID"),
+):
+    """
+    Get available voices for a TTS provider.
+    Also returns user's voice clones if they have any (for Cartesia).
+    """
+    if provider not in TTS_PROVIDER_VOICES:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown TTS provider: {provider}. Available: {list(TTS_PROVIDER_VOICES.keys())}"
+        )
+
+    provider_info = TTS_PROVIDER_VOICES[provider]
+    voices = [
+        {
+            "id": v["id"],
+            "name": v["name"],
+            "gender": v["gender"],
+            "accent": v.get("accent", "US"),
+            "is_user_clone": False,
+        }
+        for v in provider_info["voices"]
+    ]
+
+    # Get user's voice clones (for Cartesia only)
+    user_clones = []
+    if user_id and provider == "cartesia":
+        try:
+            result = supabase.client.rpc(
+                "va_client_get_voice_clones",
+                {"p_user_id": user_id}
+            ).execute()
+            if result.data:
+                user_clones = [
+                    {
+                        "id": clone["voice_name"],
+                        "name": clone["display_name"],
+                        "gender": "unknown",
+                        "accent": "Custom",
+                        "is_user_clone": True,
+                    }
+                    for clone in result.data
+                ]
+        except Exception as e:
+            logger.warning(f"Failed to fetch user voice clones: {e}")
+
+    return {
+        "provider": provider,
+        "provider_name": provider_info["name"],
+        "description": provider_info["description"],
+        "latency": provider_info["latency"],
+        "voices": voices,
+        "user_clones": user_clones,
+    }
+
+
+# =============================================================================
 # END FAST BRAIN ENDPOINTS
 # =============================================================================
 

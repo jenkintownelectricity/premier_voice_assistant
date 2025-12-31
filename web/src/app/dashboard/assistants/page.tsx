@@ -28,7 +28,15 @@ interface VoiceClone {
   is_public: boolean;
 }
 
-// TTS Provider configuration with available voices
+interface TTSVoice {
+  id: string;
+  name: string;
+  gender: string;
+  accent?: string;
+  is_user_clone: boolean;
+}
+
+// TTS Provider configuration (static fallback if API unavailable)
 const TTS_PROVIDERS: Record<string, {
   name: string;
   latency: string;
@@ -284,6 +292,11 @@ export default function AssistantsPage() {
   // Voice clones
   const [voiceClones, setVoiceClones] = useState<VoiceClone[]>([]);
 
+  // Dynamic voices from API
+  const [providerVoices, setProviderVoices] = useState<TTSVoice[]>([]);
+  const [userVoiceClones, setUserVoiceClones] = useState<TTSVoice[]>([]);
+  const [loadingVoices, setLoadingVoices] = useState(false);
+
   // LLM Providers with API documentation links
   const LLM_PROVIDERS: Record<string, {
     name: string;
@@ -444,8 +457,16 @@ export default function AssistantsPage() {
     if (user?.id) {
       loadAssistants();
       loadVoiceClones();
+      loadProviderVoices(ttsProvider);
     }
   }, [user?.id]);
+
+  // Load voices when TTS provider changes
+  useEffect(() => {
+    if (user?.id) {
+      loadProviderVoices(ttsProvider);
+    }
+  }, [ttsProvider, user?.id]);
 
   const loadVoiceClones = async () => {
     if (!user?.id) return;
@@ -460,6 +481,35 @@ export default function AssistantsPage() {
       }
     } catch (err) {
       console.error('Failed to load voice clones:', err);
+    }
+  };
+
+  const loadProviderVoices = async (provider: string) => {
+    if (!user?.id) return;
+    setLoadingVoices(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+      const response = await fetch(`${apiUrl}/api/tts/voices/${provider}`, {
+        headers: { 'X-User-ID': user.id },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setProviderVoices(data.voices || []);
+        setUserVoiceClones(data.user_clones || []);
+      } else {
+        // Fallback to static voices if API fails
+        const staticVoices = TTS_PROVIDERS[provider]?.voices || [];
+        setProviderVoices(staticVoices.map(v => ({ ...v, is_user_clone: false })));
+        setUserVoiceClones([]);
+      }
+    } catch (err) {
+      console.error(`Failed to load ${provider} voices:`, err);
+      // Fallback to static voices
+      const staticVoices = TTS_PROVIDERS[provider]?.voices || [];
+      setProviderVoices(staticVoices.map(v => ({ ...v, is_user_clone: false })));
+      setUserVoiceClones([]);
+    } finally {
+      setLoadingVoices(false);
     }
   };
 
@@ -776,15 +826,19 @@ export default function AssistantsPage() {
                   </div>
                   {/* Voice Dropdown */}
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1">Voice</label>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Voice {loadingVoices && <span className="text-gold">(loading...)</span>}
+                    </label>
                     <select
                       value={voiceId}
                       onChange={(e) => setVoiceId(e.target.value)}
+                      disabled={loadingVoices}
                       className="w-full px-3 py-2 bg-oled-dark border border-gold/30 rounded-lg
-                        text-white text-sm focus:outline-none focus:border-gold transition-colors"
+                        text-white text-sm focus:outline-none focus:border-gold transition-colors
+                        disabled:opacity-50"
                     >
                       <optgroup label="Male Voices">
-                        {TTS_PROVIDERS[ttsProvider]?.voices
+                        {providerVoices
                           .filter(v => v.gender === 'male')
                           .map((voice) => (
                             <option key={voice.id} value={voice.id}>
@@ -793,7 +847,7 @@ export default function AssistantsPage() {
                           ))}
                       </optgroup>
                       <optgroup label="Female Voices">
-                        {TTS_PROVIDERS[ttsProvider]?.voices
+                        {providerVoices
                           .filter(v => v.gender === 'female')
                           .map((voice) => (
                             <option key={voice.id} value={voice.id}>
@@ -801,9 +855,9 @@ export default function AssistantsPage() {
                             </option>
                           ))}
                       </optgroup>
-                      {TTS_PROVIDERS[ttsProvider]?.voices.some(v => v.gender === 'neutral') && (
+                      {providerVoices.some(v => v.gender === 'neutral') && (
                         <optgroup label="Neutral Voices">
-                          {TTS_PROVIDERS[ttsProvider]?.voices
+                          {providerVoices
                             .filter(v => v.gender === 'neutral')
                             .map((voice) => (
                               <option key={voice.id} value={voice.id}>
@@ -812,11 +866,11 @@ export default function AssistantsPage() {
                             ))}
                         </optgroup>
                       )}
-                      {voiceClones.length > 0 && ttsProvider === 'cartesia' && (
+                      {userVoiceClones.length > 0 && (
                         <optgroup label="Your Voice Clones">
-                          {voiceClones.map((clone) => (
-                            <option key={clone.id} value={clone.voice_name}>
-                              {clone.display_name}
+                          {userVoiceClones.map((clone) => (
+                            <option key={clone.id} value={clone.id}>
+                              {clone.name}
                             </option>
                           ))}
                         </optgroup>
@@ -831,7 +885,8 @@ export default function AssistantsPage() {
                     ttsProvider === 'elevenlabs' ? 'bg-yellow-400' :
                     'bg-orange-400'
                   }`}></span>
-                  {TTS_PROVIDERS[ttsProvider]?.voices.length} voices available
+                  {providerVoices.length + userVoiceClones.length} voices available
+                  {userVoiceClones.length > 0 && ` (${userVoiceClones.length} custom)`}
                 </div>
               </div>
 
