@@ -1119,7 +1119,7 @@ async def clone_voice(
             import httpx
             clone_url = "https://jenkintownelectricity--premier-coqui-tts-clone-voice-web.modal.run"
             files = {"reference_audio": ("audio.wav", audio_bytes, "audio/wav")}
-            data = {"voice": voice_name}
+            data = {"voice_name": voice_name}  # Fixed: was "voice", Coqui expects "voice_name"
             response = httpx.post(clone_url, files=files, data=data, timeout=120.0)
             response.raise_for_status()
             clone_result = response.json()
