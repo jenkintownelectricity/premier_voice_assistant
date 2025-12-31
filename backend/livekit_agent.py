@@ -1245,16 +1245,25 @@ async def entrypoint(ctx: JobContext):
             logger.info(f"Room metadata: call_id={call_id}, user_id={user_id}, assistant_id={assistant_id}")
     except Exception as e:
         logger.warning(f"Could not parse room metadata: {e}")
-    # Load assistant config from database to get fast_brain_skill
+    # Load assistant config from database to get fast_brain_skill, tts_provider, voice_id
     assistant_skill = config.default_skill
+    assistant_tts_provider = config.tts_provider  # Default from env
+    assistant_voice_id = config.tts_voice_id  # Default from env
     if assistant_id:
         try:
             from backend.supabase_client import get_supabase
             supabase = get_supabase().client
-            result = supabase.table("va_assistants").select("fast_brain_skill").eq("id", assistant_id).single().execute()
-            if result.data and result.data.get("fast_brain_skill"):
-                assistant_skill = result.data["fast_brain_skill"]
-                logger.info(f"Using assistant skill from DB: {assistant_skill}")
+            result = supabase.table("va_assistants").select("fast_brain_skill, tts_provider, voice_id").eq("id", assistant_id).single().execute()
+            if result.data:
+                if result.data.get("fast_brain_skill"):
+                    assistant_skill = result.data["fast_brain_skill"]
+                    logger.info(f"Using assistant skill from DB: {assistant_skill}")
+                if result.data.get("tts_provider"):
+                    assistant_tts_provider = result.data["tts_provider"]
+                    logger.info(f"Using TTS provider from DB: {assistant_tts_provider}")
+                if result.data.get("voice_id"):
+                    assistant_voice_id = result.data["voice_id"]
+                    logger.info(f"Using voice_id from DB: {assistant_voice_id[:16]}...")
         except Exception as e:
             logger.warning(f"Could not load assistant skill: {e}")
 
@@ -1336,12 +1345,51 @@ async def entrypoint(ctx: JobContext):
         logger.error("No LLM configured (Fast Brain, Groq, or Anthropic)")
         return
 
-    # Initialize TTS (Cartesia)
-    tts = cartesia.TTS(
-        model="sonic-english",
-        voice=config.cartesia_voice_id,
-    )
-    logger.info("Cartesia TTS initialized")
+    # Initialize TTS based on assistant's tts_provider setting
+    tts = None
+    tts_provider = assistant_tts_provider.lower()
+    voice_id = assistant_voice_id
+
+    if tts_provider == "elevenlabs" and ELEVENLABS_AVAILABLE and elevenlabs:
+        try:
+            tts = elevenlabs.TTS(
+                model_id="eleven_turbo_v2_5",
+                voice=voice_id or "21m00Tcm4TlvDq8ikWAM",  # Default: Rachel
+            )
+            logger.info(f"ElevenLabs TTS initialized (voice={voice_id[:16] if voice_id else 'default'}...)")
+        except Exception as e:
+            logger.warning(f"ElevenLabs TTS failed: {e}, falling back to Cartesia")
+            tts_provider = "cartesia"
+
+    elif tts_provider == "deepgram":
+        try:
+            # Deepgram TTS uses voice as the model name (e.g., "aura-asteria-en")
+            tts = deepgram.TTS(
+                model=voice_id or "aura-asteria-en",  # Default: Asteria
+            )
+            logger.info(f"Deepgram TTS initialized (voice={voice_id or 'aura-asteria-en'})")
+        except Exception as e:
+            logger.warning(f"Deepgram TTS failed: {e}, falling back to Cartesia")
+            tts_provider = "cartesia"
+
+    elif tts_provider == "openai":
+        try:
+            tts = openai.TTS(
+                model="tts-1",
+                voice=voice_id or "alloy",
+            )
+            logger.info(f"OpenAI TTS initialized (voice={voice_id or 'alloy'})")
+        except Exception as e:
+            logger.warning(f"OpenAI TTS failed: {e}, falling back to Cartesia")
+            tts_provider = "cartesia"
+
+    # Default/fallback: Cartesia (recommended - lowest latency)
+    if tts is None:
+        tts = cartesia.TTS(
+            model="sonic-english",
+            voice=voice_id or config.cartesia_voice_id,
+        )
+        logger.info(f"Cartesia TTS initialized (voice={voice_id[:16] if voice_id else config.cartesia_voice_id[:16]}...)")
 
     # Initialize VAD (Silero) - required for detecting user speech
     vad = silero.VAD.load()
