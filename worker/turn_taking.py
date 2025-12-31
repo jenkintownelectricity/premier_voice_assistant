@@ -80,8 +80,34 @@ class TurnContext:
 class TurnConfig:
     """Configuration for turn-taking behavior."""
 
-    # VAD settings
-    min_silence_for_turn_end_ms: float = 500      # Minimum silence to consider turn end
+    # =========================================================================
+    # NOISE FILTERING - "Iron Ear" (The Door Slam Fix)
+    # =========================================================================
+    # Problem: Agent is "jumpy" - stops talking when it hears any sound
+    # Solution: Debounce logic - require continuous speech before interrupting
+    #
+    # A door slam = ~100ms, a cough = ~150ms, real speech = >250ms
+    # By requiring 300ms of continuous sound, we ignore transient noises.
+
+    # VAD threshold (0.0-1.0) - Higher = ignore more background noise
+    # 0.5 = sensitive (picks up quiet speech but also noise)
+    # 0.65 = balanced (good for most environments)
+    # 0.8 = strict (may miss quiet speech but ignores most noise)
+    vad_threshold: float = 0.65
+
+    # Minimum continuous speech duration before we consider it "real" speech
+    # This is the "debounce" - filters out door slams, coughs, etc.
+    min_speech_duration_ms: int = 300
+
+    # Frame duration assumption (for buffer calculations)
+    frame_duration_ms: int = 20
+
+    # =========================================================================
+    # TURN END DETECTION
+    # =========================================================================
+
+    # Minimum silence to consider turn end (patience before responding)
+    min_silence_for_turn_end_ms: float = 600      # Increased from 500 for more patience
     max_silence_before_timeout_ms: float = 3000   # Max silence before forcing response
     min_speech_for_turn_ms: float = 200           # Minimum speech to count as turn
 
@@ -89,7 +115,10 @@ class TurnConfig:
     use_semantic_detection: bool = True
     semantic_confidence_threshold: float = 0.7
 
-    # Interruption handling
+    # =========================================================================
+    # INTERRUPTION HANDLING
+    # =========================================================================
+
     allow_barge_in: bool = True
     barge_in_threshold_ms: float = 300            # How long user must speak to interrupt
     backchannel_max_duration_ms: float = 800      # Max duration for backchannel
@@ -98,11 +127,17 @@ class TurnConfig:
     use_prosodic_cues: bool = True
     falling_pitch_weight: float = 0.3             # Weight for falling pitch = turn end
 
-    # Backchanneling
+    # =========================================================================
+    # BACKCHANNELING
+    # =========================================================================
+
     enable_backchannels: bool = True
     backchannel_interval_ms: float = 4000         # How often to backchannel
 
-    # Response timing
+    # =========================================================================
+    # RESPONSE TIMING
+    # =========================================================================
+
     response_delay_ms: float = 100                # Small delay before responding
     thinking_acknowledgment_ms: float = 2000      # Say "hmm" if thinking too long
 
@@ -260,10 +295,13 @@ class InterruptionClassifier:
 
 class TurnManager:
     """
-    Main turn-taking controller.
+    Main turn-taking controller with "Iron Ear" noise filtering.
 
     Orchestrates VAD, semantic detection, and interruption handling
     to produce natural conversational flow.
+
+    The "Iron Ear" feature filters out transient noises (door slams, coughs)
+    by requiring continuous speech before triggering state changes.
     """
 
     def __init__(self, config: Optional[TurnConfig] = None):
@@ -280,28 +318,83 @@ class TurnManager:
         self.silence_start_time: Optional[float] = None
         self.last_backchannel_time: float = 0
 
+        # =====================================================================
+        # IRON EAR - Speech Buffer for Noise Filtering
+        # =====================================================================
+        # Buffer tracks consecutive speech frames for debounce logic
+        # A door slam (~100ms) won't fill the buffer, but real speech (~300ms+) will
+        self._speech_buffer: List[int] = []
+        self._frames_needed = int(
+            self.config.min_speech_duration_ms / self.config.frame_duration_ms
+        )
+
         # Callbacks
         self.on_state_change: Optional[Callable[[TurnState, TurnState], None]] = None
         self.on_backchannel_needed: Optional[Callable[[], None]] = None
+
+    def is_real_speech(self, frame_probability: float) -> bool:
+        """
+        Iron Ear: Determines if the audio is TRULY speech or just noise.
+
+        Uses debounce logic to filter out transient sounds:
+        - Door slam = ~100ms (5 frames @ 20ms) - IGNORED
+        - Cough = ~150ms (7 frames) - IGNORED
+        - Real speech = >300ms (15+ frames) - DETECTED
+
+        Args:
+            frame_probability: VAD probability for this frame (0.0-1.0)
+
+        Returns:
+            True if this is real speech (buffer is full), False if noise
+        """
+        # 1. RAW VAD CHECK - Is the audio above our threshold?
+        is_active = frame_probability > self.config.vad_threshold
+
+        if is_active:
+            # Add to buffer (speech detected)
+            self._speech_buffer.append(1)
+        else:
+            # Decay buffer slowly instead of instant reset
+            # This handles choppy speech / brief pauses mid-word
+            if self._speech_buffer:
+                self._speech_buffer.pop(0)  # Remove oldest frame
+
+        # 2. DURATION CHECK - The "Debounce"
+        # Only return True if we have enough consecutive frames
+        return len(self._speech_buffer) >= self._frames_needed
 
     def process(
         self,
         is_speech: bool,
         transcript: str = "",
-        energy: float = 0.0
+        energy: float = 0.0,
+        vad_probability: Optional[float] = None,
     ) -> TurnState:
         """
         Process an audio frame and update turn state.
 
         Args:
-            is_speech: Whether VAD detected speech
+            is_speech: Whether VAD detected speech (raw boolean)
             transcript: Current transcript (can be partial)
             energy: Audio energy level (0-1)
+            vad_probability: Optional VAD confidence (0.0-1.0) for Iron Ear filtering.
+                            If provided, is_speech is recalculated using debounce logic.
 
         Returns:
             Current TurnState
         """
         current_time = time.time() * 1000  # ms
+
+        # =====================================================================
+        # IRON EAR FILTERING
+        # =====================================================================
+        # If vad_probability is provided, use debounce logic to filter noise
+        # This prevents door slams, coughs, etc. from interrupting the agent
+        if vad_probability is not None:
+            is_speech = self.is_real_speech(vad_probability)
+        elif energy > 0:
+            # Fallback: Use energy as proxy for VAD probability
+            is_speech = self.is_real_speech(energy)
 
         old_state = self.state
         self.context.transcript = transcript
@@ -469,6 +562,7 @@ class TurnManager:
         self.context = TurnContext()
         self.speech_start_time = None
         self.silence_start_time = None
+        self._speech_buffer = []  # Clear Iron Ear buffer
 
 
 # =============================================================================

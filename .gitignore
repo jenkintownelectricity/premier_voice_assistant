@@ -52,6 +52,9 @@ logs/
 # Modal
 .modal/
 
+# Gradio
+.gradio/
+
 # Testing
 .pytest_cache/
 .coverage
