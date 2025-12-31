@@ -480,6 +480,33 @@ class SupabaseManager:
             logger.error(f"Error deleting audio: {e}")
             raise
 
+    def create_signed_url(self, bucket: str, file_path: str, expires_in: int = 3600) -> str:
+        """
+        Create a signed URL for private bucket access.
+
+        Args:
+            bucket: Storage bucket name
+            file_path: Path to file within bucket
+            expires_in: URL expiration time in seconds (default 1 hour)
+
+        Returns:
+            Signed URL that expires after specified time
+        """
+        try:
+            result = self.client.storage.from_(bucket).create_signed_url(
+                file_path, expires_in
+            )
+            if isinstance(result, dict) and 'signedURL' in result:
+                return result['signedURL']
+            elif hasattr(result, 'signed_url'):
+                return result.signed_url
+            else:
+                logger.warning(f"Unexpected signed URL result format: {result}")
+                return result.get('signedUrl', str(result))
+        except Exception as e:
+            logger.error(f"Error creating signed URL: {e}")
+            raise
+
 
 # Singleton instance
 _supabase_manager: Optional[SupabaseManager] = None

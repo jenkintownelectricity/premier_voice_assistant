@@ -226,7 +226,7 @@ export default function VoiceClonesPage() {
     }
   };
 
-  const playVoiceSample = (clone: VoiceClone) => {
+  const playVoiceSample = async (clone: VoiceClone) => {
     if (playingCloneId === clone.id) {
       audioPreviewRef.current?.pause();
       setPlayingCloneId(null);
@@ -237,11 +237,34 @@ export default function VoiceClonesPage() {
       audioPreviewRef.current.pause();
     }
 
-    const audio = new Audio(clone.reference_audio_url);
-    audioPreviewRef.current = audio;
-    audio.onended = () => setPlayingCloneId(null);
-    audio.play();
-    setPlayingCloneId(clone.id);
+    try {
+      // Get signed URL from backend (required for private bucket access)
+      const response = await fetch(`${apiUrl}/voice-clones/${clone.id}/audio`, {
+        headers: {
+          'X-User-ID': user?.id || '',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get audio URL');
+      }
+
+      const data = await response.json();
+      const audio = new Audio(data.audio_url);
+      audioPreviewRef.current = audio;
+      audio.onended = () => setPlayingCloneId(null);
+      audio.onerror = () => {
+        console.error('Audio playback error');
+        setPlayingCloneId(null);
+        setError('Failed to play audio sample');
+      };
+      await audio.play();
+      setPlayingCloneId(clone.id);
+    } catch (err) {
+      console.error('Error playing voice sample:', err);
+      setError('Failed to play voice sample');
+      setPlayingCloneId(null);
+    }
   };
 
   const formatDuration = (seconds: number) => {
