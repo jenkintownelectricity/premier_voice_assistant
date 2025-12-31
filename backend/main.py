@@ -7926,14 +7926,13 @@ async def get_tts_voices(
         for v in provider_info["voices"]
     ]
 
-    # Get user's voice clones
+    # Get user's voice clones (direct table query - RPC function doesn't exist)
     user_clones = []
     if user_id and provider == "cartesia":
         try:
-            result = supabase.client.rpc(
-                "va_client_get_voice_clones",
-                {"p_user_id": user_id}
-            ).execute()
+            result = supabase.client.table("va_voice_clones").select(
+                "voice_name, display_name"
+            ).eq("user_id", user_id).execute()
             if result.data:
                 user_clones = [
                     {
@@ -7948,13 +7947,12 @@ async def get_tts_voices(
         except Exception as e:
             logger.warning(f"Failed to fetch user voice clones: {e}")
 
-    # Get Coqui cloned voices - load from database (same as Cartesia)
+    # Get Coqui cloned voices - load from database
     if provider == "coqui" and user_id:
         try:
-            result = supabase.client.rpc(
-                "va_client_get_voice_clones",
-                {"p_user_id": user_id}
-            ).execute()
+            result = supabase.client.table("va_voice_clones").select(
+                "voice_name, display_name"
+            ).eq("user_id", user_id).execute()
             if result.data:
                 # For Coqui, user clones ARE the voices (no preset voices)
                 user_clones = [
