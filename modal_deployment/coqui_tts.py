@@ -269,6 +269,7 @@ def clone_voice_web():
     from fastapi import FastAPI, File, Form
     import tempfile
     import soundfile as sf
+    import subprocess
     import time
     from pathlib import Path
 
@@ -279,22 +280,38 @@ def clone_voice_web():
         """Web endpoint for voice cloning."""
         start_time = time.time()
 
-        # Save reference audio to temp file
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        # Save reference audio to temp file (could be any format)
+        with tempfile.NamedTemporaryFile(suffix=".input", delete=False) as f:
             f.write(reference_audio)
-            temp_path = f.name
+            input_path = f.name
 
+        # Convert to WAV using ffmpeg (handles webm, mp3, ogg, etc.)
+        wav_path = input_path.replace(".input", ".wav")
         try:
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-i", input_path, "-ar", "22050", "-ac", "1", wav_path],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode != 0:
+                print(f"FFmpeg error: {result.stderr}")
+                raise ValueError(f"Audio conversion failed: {result.stderr}")
+
             # Get audio duration
-            data, samplerate = sf.read(temp_path)
+            data, samplerate = sf.read(wav_path)
             duration = len(data) / samplerate
+
+            # Read converted WAV bytes
+            with open(wav_path, "rb") as f:
+                wav_bytes = f.read()
 
             # Store in voice models volume for persistence
             voice_path = f"/voice_models/{voice_name}.wav"
             Path(voice_path).parent.mkdir(parents=True, exist_ok=True)
 
             with open(voice_path, "wb") as f:
-                f.write(reference_audio)
+                f.write(wav_bytes)
 
             # Commit volume changes
             voice_models_volume.commit()
@@ -311,7 +328,8 @@ def clone_voice_web():
             }
 
         finally:
-            Path(temp_path).unlink(missing_ok=True)
+            Path(input_path).unlink(missing_ok=True)
+            Path(wav_path).unlink(missing_ok=True)
 
     return web_app
 
