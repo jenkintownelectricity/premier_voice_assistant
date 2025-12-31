@@ -432,18 +432,32 @@ class SupabaseManager:
         """
         try:
             # Use upsert to overwrite existing files (fixes issue where old webm files blocked WAV uploads)
-            result = self.client.storage.from_(bucket).upload(
-                file_path, audio_bytes, {"content-type": "audio/wav", "upsert": "true"}
+            storage = self.client.storage.from_(bucket)
+
+            # Try to remove existing file first (upsert can be unreliable)
+            try:
+                storage.remove([file_path])
+                logger.info(f"Removed existing file: {bucket}/{file_path}")
+            except Exception:
+                pass  # File might not exist, that's fine
+
+            # Upload the new file
+            result = storage.upload(
+                file_path, audio_bytes, {"content-type": "audio/wav"}
             )
 
-            # Get public URL
-            url = self.client.storage.from_(bucket).get_public_url(file_path)
+            # Check if upload succeeded
+            if hasattr(result, 'path') or (isinstance(result, dict) and result.get('path')):
+                logger.info(f"Uploaded audio to {bucket}/{file_path}")
+            else:
+                logger.warning(f"Upload result: {result}")
 
-            logger.info(f"Uploaded audio to {bucket}/{file_path}")
+            # Get public URL
+            url = storage.get_public_url(file_path)
             return url
 
         except Exception as e:
-            logger.error(f"Error uploading audio: {e}")
+            logger.error(f"Error uploading audio: {e}", exc_info=True)
             raise
 
     def download_audio(self, bucket: str, file_path: str) -> bytes:
