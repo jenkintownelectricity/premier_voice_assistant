@@ -14,11 +14,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir 'livekit-agents[deepgram,cartesia,openai,silero]==1.3.8'
 
-# Download turn detector model (ONNX file for smarter turn-taking)
-RUN python -m livekit.agents download-files
-
 # Copy application code
 COPY . .
+
+# Download turn detector model (ONNX file for smarter turn-taking)
+RUN python backend/livekit_agent.py download-files
 
 # Start script handles SERVICE_TYPE routing
 CMD ["bash", "start.sh"]
