@@ -36,7 +36,7 @@ export function VoiceCallWrapper({
   assistantName,
   userId,
   onClose,
-  defaultMode = 'websocket',
+  defaultMode = 'livekit',
 }: VoiceCallWrapperProps) {
   const [mode, setMode] = useState<'websocket' | 'livekit'>(defaultMode);
   const [liveKitStatus, setLiveKitStatus] = useState<LiveKitStatus | null>(null);
