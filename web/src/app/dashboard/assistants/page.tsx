@@ -431,6 +431,49 @@ export default function AssistantsPage() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [ttsProvider, setTtsProvider] = useState('cartesia');
   const [voiceId, setVoiceId] = useState('f786b574-daa5-4673-aa0c-cbe3e8534c02'); // Katie default
+
+  // Voice preview state
+  const [previewingVoice, setPreviewingVoice] = useState(false);
+  const [previewAudio, setPreviewAudio] = useState<HTMLAudioElement | null>(null);
+
+  const previewVoice = async () => {
+    if (previewingVoice || !voiceId) return;
+
+    // Stop any existing preview
+    if (previewAudio) {
+      previewAudio.pause();
+      previewAudio.currentTime = 0;
+    }
+
+    setPreviewingVoice(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+      const response = await fetch(`${apiUrl}/api/tts/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: ttsProvider,
+          voice_id: voiceId,
+          text: "Hello! This is how I sound. I hope you like my voice.",
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const audio = new Audio(`data:${data.content_type};base64,${data.audio_base64}`);
+        setPreviewAudio(audio);
+        audio.play();
+        audio.onended = () => setPreviewingVoice(false);
+      } else {
+        console.error('Preview failed:', await response.text());
+        setPreviewingVoice(false);
+      }
+    } catch (error) {
+      console.error('Preview error:', error);
+      setPreviewingVoice(false);
+    }
+  };
+
   const [llmProvider, setLlmProvider] = useState('groq');
   const [model, setModel] = useState('llama-3.3-70b-versatile');
   const [temperature, setTemperature] = useState(0.7);
@@ -824,58 +867,94 @@ export default function AssistantsPage() {
                       </optgroup>
                     </select>
                   </div>
-                  {/* Voice Dropdown */}
+                  {/* Voice Dropdown with Preview */}
                   <div>
                     <label className="block text-xs text-gray-400 mb-1">
                       Voice {loadingVoices && <span className="text-gold">(loading...)</span>}
                     </label>
-                    <select
-                      value={voiceId}
-                      onChange={(e) => setVoiceId(e.target.value)}
-                      disabled={loadingVoices}
-                      className="w-full px-3 py-2 bg-oled-dark border border-gold/30 rounded-lg
-                        text-white text-sm focus:outline-none focus:border-gold transition-colors
-                        disabled:opacity-50"
-                    >
-                      <optgroup label="Male Voices">
-                        {providerVoices
-                          .filter(v => v.gender === 'male')
-                          .map((voice) => (
-                            <option key={voice.id} value={voice.id}>
-                              {voice.name} {voice.accent ? `(${voice.accent})` : ''}
-                            </option>
-                          ))}
-                      </optgroup>
-                      <optgroup label="Female Voices">
-                        {providerVoices
-                          .filter(v => v.gender === 'female')
-                          .map((voice) => (
-                            <option key={voice.id} value={voice.id}>
-                              {voice.name} {voice.accent ? `(${voice.accent})` : ''}
-                            </option>
-                          ))}
-                      </optgroup>
-                      {providerVoices.some(v => v.gender === 'neutral') && (
-                        <optgroup label="Neutral Voices">
+                    <div className="flex gap-2">
+                      <select
+                        value={voiceId}
+                        onChange={(e) => setVoiceId(e.target.value)}
+                        disabled={loadingVoices}
+                        className="flex-1 px-3 py-2 bg-oled-dark border border-gold/30 rounded-lg
+                          text-white text-sm focus:outline-none focus:border-gold transition-colors
+                          disabled:opacity-50"
+                      >
+                        {/* CUSTOM VOICES AT TOP - Clearly separated */}
+                        {userVoiceClones.length > 0 && (
+                          <optgroup label="★ MY CUSTOM VOICES">
+                            {userVoiceClones.map((clone) => (
+                              <option key={clone.id} value={clone.id}>
+                                ★ {clone.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {/* Separator option group */}
+                        {userVoiceClones.length > 0 && providerVoices.length > 0 && (
+                          <optgroup label="────────────────────"></optgroup>
+                        )}
+                        {/* PREDEFINED VOICES */}
+                        <optgroup label="Male Voices">
                           {providerVoices
-                            .filter(v => v.gender === 'neutral')
+                            .filter(v => v.gender === 'male')
                             .map((voice) => (
                               <option key={voice.id} value={voice.id}>
                                 {voice.name} {voice.accent ? `(${voice.accent})` : ''}
                               </option>
                             ))}
                         </optgroup>
-                      )}
-                      {userVoiceClones.length > 0 && (
-                        <optgroup label="Your Voice Clones">
-                          {userVoiceClones.map((clone) => (
-                            <option key={clone.id} value={clone.id}>
-                              {clone.name}
-                            </option>
-                          ))}
+                        <optgroup label="Female Voices">
+                          {providerVoices
+                            .filter(v => v.gender === 'female')
+                            .map((voice) => (
+                              <option key={voice.id} value={voice.id}>
+                                {voice.name} {voice.accent ? `(${voice.accent})` : ''}
+                              </option>
+                            ))}
                         </optgroup>
-                      )}
-                    </select>
+                        {providerVoices.some(v => v.gender === 'neutral') && (
+                          <optgroup label="Neutral Voices">
+                            {providerVoices
+                              .filter(v => v.gender === 'neutral')
+                              .map((voice) => (
+                                <option key={voice.id} value={voice.id}>
+                                  {voice.name} {voice.accent ? `(${voice.accent})` : ''}
+                                </option>
+                              ))}
+                          </optgroup>
+                        )}
+                      </select>
+                      {/* Preview Button */}
+                      <button
+                        type="button"
+                        onClick={previewVoice}
+                        disabled={previewingVoice || loadingVoices || !voiceId}
+                        className="px-3 py-2 bg-gold/20 border border-gold/30 rounded-lg
+                          text-gold text-sm hover:bg-gold/30 transition-colors
+                          disabled:opacity-50 disabled:cursor-not-allowed
+                          flex items-center gap-1"
+                        title="Preview voice"
+                      >
+                        {previewingVoice ? (
+                          <>
+                            <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 24 24">
+                              <rect x="6" y="4" width="4" height="16" rx="1"/>
+                              <rect x="14" y="4" width="4" height="16" rx="1"/>
+                            </svg>
+                            <span className="hidden sm:inline">Playing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            <span className="hidden sm:inline">Preview</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <div className="text-xs text-gray-500 flex items-center gap-2">

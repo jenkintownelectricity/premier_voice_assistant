@@ -7833,6 +7833,154 @@ async def get_tts_voices(
     }
 
 
+@app.post("/api/tts/preview")
+async def preview_tts_voice(
+    provider: str = Body(...),
+    voice_id: str = Body(...),
+    text: str = Body(default="Hello! This is how I sound. I hope you like my voice."),
+):
+    """
+    Generate a short audio preview for a TTS voice.
+    Returns base64-encoded audio data.
+    """
+    import base64
+    import httpx
+
+    if provider not in TTS_PROVIDER_VOICES:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown TTS provider: {provider}"
+        )
+
+    try:
+        audio_data = None
+
+        if provider == "cartesia":
+            # Cartesia API
+            api_key = os.getenv("CARTESIA_API_KEY")
+            if not api_key:
+                raise HTTPException(status_code=500, detail="Cartesia API key not configured")
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.cartesia.ai/tts/bytes",
+                    headers={
+                        "X-API-Key": api_key,
+                        "Cartesia-Version": "2024-06-10",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model_id": "sonic-english",
+                        "transcript": text,
+                        "voice": {"mode": "id", "id": voice_id},
+                        "output_format": {"container": "mp3", "bit_rate": 128000},
+                    },
+                    timeout=30.0,
+                )
+                if response.status_code == 200:
+                    audio_data = response.content
+                else:
+                    logger.error(f"Cartesia preview failed: {response.status_code} - {response.text}")
+                    raise HTTPException(status_code=response.status_code, detail="Cartesia TTS failed")
+
+        elif provider == "elevenlabs":
+            # ElevenLabs API
+            api_key = os.getenv("ELEVENLABS_API_KEY")
+            if not api_key:
+                raise HTTPException(status_code=500, detail="ElevenLabs API key not configured")
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                    headers={
+                        "xi-api-key": api_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "text": text,
+                        "model_id": "eleven_turbo_v2_5",
+                        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+                    },
+                    timeout=30.0,
+                )
+                if response.status_code == 200:
+                    audio_data = response.content
+                else:
+                    logger.error(f"ElevenLabs preview failed: {response.status_code} - {response.text}")
+                    raise HTTPException(status_code=response.status_code, detail="ElevenLabs TTS failed")
+
+        elif provider == "deepgram":
+            # Deepgram TTS API
+            api_key = os.getenv("DEEPGRAM_API_KEY")
+            if not api_key:
+                raise HTTPException(status_code=500, detail="Deepgram API key not configured")
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://api.deepgram.com/v1/speak?model={voice_id}",
+                    headers={
+                        "Authorization": f"Token {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"text": text},
+                    timeout=30.0,
+                )
+                if response.status_code == 200:
+                    audio_data = response.content
+                else:
+                    logger.error(f"Deepgram preview failed: {response.status_code} - {response.text}")
+                    raise HTTPException(status_code=response.status_code, detail="Deepgram TTS failed")
+
+        elif provider == "openai":
+            # OpenAI TTS API
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://api.openai.com/v1/audio/speech",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "tts-1",
+                        "input": text,
+                        "voice": voice_id,
+                        "response_format": "mp3",
+                    },
+                    timeout=30.0,
+                )
+                if response.status_code == 200:
+                    audio_data = response.content
+                else:
+                    logger.error(f"OpenAI preview failed: {response.status_code} - {response.text}")
+                    raise HTTPException(status_code=response.status_code, detail="OpenAI TTS failed")
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Preview not available for provider: {provider}")
+
+        if audio_data:
+            return {
+                "success": True,
+                "audio_base64": base64.b64encode(audio_data).decode("utf-8"),
+                "content_type": "audio/mpeg",
+                "provider": provider,
+                "voice_id": voice_id,
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to generate audio preview")
+
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="TTS provider timeout")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"TTS preview error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================================================
 # END FAST BRAIN ENDPOINTS
 # =============================================================================
