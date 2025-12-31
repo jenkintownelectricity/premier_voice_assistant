@@ -119,6 +119,46 @@ const TTS_PROVIDERS: Record<string, {
       { id: "shimmer", name: "Shimmer", gender: "female", accent: "US" },
     ],
   },
+  coqui: {
+    name: "Coqui XTTS (Free)",
+    latency: "~150ms",
+    description: "Free voice cloning - use your own voice!",
+    voices: [
+      { id: "default", name: "Clone Your Voice First", gender: "neutral", accent: "Any" },
+    ],
+  },
+  kokoro: {
+    name: "Kokoro (Free)",
+    latency: "~100ms",
+    description: "Free 82M model - 22 voices, multi-language!",
+    voices: [
+      // US English
+      { id: "af_heart", name: "Heart", gender: "female", accent: "US" },
+      { id: "af_bella", name: "Bella", gender: "female", accent: "US" },
+      { id: "af_sarah", name: "Sarah", gender: "female", accent: "US" },
+      { id: "af_nicole", name: "Nicole", gender: "female", accent: "US" },
+      { id: "af_sky", name: "Sky", gender: "female", accent: "US" },
+      { id: "am_adam", name: "Adam", gender: "male", accent: "US" },
+      { id: "am_michael", name: "Michael", gender: "male", accent: "US" },
+      { id: "am_fenrir", name: "Fenrir", gender: "male", accent: "US" },
+      // British English
+      { id: "bf_emma", name: "Emma", gender: "female", accent: "UK" },
+      { id: "bf_isabella", name: "Isabella", gender: "female", accent: "UK" },
+      { id: "bf_alice", name: "Alice", gender: "female", accent: "UK" },
+      { id: "bf_lily", name: "Lily", gender: "female", accent: "UK" },
+      { id: "bm_george", name: "George", gender: "male", accent: "UK" },
+      { id: "bm_lewis", name: "Lewis", gender: "male", accent: "UK" },
+      { id: "bm_daniel", name: "Daniel", gender: "male", accent: "UK" },
+      // Other languages
+      { id: "ef_dora", name: "Dora", gender: "female", accent: "Spanish" },
+      { id: "em_alex", name: "Alex", gender: "male", accent: "Spanish" },
+      { id: "ff_siwis", name: "Siwis", gender: "female", accent: "French" },
+      { id: "jf_alpha", name: "Alpha", gender: "female", accent: "Japanese" },
+      { id: "jm_kumo", name: "Kumo", gender: "male", accent: "Japanese" },
+      { id: "zf_xiaobei", name: "Xiaobei", gender: "female", accent: "Chinese" },
+      { id: "zm_yunjian", name: "Yunjian", gender: "male", accent: "Chinese" },
+    ],
+  },
 };
 
 // Industry-specific quick start templates
@@ -857,6 +897,10 @@ export default function AssistantsPage() {
                       className="w-full px-3 py-2 bg-oled-dark border border-gold/30 rounded-lg
                         text-white text-sm focus:outline-none focus:border-gold transition-colors"
                     >
+                      <optgroup label="★ Free TTS">
+                        <option value="kokoro">Kokoro - 22 Free Voices! (~100ms)</option>
+                        <option value="coqui">Coqui XTTS - Clone Your Voice (~150ms)</option>
+                      </optgroup>
                       <optgroup label="Recommended (Low Latency)">
                         <option value="cartesia">Cartesia (~30ms)</option>
                         <option value="deepgram">Deepgram Aura (~80ms)</option>

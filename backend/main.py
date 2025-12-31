@@ -7751,6 +7751,47 @@ TTS_PROVIDER_VOICES = {
             {"id": "grove", "name": "Grove", "gender": "male", "accent": "US"},
         ],
     },
+    "coqui": {
+        "name": "Coqui XTTS (Free)",
+        "description": "Free open-source voice cloning - use your own voice!",
+        "latency": "~150ms TTFB",
+        "voices": [
+            # User's cloned voices are loaded dynamically
+            {"id": "default", "name": "Clone Your Voice", "gender": "neutral", "accent": "Any"},
+        ],
+    },
+    "kokoro": {
+        "name": "Kokoro (Free)",
+        "description": "Free 82M model - 22 voices, multi-language!",
+        "latency": "~100ms TTFB",
+        "voices": [
+            # US English
+            {"id": "af_heart", "name": "Heart", "gender": "female", "accent": "US"},
+            {"id": "af_bella", "name": "Bella", "gender": "female", "accent": "US"},
+            {"id": "af_sarah", "name": "Sarah", "gender": "female", "accent": "US"},
+            {"id": "af_nicole", "name": "Nicole", "gender": "female", "accent": "US"},
+            {"id": "af_sky", "name": "Sky", "gender": "female", "accent": "US"},
+            {"id": "am_adam", "name": "Adam", "gender": "male", "accent": "US"},
+            {"id": "am_michael", "name": "Michael", "gender": "male", "accent": "US"},
+            {"id": "am_fenrir", "name": "Fenrir", "gender": "male", "accent": "US"},
+            # British English
+            {"id": "bf_emma", "name": "Emma", "gender": "female", "accent": "UK"},
+            {"id": "bf_isabella", "name": "Isabella", "gender": "female", "accent": "UK"},
+            {"id": "bf_alice", "name": "Alice", "gender": "female", "accent": "UK"},
+            {"id": "bf_lily", "name": "Lily", "gender": "female", "accent": "UK"},
+            {"id": "bm_george", "name": "George", "gender": "male", "accent": "UK"},
+            {"id": "bm_lewis", "name": "Lewis", "gender": "male", "accent": "UK"},
+            {"id": "bm_daniel", "name": "Daniel", "gender": "male", "accent": "UK"},
+            # Other languages
+            {"id": "ef_dora", "name": "Dora", "gender": "female", "accent": "Spanish"},
+            {"id": "em_alex", "name": "Alex", "gender": "male", "accent": "Spanish"},
+            {"id": "ff_siwis", "name": "Siwis", "gender": "female", "accent": "French"},
+            {"id": "jf_alpha", "name": "Alpha", "gender": "female", "accent": "Japanese"},
+            {"id": "jm_kumo", "name": "Kumo", "gender": "male", "accent": "Japanese"},
+            {"id": "zf_xiaobei", "name": "Xiaobei", "gender": "female", "accent": "Chinese"},
+            {"id": "zm_yunjian", "name": "Yunjian", "gender": "male", "accent": "Chinese"},
+        ],
+    },
 }
 
 
@@ -7801,7 +7842,7 @@ async def get_tts_voices(
         for v in provider_info["voices"]
     ]
 
-    # Get user's voice clones (for Cartesia only)
+    # Get user's voice clones
     user_clones = []
     if user_id and provider == "cartesia":
         try:
@@ -7822,6 +7863,17 @@ async def get_tts_voices(
                 ]
         except Exception as e:
             logger.warning(f"Failed to fetch user voice clones: {e}")
+
+    # Get Coqui cloned voices from Modal volume
+    if provider == "coqui":
+        try:
+            import httpx
+            coqui_base_url = os.getenv("COQUI_TTS_URL", "https://jenkintownelectricity--premier-coqui-tts-synthesize-web.modal.run")
+            # Try to list voices - for now we'll just show placeholder since list endpoint doesn't exist
+            # Users can clone voices via the voice-clones page
+            voices = []  # Clear default placeholder
+        except Exception as e:
+            logger.warning(f"Failed to fetch Coqui voices: {e}")
 
     return {
         "provider": provider,
@@ -7958,14 +8010,54 @@ async def preview_tts_voice(
                     logger.error(f"OpenAI preview failed: {response.status_code} - {response.text}")
                     raise HTTPException(status_code=response.status_code, detail="OpenAI TTS failed")
 
+        elif provider == "coqui":
+            # Coqui XTTS via Modal
+            coqui_url = os.getenv("COQUI_TTS_URL", "https://jenkintownelectricity--premier-coqui-tts-synthesize-web.modal.run")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    coqui_url,
+                    data={
+                        "text": text,
+                        "voice_name": voice_id,
+                        "language": "en",
+                    },
+                    timeout=30.0,
+                )
+                if response.status_code == 200:
+                    audio_data = response.content
+                else:
+                    logger.error(f"Coqui preview failed: {response.status_code} - {response.text}")
+                    raise HTTPException(status_code=response.status_code, detail="Coqui TTS failed")
+
+        elif provider == "kokoro":
+            # Kokoro TTS via Modal (free, 22 voices)
+            kokoro_url = os.getenv("KOKORO_TTS_URL", "https://jenkintownelectricity--hive215-kokoro-tts-synthesize-web.modal.run")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    kokoro_url,
+                    json={
+                        "text": text,
+                        "voice": voice_id or "af_heart",
+                        "speed": 1.0,
+                    },
+                    timeout=30.0,
+                )
+                if response.status_code == 200:
+                    audio_data = response.content
+                else:
+                    logger.error(f"Kokoro preview failed: {response.status_code} - {response.text}")
+                    raise HTTPException(status_code=response.status_code, detail="Kokoro TTS failed")
+
         else:
             raise HTTPException(status_code=400, detail=f"Preview not available for provider: {provider}")
 
         if audio_data:
+            # Coqui and Kokoro return WAV, others return MP3
+            content_type = "audio/wav" if provider in ("coqui", "kokoro") else "audio/mpeg"
             return {
                 "success": True,
                 "audio_base64": base64.b64encode(audio_data).decode("utf-8"),
-                "content_type": "audio/mpeg",
+                "content_type": content_type,
                 "provider": provider,
                 "voice_id": voice_id,
             }

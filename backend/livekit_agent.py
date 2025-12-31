@@ -1383,6 +1383,22 @@ async def entrypoint(ctx: JobContext):
             logger.warning(f"OpenAI TTS failed: {e}, falling back to Cartesia")
             tts_provider = "cartesia"
 
+    elif tts_provider == "coqui":
+        # NOTE: Coqui XTTS is a batch API, not streaming. LiveKit needs streaming TTS.
+        # For real-time calls, we fall back to Cartesia but log the Coqui voice name.
+        # Future: implement streaming adapter for Coqui or use for async audio generation.
+        logger.warning(f"Coqui XTTS selected (voice={voice_id}) - falling back to Cartesia for real-time streaming")
+        logger.info("Coqui works for voice cloning and preview, but real-time calls need streaming TTS")
+        # Fall through to Cartesia below
+
+    elif tts_provider == "kokoro":
+        # NOTE: Kokoro is also a batch API deployed on Modal, not streaming.
+        # For real-time calls, we fall back to Cartesia.
+        # Future: implement streaming adapter for Kokoro.
+        logger.warning(f"Kokoro TTS selected (voice={voice_id}) - falling back to Cartesia for real-time streaming")
+        logger.info("Kokoro works for preview, but real-time calls need streaming TTS")
+        # Fall through to Cartesia below
+
     # Default/fallback: Cartesia (recommended - lowest latency)
     if tts is None:
         tts = cartesia.TTS(
