@@ -940,6 +940,11 @@ export default function AssistantsPage() {
                           <optgroup label="────────────────────"></optgroup>
                         )}
                         {/* PREDEFINED VOICES */}
+                        {providerVoices.length === 0 && userVoiceClones.length === 0 && (
+                          <option value="" disabled>
+                            {ttsProvider === 'coqui' ? 'Clone a voice first (Voice Clones page)' : 'No voices available'}
+                          </option>
+                        )}
                         <optgroup label="Male Voices">
                           {providerVoices
                             .filter(v => v.gender === 'male')
