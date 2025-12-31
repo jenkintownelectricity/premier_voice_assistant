@@ -681,7 +681,7 @@ async def load_assistant_config(assistant_id: str) -> Dict[str, Any]:
         logger.warning("Supabase not available, using default assistant config")
         return {}
     try:
-        supabase = get_supabase().client.client
+        supabase = get_supabase().client
         result = supabase.table("va_assistants").select("*").eq("id", assistant_id).single().execute()
 
         if result.data:
@@ -719,7 +719,7 @@ async def save_call_message(
         return None
 
     try:
-        supabase = get_supabase().client.client
+        supabase = get_supabase().client
 
         # Try to use the RPC function first (handles both tables)
         try:
@@ -781,7 +781,7 @@ async def save_call_log(
         logger.warning("Supabase not available, call log not saved")
         return None
     try:
-        supabase = get_supabase().client.client
+        supabase = get_supabase().client
         result = supabase.table("va_call_logs").insert({
             "user_id": user_id,
             "assistant_id": assistant_id,
@@ -1597,7 +1597,7 @@ Be natural and engaging, like talking to a friend."""
         # Keep running until room is closed
         while True:
             await asyncio.sleep(1)
-            if not ctx.room.connection_state.name == "CONNECTED":
+            if ctx.room.connection_state != rtc.ConnectionState.CONN_CONNECTED:
                 break
     except asyncio.CancelledError:
         pass
@@ -1616,7 +1616,7 @@ Be natural and engaging, like talking to a friend."""
                 duration = int(time.time() - call_start_time)
                 avg_metrics = latency.get_average_metrics()
                 sentiment_data = sentiment.get_overall()
-                supabase = get_supabase().client.client
+                supabase = get_supabase().client
                 # Determine overall sentiment
                 overall_sentiment = "neutral"
                 if sentiment_data.get("average", 0) > 0.2:
