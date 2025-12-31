@@ -236,6 +236,65 @@ class VoiceAgent:
         self.latency_masker.skill_type = skill_type
         logger.info(f"VoiceAgent skill type changed to: {skill_type}")
 
+    # =========================================================================
+    # IRON EAR V3 - HONEY POT METHODS
+    # =========================================================================
+
+    def start_honeypot(self):
+        """
+        Start the Honey Pot calibration phase for speaker verification.
+
+        Call this when asking the user a question designed to elicit
+        a longer response (e.g., "Could you state your name and reason for calling?")
+
+        The system will collect ~10 seconds of speech to create a voice fingerprint,
+        then use it to filter out background voices/imposters.
+        """
+        self.turn_manager.start_honeypot()
+        logger.info("[Iron Ear] Honey Pot sequence started")
+
+    def get_honeypot_prompt(self, skill_type: Optional[str] = None) -> str:
+        """
+        Get the appropriate Honey Pot prompt for the current skill.
+
+        Args:
+            skill_type: Override the default skill type
+
+        Returns:
+            A prompt designed to elicit a ~10-15 second response
+        """
+        from .identity_manager import get_honeypot_prompt
+        skill = skill_type or getattr(self.latency_masker, 'skill_type', 'default')
+        return get_honeypot_prompt(skill)
+
+    @property
+    def is_identity_calibrated(self) -> bool:
+        """Check if speaker identity has been locked."""
+        return self.turn_manager.is_identity_calibrated()
+
+    @property
+    def calibration_progress(self) -> float:
+        """Get identity calibration progress (0-1)."""
+        return self.turn_manager.get_calibration_progress()
+
+    def check_connection_quality(self) -> Optional[str]:
+        """
+        Check if the audio environment is too noisy.
+
+        Returns:
+            A prompt asking user to improve audio quality, or None if OK
+
+        Example:
+            quality_prompt = agent.check_connection_quality()
+            if quality_prompt:
+                yield quality_prompt  # "Are you on speakerphone?"
+        """
+        return self.turn_manager.check_connection_quality()
+
+    def get_identity_stats(self) -> Optional[dict]:
+        """Get identity verification statistics for debugging."""
+        return self.turn_manager.get_identity_stats()
+
     def reset(self):
         """Reset the agent state for a new conversation."""
         self.turn_manager.reset()

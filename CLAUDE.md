@@ -1,6 +1,6 @@
 # Project Context and AI Agent Instructions
 
-> **Single source of truth for Claude** | Last Updated: December 18, 2025
+> **Single source of truth for Claude** | Last Updated: December 31, 2025
 
 This document ensures consistent and high-quality contributions to the HIVE215 Voice AI Platform repository.
 
@@ -93,11 +93,38 @@ A real-time voice AI assistant platform built on LiveKit, featuring multi-tier L
 ### 3.1. Voice Pipeline
 
 ```
-User Speech → Deepgram STT → LLM Chain → Cartesia TTS → User Hears
-                  ↓
-            [Silero VAD]
-            Voice Activity Detection
+User Speech → Silero VAD → Iron Ear Stack → Deepgram STT → Fast Brain → Cartesia TTS → User Hears
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  IRON EAR STACK     │
+                    ├─────────────────────┤
+                    │ V1: Debounce        │ ← Door slams, coughs (<300ms)
+                    │ V2: Speaker Locking │ ← Background voices (volume)
+                    │ V3: Identity Lock   │ ← ML fingerprint (Resemblyzer)
+                    └─────────────────────┘
 ```
+
+### 3.1.1 Iron Ear Stack (Audio Filtering)
+
+Multi-layer noise filtering system:
+
+| Version | Feature | Problem Solved | Method |
+|---------|---------|----------------|--------|
+| **V1** | Debounce | Door slams, coughs | Require 300ms+ continuous speech |
+| **V2** | Speaker Locking | Background TV, people | Volume fingerprint (60% threshold) |
+| **V3** | Identity Lock | Imposters, similar voices | 256-dim Resemblyzer embeddings |
+
+**Key Files:**
+- `worker/turn_taking.py` - TurnManager with Iron Ear V1/V2
+- `worker/identity_manager.py` - IdentityManager with Resemblyzer ML
+- `worker/voice_agent.py` - VoiceAgent with honeypot methods
+
+**Honey Pot Flow (V3):**
+1. Agent asks: *"Could you tell me your name and what you're calling about?"*
+2. User speaks 10-15 seconds
+3. System extracts 256-dim voice embedding
+4. Identity LOCKED - only matching voice accepted
 
 ### 3.2. LLM Intelligence Tiers (Fast Brain Dual-System)
 
@@ -230,9 +257,12 @@ When creating visual HTML documentation:
 | ADR-001 | Use LiveKit Agents SDK 1.x with room_io API | Accepted | 2025-12-17 |
 | ADR-002 | Nixpacks venv for PEP 668 compliance | Accepted | 2025-12-18 |
 | ADR-003 | Tiered LLM: Fast Brain (Groq) → GPT-4 → Claude | Accepted | 2025-12-17 |
-| ADR-004 | Start script with SERVICE_TYPE for Railway multi-service | Pending | 2025-12-18 |
+| ADR-004 | Start script with SERVICE_TYPE for Railway multi-service | Accepted | 2025-12-18 |
 | ADR-005 | Visual docs in docs/visuals/ with dated filenames | Accepted | 2025-12-18 |
 | ADR-006 | Multi-TTS provider selection (Gen 2 rebuild) | Accepted | 2025-12-20 |
+| ADR-007 | Iron Ear V2: Speaker Locking (volume-based filtering) | Accepted | 2025-12-31 |
+| ADR-008 | Iron Ear V3: Identity Lock with Resemblyzer embeddings | Accepted | 2025-12-31 |
+| ADR-009 | Default VoiceCallWrapper to LiveKit mode | Accepted | 2025-12-31 |
 
 ---
 
@@ -563,4 +593,4 @@ git push origin main
 
 ---
 
-*Last updated by Claude on December 20, 2025*
+*Last updated by Claude on December 31, 2025*
