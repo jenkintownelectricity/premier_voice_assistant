@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HIVE215 Voice AI Platform | Dec 31, 2025</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            line-height: 1.6;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 40px;
+            text-align: center;
+            border-bottom: 1px solid #30363d;
+        }
+        .date-badge {
+            display: inline-block;
+            background: rgba(255, 215, 0, 0.15);
+            color: #ffd700;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-bottom: 16px;
+            font-family: monospace;
+        }
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, #ffd700, #ffed4a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        .subtitle { color: #8b949e; font-size: 1.1rem; }
+        .content { max-width: 1400px; margin: 0 auto; padding: 40px; }
+        .section { margin-bottom: 60px; }
+        .section-title {
+            font-size: 1.8rem;
+            color: #ffd700;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 28px;
+            background: linear-gradient(180deg, #ffd700, #ffed4a);
+            border-radius: 2px;
+        }
+
+        /* Stats Cards */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            background: linear-gradient(90deg, #ffd700, #ffed4a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .stat-label { color: #8b949e; font-size: 0.9rem; margin-top: 4px; }
+
+        /* Architecture Diagram */
+        .arch-diagram {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 40px;
+            overflow-x: auto;
+        }
+        .arch-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .arch-box {
+            background: #21262d;
+            border: 2px solid #30363d;
+            border-radius: 10px;
+            padding: 16px 24px;
+            text-align: center;
+            min-width: 140px;
+        }
+        .arch-box.user { border-color: #00d9ff; background: rgba(0,217,255,0.1); }
+        .arch-box.frontend { border-color: #a855f7; background: rgba(168,85,247,0.1); }
+        .arch-box.backend { border-color: #ffd700; background: rgba(255,215,0,0.1); }
+        .arch-box.worker { border-color: #00ff88; background: rgba(0,255,136,0.1); }
+        .arch-box.external { border-color: #ff6b6b; background: rgba(255,107,107,0.1); }
+        .arch-box.storage { border-color: #00d9ff; background: rgba(0,217,255,0.1); }
+        .arch-label { font-weight: 600; margin-bottom: 4px; }
+        .arch-sub { font-size: 0.75rem; color: #8b949e; }
+        .arch-arrow { font-size: 1.5rem; color: #30363d; }
+
+        /* Pipeline Visual */
+        .pipeline {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 0;
+            overflow-x: auto;
+            padding: 20px 0;
+        }
+        .pipeline-step {
+            background: #21262d;
+            border: 2px solid #30363d;
+            border-radius: 8px;
+            padding: 12px 16px;
+            text-align: center;
+            min-width: 120px;
+            position: relative;
+        }
+        .pipeline-step.active { border-color: #ffd700; }
+        .pipeline-step::after {
+            content: '>';
+            position: absolute;
+            right: -18px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #ffd700;
+            font-size: 1.2rem;
+        }
+        .pipeline-step:last-child::after { content: ''; }
+        .pipeline-icon { font-size: 1.5rem; margin-bottom: 4px; }
+        .pipeline-name { font-size: 0.85rem; font-weight: 600; }
+        .pipeline-tech { font-size: 0.7rem; color: #8b949e; }
+
+        /* Iron Ear Stack */
+        .iron-ear-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .iron-ear-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .iron-ear-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .iron-ear-version {
+            background: linear-gradient(135deg, #ffd700, #ffed4a);
+            color: #000;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.85rem;
+        }
+        .iron-ear-title { font-weight: 600; font-size: 1.1rem; }
+        .iron-ear-desc { color: #8b949e; font-size: 0.9rem; margin-bottom: 12px; }
+        .iron-ear-tech {
+            background: #21262d;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: #00ff88;
+        }
+
+        /* TTS Providers Grid */
+        .tts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+        }
+        .tts-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+        .tts-card:hover { border-color: #ffd700; transform: translateY(-2px); }
+        .tts-card.free { border-left: 3px solid #00ff88; }
+        .tts-card.paid { border-left: 3px solid #ffd700; }
+        .tts-card.streaming { border-left: 3px solid #00d9ff; }
+        .tts-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px; }
+        .tts-name { font-weight: 600; font-size: 1.1rem; }
+        .tts-badge {
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        .tts-badge.free { background: rgba(0,255,136,0.15); color: #00ff88; }
+        .tts-badge.paid { background: rgba(255,215,0,0.15); color: #ffd700; }
+        .tts-badge.streaming { background: rgba(0,217,255,0.15); color: #00d9ff; }
+        .tts-latency { font-size: 0.85rem; color: #00d9ff; margin-bottom: 8px; }
+        .tts-features { font-size: 0.8rem; color: #8b949e; }
+        .tts-features li { margin: 4px 0; }
+
+        /* LLM Tiers */
+        .llm-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        .llm-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 24px;
+        }
+        .llm-card.system1 { border-top: 3px solid #00ff88; }
+        .llm-card.system2 { border-top: 3px solid #a855f7; }
+        .llm-card.fallback { border-top: 3px solid #ffd700; }
+        .llm-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .llm-name { font-weight: 600; font-size: 1.2rem; }
+        .llm-percent { font-size: 0.85rem; color: #8b949e; }
+        .llm-model { font-family: monospace; background: #21262d; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; }
+        .llm-latency { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .llm-latency-bar {
+            flex: 1;
+            height: 8px;
+            background: #21262d;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .llm-latency-fill { height: 100%; border-radius: 4px; }
+        .llm-latency-fill.fast { width: 10%; background: #00ff88; }
+        .llm-latency-fill.medium { width: 50%; background: #ffd700; }
+        .llm-latency-fill.slow { width: 100%; background: #ff6b6b; }
+        .llm-use-case { font-size: 0.85rem; color: #8b949e; }
+
+        /* API Endpoints */
+        .api-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 16px;
+        }
+        .api-group {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .api-group-header {
+            background: #21262d;
+            padding: 12px 16px;
+            font-weight: 600;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .api-endpoint {
+            padding: 10px 16px;
+            border-bottom: 1px solid #21262d;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .api-endpoint:last-child { border-bottom: none; }
+        .method {
+            font-family: monospace;
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+            min-width: 40px;
+            text-align: center;
+        }
+        .method.get { background: rgba(0,217,255,0.15); color: #00d9ff; }
+        .method.post { background: rgba(0,255,136,0.15); color: #00ff88; }
+        .method.ws { background: rgba(168,85,247,0.15); color: #a855f7; }
+        .endpoint-path { font-family: monospace; font-size: 0.8rem; color: #e6edf3; }
+
+        /* Voice Clone Flow */
+        .clone-flow {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 30px;
+        }
+        .clone-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .clone-box {
+            background: #21262d;
+            border: 2px solid #30363d;
+            border-radius: 10px;
+            padding: 14px 20px;
+            text-align: center;
+            min-width: 160px;
+        }
+        .clone-box.upload { border-color: #00d9ff; }
+        .clone-box.convert { border-color: #ffd700; }
+        .clone-box.store { border-color: #00ff88; }
+        .clone-box.use { border-color: #a855f7; }
+        .clone-icon { font-size: 1.5rem; margin-bottom: 6px; }
+        .clone-label { font-weight: 600; font-size: 0.9rem; }
+        .clone-detail { font-size: 0.75rem; color: #8b949e; }
+
+        /* Services Table */
+        .services-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #161b22;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .services-table th {
+            background: #21262d;
+            padding: 14px 16px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 1px solid #30363d;
+        }
+        .services-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #21262d;
+        }
+        .services-table tr:last-child td { border-bottom: none; }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-badge.deployed { background: rgba(0,255,136,0.15); color: #00ff88; }
+        .status-badge.modal { background: rgba(168,85,247,0.15); color: #a855f7; }
+        .status-badge.cloud { background: rgba(0,217,255,0.15); color: #00d9ff; }
+
+        /* Code Block */
+        .code-block {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px 20px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+        }
+        .code-block .comment { color: #8b949e; }
+        .code-block .cmd { color: #00ff88; }
+        .code-block .file { color: #ffd700; }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #8b949e;
+            text-decoration: none;
+            margin-bottom: 20px;
+        }
+        .back-link:hover { color: #ffd700; }
+
+        /* Feature Matrix */
+        .feature-matrix {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        .feature-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .feature-card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .feature-icon {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, rgba(255,215,0,0.2), rgba(255,237,74,0.1));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+        }
+        .feature-title { font-weight: 600; font-size: 1.1rem; }
+        .feature-list { list-style: none; }
+        .feature-list li {
+            padding: 6px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: #8b949e;
+        }
+        .feature-list .check { color: #00ff88; }
+        .feature-list .pending { color: #ffd700; }
+
+        /* Environment Variables */
+        .env-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 12px;
+        }
+        .env-item {
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .env-name { font-family: monospace; font-size: 0.85rem; color: #ffd700; }
+        .env-service { font-size: 0.75rem; color: #8b949e; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="date-badge">December 31, 2025</div>
+        <h1>HIVE215 Voice AI Platform</h1>
+        <p class="subtitle">Real-time Voice AI with Multi-tier LLM Intelligence & Sub-second Response Times</p>
+    </div>
+
+    <div class="content">
+        <a href="index.html" class="back-link">< Back to Documentation Index</a>
+
+        <!-- Quick Stats -->
+        <section class="section">
+            <h2 class="section-title">Platform Overview</h2>
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-value">&lt;200ms</div>
+                    <div class="stat-label">Response Latency</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">6</div>
+                    <div class="stat-label">TTS Providers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">3</div>
+                    <div class="stat-label">LLM Tiers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">3</div>
+                    <div class="stat-label">Iron Ear Versions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">42</div>
+                    <div class="stat-label">Languages</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- System Architecture -->
+        <section class="section">
+            <h2 class="section-title">System Architecture</h2>
+            <div class="arch-diagram">
+                <div class="arch-row">
+                    <div class="arch-box user">
+                        <div class="arch-label">User</div>
+                        <div class="arch-sub">Browser / Phone</div>
+                    </div>
+                </div>
+                <div class="arch-row">
+                    <span class="arch-arrow">|</span>
+                </div>
+                <div class="arch-row">
+                    <div class="arch-box frontend">
+                        <div class="arch-label">Next.js Frontend</div>
+                        <div class="arch-sub">Vercel</div>
+                    </div>
+                    <span class="arch-arrow"><-></span>
+                    <div class="arch-box backend">
+                        <div class="arch-label">FastAPI Backend</div>
+                        <div class="arch-sub">Railway (Web)</div>
+                    </div>
+                    <span class="arch-arrow"><-></span>
+                    <div class="arch-box storage">
+                        <div class="arch-label">Supabase</div>
+                        <div class="arch-sub">DB + Storage</div>
+                    </div>
+                </div>
+                <div class="arch-row">
+                    <span class="arch-arrow">|</span>
+                </div>
+                <div class="arch-row">
+                    <div class="arch-box worker">
+                        <div class="arch-label">LiveKit Worker</div>
+                        <div class="arch-sub">Railway (Worker)</div>
+                    </div>
+                    <span class="arch-arrow"><-></span>
+                    <div class="arch-box external">
+                        <div class="arch-label">LiveKit Cloud</div>
+                        <div class="arch-sub">WebRTC</div>
+                    </div>
+                </div>
+                <div class="arch-row">
+                    <span class="arch-arrow">|</span>
+                </div>
+                <div class="arch-row">
+                    <div class="arch-box external">
+                        <div class="arch-label">Deepgram STT</div>
+                        <div class="arch-sub">Speech-to-Text</div>
+                    </div>
+                    <span class="arch-arrow"><-></span>
+                    <div class="arch-box external">
+                        <div class="arch-label">Fast Brain LLM</div>
+                        <div class="arch-sub">Modal / Groq</div>
+                    </div>
+                    <span class="arch-arrow"><-></span>
+                    <div class="arch-box external">
+                        <div class="arch-label">TTS Providers</div>
+                        <div class="arch-sub">Cartesia / Coqui</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Voice Pipeline -->
+        <section class="section">
+            <h2 class="section-title">Voice Pipeline</h2>
+            <div class="arch-diagram">
+                <div class="pipeline">
+                    <div class="pipeline-step">
+                        <div class="pipeline-icon">&#128483;</div>
+                        <div class="pipeline-name">User Speech</div>
+                        <div class="pipeline-tech">WebRTC Audio</div>
+                    </div>
+                    <div class="pipeline-step">
+                        <div class="pipeline-icon">&#128266;</div>
+                        <div class="pipeline-name">Silero VAD</div>
+                        <div class="pipeline-tech">Voice Activity</div>
+                    </div>
+                    <div class="pipeline-step active">
+                        <div class="pipeline-icon">&#128065;</div>
+                        <div class="pipeline-name">Iron Ear</div>
+                        <div class="pipeline-tech">Noise Filter</div>
+                    </div>
+                    <div class="pipeline-step">
+                        <div class="pipeline-icon">&#128221;</div>
+                        <div class="pipeline-name">Deepgram</div>
+                        <div class="pipeline-tech">STT</div>
+                    </div>
+                    <div class="pipeline-step">
+                        <div class="pipeline-icon">&#9889;</div>
+                        <div class="pipeline-name">Fast Brain</div>
+                        <div class="pipeline-tech">LLM (~80ms)</div>
+                    </div>
+                    <div class="pipeline-step">
+                        <div class="pipeline-icon">&#127908;</div>
+                        <div class="pipeline-name">TTS</div>
+                        <div class="pipeline-tech">Cartesia</div>
+                    </div>
+                    <div class="pipeline-step">
+                        <div class="pipeline-icon">&#128266;</div>
+                        <div class="pipeline-name">User Hears</div>
+                        <div class="pipeline-tech">Response</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Iron Ear Stack -->
+        <section class="section">
+            <h2 class="section-title">Iron Ear Stack (Audio Filtering)</h2>
+            <div class="iron-ear-grid">
+                <div class="iron-ear-card">
+                    <div class="iron-ear-header">
+                        <span class="iron-ear-version">V1</span>
+                        <span class="iron-ear-title">Debounce</span>
+                    </div>
+                    <div class="iron-ear-desc">
+                        Filters short audio bursts like door slams, coughs, and background noise.
+                        Requires 300ms+ of continuous speech before processing.
+                    </div>
+                    <div class="iron-ear-tech">min_speech_duration: 300ms</div>
+                </div>
+                <div class="iron-ear-card">
+                    <div class="iron-ear-header">
+                        <span class="iron-ear-version">V2</span>
+                        <span class="iron-ear-title">Speaker Locking</span>
+                    </div>
+                    <div class="iron-ear-desc">
+                        "Cocktail Party Fix" - Locks onto the loudest speaker and ignores
+                        background voices (TV, other people) using volume fingerprinting.
+                    </div>
+                    <div class="iron-ear-tech">volume_threshold: 60%</div>
+                </div>
+                <div class="iron-ear-card">
+                    <div class="iron-ear-header">
+                        <span class="iron-ear-version">V3</span>
+                        <span class="iron-ear-title">Identity Lock</span>
+                    </div>
+                    <div class="iron-ear-desc">
+                        ML-based voice fingerprinting using Resemblyzer. Creates 256-dim
+                        embeddings from "honey pot" enrollment speech for speaker verification.
+                    </div>
+                    <div class="iron-ear-tech">Resemblyzer: 256-dim embeddings</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- LLM Intelligence Tiers -->
+        <section class="section">
+            <h2 class="section-title">Fast Brain Dual-System Architecture</h2>
+            <p style="color: #8b949e; margin-bottom: 20px;">Based on Kahneman's "Thinking, Fast and Slow" - instant responses for simple queries, deep analysis when needed.</p>
+            <div class="llm-grid">
+                <div class="llm-card system1">
+                    <div class="llm-header">
+                        <span class="llm-name">System 1 (Fast)</span>
+                        <span class="llm-percent">90% of queries</span>
+                    </div>
+                    <div class="llm-model">Groq + Llama 3.3 70B</div>
+                    <div class="llm-latency">
+                        <span>~80ms</span>
+                        <div class="llm-latency-bar">
+                            <div class="llm-latency-fill fast"></div>
+                        </div>
+                    </div>
+                    <div class="llm-use-case">Simple queries, greetings, FAQs, quick responses</div>
+                </div>
+                <div class="llm-card system2">
+                    <div class="llm-header">
+                        <span class="llm-name">System 2 (Deep)</span>
+                        <span class="llm-percent">10% of queries</span>
+                    </div>
+                    <div class="llm-model">Claude 3.5 Sonnet</div>
+                    <div class="llm-latency">
+                        <span>~2000ms</span>
+                        <div class="llm-latency-bar">
+                            <div class="llm-latency-fill slow"></div>
+                        </div>
+                    </div>
+                    <div class="llm-use-case">Complex analysis, calculations, multi-step reasoning</div>
+                </div>
+                <div class="llm-card fallback">
+                    <div class="llm-header">
+                        <span class="llm-name">Fallback</span>
+                        <span class="llm-percent">If Fast Brain unavailable</span>
+                    </div>
+                    <div class="llm-model">Groq Direct API</div>
+                    <div class="llm-latency">
+                        <span>~100ms</span>
+                        <div class="llm-latency-bar">
+                            <div class="llm-latency-fill fast"></div>
+                        </div>
+                    </div>
+                    <div class="llm-use-case">Backup when Modal deployment is cold or unavailable</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TTS Providers -->
+        <section class="section">
+            <h2 class="section-title">TTS Providers</h2>
+            <div class="tts-grid">
+                <div class="tts-card streaming">
+                    <div class="tts-header">
+                        <span class="tts-name">Cartesia</span>
+                        <span class="tts-badge streaming">STREAMING</span>
+                    </div>
+                    <div class="tts-latency">~30ms latency</div>
+                    <ul class="tts-features">
+                        <li>Real-time streaming for calls</li>
+                        <li>Voice cloning support</li>
+                        <li>42 languages</li>
+                    </ul>
+                </div>
+                <div class="tts-card streaming">
+                    <div class="tts-header">
+                        <span class="tts-name">Deepgram Aura</span>
+                        <span class="tts-badge streaming">STREAMING</span>
+                    </div>
+                    <div class="tts-latency">~80ms latency</div>
+                    <ul class="tts-features">
+                        <li>Real-time streaming</li>
+                        <li>Low cost option</li>
+                        <li>Good voice quality</li>
+                    </ul>
+                </div>
+                <div class="tts-card streaming">
+                    <div class="tts-header">
+                        <span class="tts-name">ElevenLabs</span>
+                        <span class="tts-badge paid">PAID</span>
+                    </div>
+                    <div class="tts-latency">~150ms latency</div>
+                    <ul class="tts-features">
+                        <li>Premium voice quality</li>
+                        <li>Voice cloning</li>
+                        <li>Emotion control</li>
+                    </ul>
+                </div>
+                <div class="tts-card streaming">
+                    <div class="tts-header">
+                        <span class="tts-name">OpenAI TTS</span>
+                        <span class="tts-badge paid">PAID</span>
+                    </div>
+                    <div class="tts-latency">~200ms latency</div>
+                    <ul class="tts-features">
+                        <li>6 preset voices</li>
+                        <li>HD quality option</li>
+                        <li>Simple API</li>
+                    </ul>
+                </div>
+                <div class="tts-card free">
+                    <div class="tts-header">
+                        <span class="tts-name">Coqui XTTS</span>
+                        <span class="tts-badge free">FREE</span>
+                    </div>
+                    <div class="tts-latency">~150ms latency (batch)</div>
+                    <ul class="tts-features">
+                        <li>Voice cloning</li>
+                        <li>Self-hosted on Modal</li>
+                        <li>Preview only (no streaming)</li>
+                    </ul>
+                </div>
+                <div class="tts-card free">
+                    <div class="tts-header">
+                        <span class="tts-name">Kokoro</span>
+                        <span class="tts-badge free">FREE</span>
+                    </div>
+                    <div class="tts-latency">~100ms latency (batch)</div>
+                    <ul class="tts-features">
+                        <li>22 preset voices</li>
+                        <li>Multi-language</li>
+                        <li>Preview only (no streaming)</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Voice Cloning Flow -->
+        <section class="section">
+            <h2 class="section-title">Voice Cloning Flow</h2>
+            <div class="clone-flow">
+                <div class="clone-row">
+                    <div class="clone-box upload">
+                        <div class="clone-icon">&#128227;</div>
+                        <div class="clone-label">1. Record/Upload</div>
+                        <div class="clone-detail">10-30s audio (webm)</div>
+                    </div>
+                    <span class="arch-arrow">-></span>
+                    <div class="clone-box convert">
+                        <div class="clone-icon">&#128260;</div>
+                        <div class="clone-label">2. Convert</div>
+                        <div class="clone-detail">FFmpeg -> WAV</div>
+                    </div>
+                    <span class="arch-arrow">-></span>
+                    <div class="clone-box store">
+                        <div class="clone-icon">&#128230;</div>
+                        <div class="clone-label">3. Store</div>
+                        <div class="clone-detail">Supabase Storage</div>
+                    </div>
+                </div>
+                <div class="clone-row">
+                    <span class="arch-arrow">|</span>
+                </div>
+                <div class="clone-row">
+                    <div class="clone-box use">
+                        <div class="clone-icon">&#127908;</div>
+                        <div class="clone-label">4. Clone Model</div>
+                        <div class="clone-detail">Coqui XTTS (Modal)</div>
+                    </div>
+                    <span class="arch-arrow">-></span>
+                    <div class="clone-box use">
+                        <div class="clone-icon">&#128266;</div>
+                        <div class="clone-label">5. Use Voice</div>
+                        <div class="clone-detail">Select in Assistant</div>
+                    </div>
+                    <span class="arch-arrow">-></span>
+                    <div class="clone-box use">
+                        <div class="clone-icon">&#128221;</div>
+                        <div class="clone-label">6. Signed URL</div>
+                        <div class="clone-detail">Playback (1hr expiry)</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Services & Deployment -->
+        <section class="section">
+            <h2 class="section-title">Services & Deployment</h2>
+            <table class="services-table">
+                <thead>
+                    <tr>
+                        <th>Service</th>
+                        <th>Platform</th>
+                        <th>Purpose</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Web API</td>
+                        <td>Railway</td>
+                        <td>FastAPI server, token generation, REST endpoints</td>
+                        <td><span class="status-badge deployed">Deployed</span></td>
+                    </tr>
+                    <tr>
+                        <td>Voice Worker</td>
+                        <td>Railway</td>
+                        <td>LiveKit agent, STT/TTS/LLM pipeline</td>
+                        <td><span class="status-badge deployed">Deployed</span></td>
+                    </tr>
+                    <tr>
+                        <td>Frontend</td>
+                        <td>Vercel</td>
+                        <td>Next.js dashboard, voice interface</td>
+                        <td><span class="status-badge deployed">Deployed</span></td>
+                    </tr>
+                    <tr>
+                        <td>Fast Brain</td>
+                        <td>Modal</td>
+                        <td>Groq LPU for &lt;200ms LLM responses</td>
+                        <td><span class="status-badge modal">Modal</span></td>
+                    </tr>
+                    <tr>
+                        <td>Coqui TTS</td>
+                        <td>Modal</td>
+                        <td>Free voice cloning (XTTS-v2)</td>
+                        <td><span class="status-badge modal">Modal</span></td>
+                    </tr>
+                    <tr>
+                        <td>Kokoro TTS</td>
+                        <td>Modal</td>
+                        <td>Free TTS (22 voices)</td>
+                        <td><span class="status-badge modal">Modal</span></td>
+                    </tr>
+                    <tr>
+                        <td>LiveKit</td>
+                        <td>LiveKit Cloud</td>
+                        <td>WebRTC, real-time media</td>
+                        <td><span class="status-badge cloud">Cloud</span></td>
+                    </tr>
+                    <tr>
+                        <td>Database</td>
+                        <td>Supabase</td>
+                        <td>PostgreSQL, Auth, Storage</td>
+                        <td><span class="status-badge cloud">Cloud</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Key API Endpoints -->
+        <section class="section">
+            <h2 class="section-title">Key API Endpoints</h2>
+            <div class="api-grid">
+                <div class="api-group">
+                    <div class="api-group-header">&#128100; Authentication & Users</div>
+                    <div class="api-endpoint">
+                        <span class="method post">POST</span>
+                        <span class="endpoint-path">/token</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/profile</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/subscription</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/usage</span>
+                    </div>
+                </div>
+                <div class="api-group">
+                    <div class="api-group-header">&#129302; Assistants</div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/assistants</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method post">POST</span>
+                        <span class="endpoint-path">/assistants</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/assistants/{id}</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method post">POST</span>
+                        <span class="endpoint-path">/assistants/{id}/call</span>
+                    </div>
+                </div>
+                <div class="api-group">
+                    <div class="api-group-header">&#127908; Voice & TTS</div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/api/tts/voices/{provider}</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method post">POST</span>
+                        <span class="endpoint-path">/api/tts/preview</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method post">POST</span>
+                        <span class="endpoint-path">/clone-voice</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/voice-clones/{id}/audio</span>
+                    </div>
+                </div>
+                <div class="api-group">
+                    <div class="api-group-header">&#128222; Calls</div>
+                    <div class="api-endpoint">
+                        <span class="method ws">WS</span>
+                        <span class="endpoint-path">/ws/call/{assistant_id}</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/calls</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/calls/{id}/messages</span>
+                    </div>
+                    <div class="api-endpoint">
+                        <span class="method get">GET</span>
+                        <span class="endpoint-path">/call-stats</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Dashboard Features -->
+        <section class="section">
+            <h2 class="section-title">Dashboard Features</h2>
+            <div class="feature-matrix">
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <div class="feature-icon">&#129302;</div>
+                        <div class="feature-title">Assistants</div>
+                    </div>
+                    <ul class="feature-list">
+                        <li><span class="check">&#10003;</span> Create/Edit/Delete assistants</li>
+                        <li><span class="check">&#10003;</span> Choose TTS provider & voice</li>
+                        <li><span class="check">&#10003;</span> Set Fast Brain skill</li>
+                        <li><span class="check">&#10003;</span> Voice preview button</li>
+                        <li><span class="check">&#10003;</span> Call history per assistant</li>
+                    </ul>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <div class="feature-icon">&#127908;</div>
+                        <div class="feature-title">Voice Clones</div>
+                    </div>
+                    <ul class="feature-list">
+                        <li><span class="check">&#10003;</span> Record voice in browser</li>
+                        <li><span class="check">&#10003;</span> Upload audio files</li>
+                        <li><span class="check">&#10003;</span> Coqui XTTS cloning</li>
+                        <li><span class="check">&#10003;</span> Signed URL playback</li>
+                        <li><span class="pending">&#9711;</span> Real-time call usage (needs streaming)</li>
+                    </ul>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <div class="feature-icon">&#128222;</div>
+                        <div class="feature-title">Calls</div>
+                    </div>
+                    <ul class="feature-list">
+                        <li><span class="check">&#10003;</span> Real-time voice calls</li>
+                        <li><span class="check">&#10003;</span> Call transcripts</li>
+                        <li><span class="check">&#10003;</span> Duration & latency tracking</li>
+                        <li><span class="check">&#10003;</span> Iron Ear noise filtering</li>
+                        <li><span class="check">&#10003;</span> Multi-language support</li>
+                    </ul>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-card-header">
+                        <div class="feature-icon">&#128202;</div>
+                        <div class="feature-title">Analytics</div>
+                    </div>
+                    <ul class="feature-list">
+                        <li><span class="check">&#10003;</span> Call statistics</li>
+                        <li><span class="check">&#10003;</span> Usage tracking</li>
+                        <li><span class="check">&#10003;</span> Storage metrics</li>
+                        <li><span class="check">&#10003;</span> Plan limits display</li>
+                        <li><span class="check">&#10003;</span> Per-assistant metrics</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Environment Variables -->
+        <section class="section">
+            <h2 class="section-title">Environment Variables</h2>
+            <div class="env-grid">
+                <div class="env-item">
+                    <span class="env-name">LIVEKIT_URL</span>
+                    <span class="env-service">Both</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-name">LIVEKIT_API_KEY</span>
+                    <span class="env-service">Both</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-name">LIVEKIT_API_SECRET</span>
+                    <span class="env-service">Both</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-name">DEEPGRAM_API_KEY</span>
+                    <span class="env-service">Worker</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-name">CARTESIA_API_KEY</span>
+                    <span class="env-service">Worker</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-name">GROQ_API_KEY</span>
+                    <span class="env-service">Worker</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-name">FAST_BRAIN_URL</span>
+                    <span class="env-service">Worker</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-name">SUPABASE_URL</span>
+                    <span class="env-service">Web</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-name">SUPABASE_KEY</span>
+                    <span class="env-service">Web</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-name">SERVICE_TYPE</span>
+                    <span class="env-service">Railway (web/worker)</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Commands -->
+        <section class="section">
+            <h2 class="section-title">Development Commands</h2>
+            <div class="code-block">
+<span class="comment"># Local Development</span>
+<span class="cmd">uvicorn backend.main:app --reload --port 8000</span>
+<span class="cmd">python backend/livekit_worker.py start</span>
+
+<span class="comment"># Deploy Modal Apps</span>
+<span class="cmd">py -3.11 -m modal deploy coqui_tts.py</span>
+<span class="cmd">py -3.11 -m modal deploy kokoro_tts.py</span>
+
+<span class="comment"># Git Workflow</span>
+<span class="cmd">git fetch origin; git checkout main; git pull origin main</span>
+<span class="cmd">git merge origin/feature-branch; git push origin main</span>
+
+<span class="comment"># Validate Python</span>
+<span class="cmd">python -m py_compile backend/main.py</span>
+<span class="cmd">python -m py_compile backend/livekit_worker.py</span>
+            </div>
+        </section>
+
+        <!-- File Structure -->
+        <section class="section">
+            <h2 class="section-title">Key Files</h2>
+            <div class="code-block">
+<span class="file">backend/main.py</span>           <span class="comment"># FastAPI web server (8000+ lines)</span>
+<span class="file">backend/livekit_agent.py</span>   <span class="comment"># Voice worker with TTS selection</span>
+<span class="file">backend/supabase_client.py</span> <span class="comment"># Database operations</span>
+<span class="file">backend/cartesia_client.py</span> <span class="comment"># Cartesia Sonic-3 client</span>
+
+<span class="file">worker/voice_agent.py</span>      <span class="comment"># VoiceAgent with Iron Ear</span>
+<span class="file">worker/identity_manager.py</span> <span class="comment"># Resemblyzer ML embeddings</span>
+<span class="file">worker/turn_taking.py</span>      <span class="comment"># TurnManager with V1/V2</span>
+
+<span class="file">coqui_tts.py</span>               <span class="comment"># Modal Coqui XTTS deployment</span>
+<span class="file">kokoro_tts.py</span>              <span class="comment"># Modal Kokoro TTS deployment</span>
+
+<span class="file">web/src/app/dashboard/</span>    <span class="comment"># Next.js dashboard pages</span>
+<span class="file">docs/visuals/</span>              <span class="comment"># Visual documentation (like this file)</span>
+            </div>
+        </section>
+    </div>
+</body>
+</html>
