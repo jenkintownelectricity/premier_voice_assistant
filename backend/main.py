@@ -7,7 +7,7 @@ Designed for mobile apps (iOS/Android)
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
