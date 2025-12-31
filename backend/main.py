@@ -7864,16 +7864,29 @@ async def get_tts_voices(
         except Exception as e:
             logger.warning(f"Failed to fetch user voice clones: {e}")
 
-    # Get Coqui cloned voices from Modal volume
-    if provider == "coqui":
+    # Get Coqui cloned voices - load from database (same as Cartesia)
+    if provider == "coqui" and user_id:
         try:
-            import httpx
-            coqui_base_url = os.getenv("COQUI_TTS_URL", "https://jenkintownelectricity--premier-coqui-tts-synthesize-web.modal.run")
-            # Try to list voices - for now we'll just show placeholder since list endpoint doesn't exist
-            # Users can clone voices via the voice-clones page
-            voices = []  # Clear default placeholder
+            result = supabase.client.rpc(
+                "va_client_get_voice_clones",
+                {"p_user_id": user_id}
+            ).execute()
+            if result.data:
+                # For Coqui, user clones ARE the voices (no preset voices)
+                user_clones = [
+                    {
+                        "id": clone["voice_name"],  # Modal uses voice_name as ID
+                        "name": clone["display_name"],
+                        "gender": "custom",
+                        "accent": "Cloned",
+                        "is_user_clone": True,
+                    }
+                    for clone in result.data
+                ]
+                voices = []  # Clear placeholder since we have real clones
+                logger.info(f"Loaded {len(user_clones)} Coqui cloned voices for user {user_id}")
         except Exception as e:
-            logger.warning(f"Failed to fetch Coqui voices: {e}")
+            logger.warning(f"Failed to fetch Coqui voice clones: {e}")
 
     return {
         "provider": provider,
