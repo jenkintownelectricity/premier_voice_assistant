@@ -21,4 +21,4 @@ RUN python -c "from livekit.plugins.turn_detector import EOUModel; EOUModel().in
 COPY . .
 
 # Start script handles SERVICE_TYPE routing
-CMD ["bash", "scripts/start.sh"]
+CMD ["bash", "start.sh"]
