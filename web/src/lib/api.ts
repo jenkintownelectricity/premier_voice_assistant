@@ -169,6 +169,7 @@ export const api = {
         id: string;
         name: string;
         description: string | null;
+        tts_provider: string;
         voice_id: string;
         model: string;
         is_active: boolean;
@@ -185,6 +186,7 @@ export const api = {
         name: string;
         description: string | null;
         system_prompt: string;
+        tts_provider: string;
         voice_id: string;
         llm_provider?: string;
         model: string;
@@ -217,8 +219,9 @@ export const api = {
       name: string;
       system_prompt: string;
       description?: string;
+      tts_provider?: string;  // TTS Provider: cartesia, elevenlabs, deepgram, openai
       voice_id?: string;
-      llm_provider?: string;  // Provider: groq, anthropic, openai, google, etc.
+      llm_provider?: string;  // LLM Provider: groq, anthropic, openai, google, etc.
       model?: string;
       temperature?: number;
       max_tokens?: number;
@@ -269,8 +272,9 @@ export const api = {
       name?: string;
       description?: string;
       system_prompt?: string;
+      tts_provider?: string;  // TTS Provider: cartesia, elevenlabs, deepgram, openai
       voice_id?: string;
-      llm_provider?: string;  // Provider: groq, anthropic, openai, google, etc.
+      llm_provider?: string;  // LLM Provider: groq, anthropic, openai, google, etc.
       model?: string;
       temperature?: number;
       max_tokens?: number;
