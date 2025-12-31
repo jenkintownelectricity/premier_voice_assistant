@@ -71,6 +71,15 @@ class TurnContext:
     energy_level: float = 0.0
     pitch_trend: str = "stable"  # rising, falling, stable
 
+    # =========================================================================
+    # IRON EAR 2.0 - Speaker Locking Stats
+    # =========================================================================
+    avg_user_energy: float = 0.0       # Running average of the TARGET user's volume
+    energy_variance: float = 0.0       # How much their volume fluctuates
+    locked_on: bool = False            # Have we established a baseline yet?
+    noise_floor: float = 0.02          # Baseline background noise
+    locking_frame_count: int = 0       # Frames of speech analyzed for calibration
+
 
 # =============================================================================
 # CONFIGURATION
@@ -126,6 +135,28 @@ class TurnConfig:
     # Prosodic cues
     use_prosodic_cues: bool = True
     falling_pitch_weight: float = 0.3             # Weight for falling pitch = turn end
+
+    # =========================================================================
+    # IRON EAR 2.0 - SPEAKER LOCKING (The Cocktail Party Fix)
+    # =========================================================================
+    # Problem: Background voices (TV, other people) trigger VAD and interrupt agent
+    # Solution: Lock onto the primary speaker's volume fingerprint and ignore quieter voices
+
+    enable_speaker_locking: bool = True
+
+    # Calibration: How many frames of speech to analyze before "Locking"
+    # ~50 frames at 20ms each = 1 second of speech
+    locking_frames_needed: int = 50
+
+    # Rejection: If detected speech is X% quieter than our locked user, ignore it.
+    # 0.6 = ignore voices that are < 60% of the main user's volume
+    background_voice_threshold: float = 0.6
+
+    # "Club Protocol": If we are confused for this long, ask for repeat
+    confusion_timeout_ms: float = 4000
+
+    # Energy threshold for considering a frame as speech (for profiling)
+    min_energy_for_profiling: float = 0.05
 
     # =========================================================================
     # BACKCHANNELING
@@ -363,6 +394,92 @@ class TurnManager:
         # Only return True if we have enough consecutive frames
         return len(self._speech_buffer) >= self._frames_needed
 
+    # =========================================================================
+    # IRON EAR 2.0 - SPEAKER LOCKING
+    # =========================================================================
+
+    def _update_speaker_profile(self, energy: float):
+        """
+        Adaptively learn the user's volume fingerprint.
+
+        The first 1-2 seconds of speech establishes a baseline.
+        After locking, we use a slower learning rate to adapt to
+        natural volume variations while maintaining the fingerprint.
+        """
+        if energy < self.config.min_energy_for_profiling:
+            return  # Ignore total silence or very quiet frames
+
+        # Learning rate: fast initially, slow after locking
+        alpha = 0.2 if not self.context.locked_on else 0.05
+
+        # Update running average
+        old_avg = self.context.avg_user_energy
+        self.context.avg_user_energy = (
+            (1 - alpha) * old_avg + (alpha * energy)
+        )
+
+        # Track variance for adaptive thresholding
+        diff = energy - self.context.avg_user_energy
+        self.context.energy_variance = (
+            (1 - alpha) * self.context.energy_variance + (alpha * diff * diff)
+        )
+
+        # Increment frame count for locking
+        self.context.locking_frame_count += 1
+
+        # Lock on once we have enough frames and a decent baseline
+        if (not self.context.locked_on and
+            self.context.locking_frame_count >= self.config.locking_frames_needed and
+            self.context.avg_user_energy > 0.1):
+
+            self.context.locked_on = True
+            print(f"[Iron Ear] LOCKED on speaker. "
+                  f"Baseline Energy: {self.context.avg_user_energy:.4f}, "
+                  f"Variance: {self.context.energy_variance:.4f}")
+
+    def is_background_voice(self, energy: float) -> bool:
+        """
+        Check if this is a background voice based on volume.
+
+        Returns True if speech should be IGNORED (it's background chatter).
+
+        Uses the "Cocktail Party" algorithm:
+        - If energy is significantly lower than the locked user's baseline,
+          it's likely someone else talking in the background.
+        """
+        if not self.config.enable_speaker_locking:
+            return False
+
+        if not self.context.locked_on:
+            return False  # Can't filter if we don't know the user yet
+
+        # The Threshold: User's Average * Configured Sensitivity
+        threshold = self.context.avg_user_energy * self.config.background_voice_threshold
+
+        # If energy is significantly lower than user's baseline, it's background
+        is_background = energy < threshold
+
+        if is_background and energy > 0.01:
+            # Uncomment for debugging:
+            # print(f"[Iron Ear] Background voice ignored "
+            #       f"(E={energy:.3f} < T={threshold:.3f})")
+            pass
+
+        return is_background
+
+    def unlock_speaker(self):
+        """
+        Reset the speaker lock.
+
+        Call this when you want to recalibrate, e.g., when a new user
+        takes over the conversation.
+        """
+        self.context.locked_on = False
+        self.context.avg_user_energy = 0.0
+        self.context.energy_variance = 0.0
+        self.context.locking_frame_count = 0
+        print("[Iron Ear] Speaker lock RESET - will recalibrate on next speech")
+
     def process(
         self,
         is_speech: bool,
@@ -386,7 +503,7 @@ class TurnManager:
         current_time = time.time() * 1000  # ms
 
         # =====================================================================
-        # IRON EAR FILTERING
+        # IRON EAR V1 - DEBOUNCE FILTERING (Door Slams, Coughs)
         # =====================================================================
         # If vad_probability is provided, use debounce logic to filter noise
         # This prevents door slams, coughs, etc. from interrupting the agent
@@ -395,6 +512,19 @@ class TurnManager:
         elif energy > 0:
             # Fallback: Use energy as proxy for VAD probability
             is_speech = self.is_real_speech(energy)
+
+        # =====================================================================
+        # IRON EAR V2 - SPEAKER LOCKING (Cocktail Party Fix)
+        # =====================================================================
+        # Update the speaker profile with this frame's energy
+        if is_speech and energy > self.config.min_energy_for_profiling:
+            self._update_speaker_profile(energy)
+
+        # Even if VAD says "True", if it's too quiet compared to our locked user,
+        # force it to False (ignore it - it's a background voice)
+        if is_speech and self.context.locked_on:
+            if self.is_background_voice(energy):
+                is_speech = False  # IGNORED - Background voice!
 
         old_state = self.state
         self.context.transcript = transcript
