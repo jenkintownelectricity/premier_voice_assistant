@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir 'livekit-agents[deepgram,cartesia,openai,silero]==1.3.8'
 
 # Download turn detector model (ONNX file for smarter turn-taking)
-RUN python -c "from livekit.plugins.turn_detector import EOUModel; EOUModel().initialize()" || echo "Turn detector model download skipped"
+RUN python -m livekit.agents download-files
 
 # Copy application code
 COPY . .
