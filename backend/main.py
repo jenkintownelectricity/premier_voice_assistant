@@ -1109,16 +1109,48 @@ async def clone_voice(
 
         audio_bytes = await audio.read()
 
-        # Upload to Supabase Storage
+        # Convert audio to WAV using pydub (handles webm, mp3, ogg, etc.)
+        import tempfile
+        import subprocess
+        from pathlib import Path as FilePath
+
+        with tempfile.NamedTemporaryFile(suffix=".input", delete=False) as f:
+            f.write(audio_bytes)
+            input_path = f.name
+
+        wav_path = input_path.replace(".input", ".wav")
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-i", input_path, "-ar", "22050", "-ac", "1", wav_path],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode != 0:
+                logger.warning(f"FFmpeg conversion failed: {result.stderr}")
+                # Fall back to original bytes if conversion fails
+                wav_bytes = audio_bytes
+            else:
+                with open(wav_path, "rb") as wf:
+                    wav_bytes = wf.read()
+                logger.info(f"Converted audio to WAV: {len(audio_bytes)} -> {len(wav_bytes)} bytes")
+        except Exception as conv_err:
+            logger.warning(f"Audio conversion failed: {conv_err}, using original")
+            wav_bytes = audio_bytes
+        finally:
+            FilePath(input_path).unlink(missing_ok=True)
+            FilePath(wav_path).unlink(missing_ok=True)
+
+        # Upload converted WAV to Supabase Storage
         file_path = f"{user_id}/{voice_name}.wav"
-        audio_url = db.upload_audio("va-voice-clones", file_path, audio_bytes)
+        audio_url = db.upload_audio("va-voice-clones", file_path, wav_bytes)
 
         # Clone voice on Modal via HTTP
         assistant.initialize_modal()
         try:
             import httpx
             clone_url = "https://jenkintownelectricity--premier-coqui-tts-clone-voice-web.modal.run"
-            files = {"reference_audio": ("audio.wav", audio_bytes, "audio/wav")}
+            files = {"reference_audio": ("audio.wav", wav_bytes, "audio/wav")}
             data = {"voice_name": voice_name}  # Fixed: was "voice", Coqui expects "voice_name"
             response = httpx.post(clone_url, files=files, data=data, timeout=120.0)
             response.raise_for_status()
