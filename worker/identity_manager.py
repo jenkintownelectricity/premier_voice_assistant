@@ -24,18 +24,44 @@ import time
 import logging
 import numpy as np
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Any
 
 logger = logging.getLogger(__name__)
 
-# Try to import resemblyzer for ML-based embeddings
-try:
-    from resemblyzer import VoiceEncoder, preprocess_wav
-    RESEMBLYZER_AVAILABLE = True
-    logger.info("[IdentityManager] Resemblyzer loaded - ML speaker verification enabled")
-except ImportError:
-    RESEMBLYZER_AVAILABLE = False
-    logger.warning("[IdentityManager] Resemblyzer not available - using energy-based fallback")
+# Resemblyzer is loaded lazily to reduce memory usage at startup
+# The model (~50MB) is only loaded when identity lock is actually triggered
+_resemblyzer_module: Optional[Any] = None
+_resemblyzer_checked: bool = False
+
+
+def _load_resemblyzer():
+    """
+    Lazily load Resemblyzer module on first use.
+
+    This prevents the ~50MB neural network model from being loaded
+    at worker startup. It's only loaded when identity lock is triggered.
+    """
+    global _resemblyzer_module, _resemblyzer_checked
+
+    if _resemblyzer_checked:
+        return _resemblyzer_module
+
+    _resemblyzer_checked = True
+
+    try:
+        import resemblyzer
+        _resemblyzer_module = resemblyzer
+        logger.info("[IdentityManager] Resemblyzer loaded - ML speaker verification enabled")
+    except ImportError:
+        _resemblyzer_module = None
+        logger.warning("[IdentityManager] Resemblyzer not available - using energy-based fallback")
+
+    return _resemblyzer_module
+
+
+def is_resemblyzer_available() -> bool:
+    """Check if Resemblyzer is available (loads it if not already checked)."""
+    return _load_resemblyzer() is not None
 
 
 @dataclass
@@ -116,20 +142,28 @@ class IdentityManager:
         self._energy_samples: List[float] = []
         self._similarity_scores: List[float] = []
 
+        # Note: Resemblyzer is loaded lazily when identity lock is triggered
         logger.info(
             f"[IdentityManager] Initialized "
-            f"(ML={'enabled' if RESEMBLYZER_AVAILABLE else 'disabled'}, "
-            f"calibration={calibration_duration}s, threshold={similarity_threshold})"
+            f"(ML=lazy-load, calibration={calibration_duration}s, threshold={similarity_threshold})"
         )
 
-    def _get_encoder(self) -> Optional['VoiceEncoder']:
-        """Lazily load the voice encoder."""
-        if not RESEMBLYZER_AVAILABLE:
+    def _get_encoder(self):
+        """
+        Lazily load the voice encoder.
+
+        This is called only when identity lock is triggered, preventing
+        the ~50MB model from being loaded at worker startup.
+        """
+        resemblyzer = _load_resemblyzer()
+        if resemblyzer is None:
             return None
+
         if self._encoder is None:
-            logger.info("[IdentityManager] Loading Resemblyzer VoiceEncoder...")
-            self._encoder = VoiceEncoder()
+            logger.info("[IdentityManager] Loading VoiceEncoder model...")
+            self._encoder = resemblyzer.VoiceEncoder()
             logger.info("[IdentityManager] VoiceEncoder loaded")
+
         return self._encoder
 
     def start_calibration(self):
@@ -203,11 +237,12 @@ class IdentityManager:
         elif all_audio.dtype != np.float32:
             all_audio = all_audio.astype(np.float32)
 
-        # Try ML embedding first
+        # Try ML embedding first (loads Resemblyzer lazily)
         encoder = self._get_encoder()
-        if encoder is not None and RESEMBLYZER_AVAILABLE:
+        resemblyzer = _load_resemblyzer()
+        if encoder is not None and resemblyzer is not None:
             try:
-                wav = preprocess_wav(all_audio, source_sr=self.sample_rate)
+                wav = resemblyzer.preprocess_wav(all_audio, source_sr=self.sample_rate)
                 self.profile.embedding = encoder.embed_utterance(wav)
                 logger.info(
                     f"[IdentityManager] IDENTITY LOCKED (ML) "
@@ -263,8 +298,8 @@ class IdentityManager:
         if energy < self.min_energy_threshold:
             return True, 1.0  # Silent frames pass through
 
-        # ML-based verification
-        if self.profile.embedding is not None and RESEMBLYZER_AVAILABLE:
+        # ML-based verification (only if we have an embedding)
+        if self.profile.embedding is not None and is_resemblyzer_available():
             similarity = self._verify_ml(audio_chunk)
         else:
             similarity = self._verify_energy(energy)
@@ -283,7 +318,8 @@ class IdentityManager:
     def _verify_ml(self, audio_chunk: np.ndarray) -> float:
         """Verify using ML embeddings and cosine similarity."""
         encoder = self._get_encoder()
-        if encoder is None:
+        resemblyzer = _load_resemblyzer()
+        if encoder is None or resemblyzer is None:
             return 1.0  # Fail open
 
         try:
@@ -298,7 +334,7 @@ class IdentityManager:
             if len(audio_chunk) < min_samples:
                 return 0.75  # Uncertain, allow through
 
-            wav = preprocess_wav(audio_chunk, source_sr=self.sample_rate)
+            wav = resemblyzer.preprocess_wav(audio_chunk, source_sr=self.sample_rate)
             chunk_embedding = encoder.embed_utterance(wav)
 
             # Cosine similarity (embeddings are already L2 normalized)
