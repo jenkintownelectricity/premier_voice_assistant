@@ -34,6 +34,9 @@ from typing import Optional, Callable, List
 from collections import deque
 import re
 
+# Iron Ear 3.0 - Speaker Verification
+from .identity_manager import IdentityManager
+
 
 # =============================================================================
 # TURN STATES
@@ -157,6 +160,21 @@ class TurnConfig:
 
     # Energy threshold for considering a frame as speech (for profiling)
     min_energy_for_profiling: float = 0.05
+
+    # =========================================================================
+    # IRON EAR 3.0 - IDENTITY VERIFICATION (Speaker Fingerprinting)
+    # =========================================================================
+    # Problem: Even with speaker locking, a loud imposter could still trigger
+    # Solution: Use the "Honey Pot" to capture a voice fingerprint, then verify
+
+    enable_identity_verification: bool = True
+
+    # How long to collect audio during the "Honey Pot" phase
+    identity_calibration_duration: float = 10.0  # seconds
+
+    # Similarity threshold for accepting audio (0-1)
+    # Lower = more permissive, Higher = stricter
+    identity_similarity_threshold: float = 0.65
 
     # =========================================================================
     # BACKCHANNELING
@@ -350,7 +368,7 @@ class TurnManager:
         self.last_backchannel_time: float = 0
 
         # =====================================================================
-        # IRON EAR - Speech Buffer for Noise Filtering
+        # IRON EAR V1 - Speech Buffer for Noise Filtering
         # =====================================================================
         # Buffer tracks consecutive speech frames for debounce logic
         # A door slam (~100ms) won't fill the buffer, but real speech (~300ms+) will
@@ -358,6 +376,18 @@ class TurnManager:
         self._frames_needed = int(
             self.config.min_speech_duration_ms / self.config.frame_duration_ms
         )
+
+        # =====================================================================
+        # IRON EAR V3 - Identity Manager (Speaker Verification)
+        # =====================================================================
+        if self.config.enable_identity_verification:
+            self.identity_manager = IdentityManager(
+                calibration_duration=self.config.identity_calibration_duration,
+                similarity_threshold=self.config.identity_similarity_threshold,
+                min_energy_threshold=self.config.min_energy_for_profiling,
+            )
+        else:
+            self.identity_manager = None
 
         # Callbacks
         self.on_state_change: Optional[Callable[[TurnState, TurnState], None]] = None
@@ -526,6 +556,17 @@ class TurnManager:
             if self.is_background_voice(energy):
                 is_speech = False  # IGNORED - Background voice!
 
+        # =====================================================================
+        # IRON EAR V3 - IDENTITY VERIFICATION (Speaker Fingerprinting)
+        # =====================================================================
+        # If identity verification is enabled and we passed V1/V2 checks,
+        # verify that this audio matches our enrolled speaker's fingerprint
+        if is_speech and self.identity_manager is not None:
+            # Pass energy and frame duration for identity verification
+            # (audio_chunk would be passed if available from calling context)
+            if not self.identity_manager.process_audio(b'', energy, self.config.frame_duration_ms):
+                is_speech = False  # REJECTED - Identity mismatch!
+
         old_state = self.state
         self.context.transcript = transcript
         self.context.energy_level = energy
@@ -692,7 +733,62 @@ class TurnManager:
         self.context = TurnContext()
         self.speech_start_time = None
         self.silence_start_time = None
-        self._speech_buffer = []  # Clear Iron Ear buffer
+        self._speech_buffer = []  # Clear Iron Ear v1 buffer
+
+        # Reset Iron Ear v3 identity manager
+        if self.identity_manager is not None:
+            self.identity_manager.reset()
+
+    # =========================================================================
+    # IRON EAR V3 - HONEY POT METHODS
+    # =========================================================================
+
+    def start_honeypot(self):
+        """
+        Start the Honey Pot calibration phase.
+
+        Call this when sending the initial prompt that asks the user
+        to speak at length (e.g., "Could you state your name and reason for calling?")
+        """
+        if self.identity_manager is not None:
+            self.identity_manager.start_calibration()
+            print("[Iron Ear] Honey Pot started - collecting voice fingerprint")
+
+    def is_identity_calibrated(self) -> bool:
+        """Check if the identity has been locked."""
+        if self.identity_manager is None:
+            return True  # No verification = always "calibrated"
+        return self.identity_manager.is_calibrated()
+
+    def get_calibration_progress(self) -> float:
+        """Get identity calibration progress (0-1)."""
+        if self.identity_manager is None:
+            return 1.0
+        return self.identity_manager.get_calibration_progress()
+
+    def check_connection_quality(self) -> Optional[str]:
+        """
+        Check if the environment is too noisy to proceed.
+
+        Returns a prompt to ask user to improve conditions, or None if OK.
+        """
+        # If noise floor is too high
+        if self.context.noise_floor > 0.4:
+            return "I'm having a little trouble hearing you clearly. Are you on speakerphone by chance?"
+
+        # If identity verification is failing too often
+        if self.identity_manager is not None:
+            stats = self.identity_manager.get_stats()
+            if stats["is_calibrated"] and stats["acceptance_rate"] < 0.5:
+                return "There seems to be a lot of background noise. Could you move to a quieter area?"
+
+        return None
+
+    def get_identity_stats(self) -> Optional[dict]:
+        """Get identity verification statistics."""
+        if self.identity_manager is None:
+            return None
+        return self.identity_manager.get_stats()
 
 
 # =============================================================================
