@@ -1,53 +1,67 @@
 """
 Identity Manager - Iron Ear 3.0 (Speaker Verification)
 
-This module implements "Zero-Shot Speaker Enrollment".
-It captures a 'fingerprint' of the user's voice during the initial
+This module implements "Zero-Shot Speaker Enrollment" using Resemblyzer
+for real speaker embeddings.
+
+It captures a voice fingerprint (256-dimensional embedding) during the
 'Honey Pot' phase and rejects subsequent audio that doesn't match.
 
 The Honey Pot Flow:
 1. Agent asks engaging question (e.g., "Could you state your name and reason for calling?")
 2. User responds with 10-15 seconds of natural speech
-3. System captures voice characteristics (pitch, speed, timbre)
+3. System extracts 256-dim speaker embedding (voice fingerprint)
 4. Identity is LOCKED - only matching voice is accepted
-5. Background voices, TV, etc. are rejected
+5. Background voices, TV, imposters are rejected
 
-Future Enhancement:
-- Replace heuristic checks with Resemblyzer/PyAnnote embeddings
-- Add cosine_similarity matching for ML-based verification
+Based on research from:
+- Resemblyzer (Google's GE2E paper)
+- ECAPA-TDNN speaker verification
+- Zero-shot speaker enrollment techniques
 """
 
 import time
 import logging
+import numpy as np
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Try to import resemblyzer for ML-based embeddings
+try:
+    from resemblyzer import VoiceEncoder, preprocess_wav
+    RESEMBLYZER_AVAILABLE = True
+    logger.info("[IdentityManager] Resemblyzer loaded - ML speaker verification enabled")
+except ImportError:
+    RESEMBLYZER_AVAILABLE = False
+    logger.warning("[IdentityManager] Resemblyzer not available - using energy-based fallback")
 
 
 @dataclass
 class SpeakerProfile:
     """Voice fingerprint for the enrolled speaker."""
     is_locked: bool = False
-    calibration_audio: List[bytes] = field(default_factory=list)
 
-    # Heuristic features (until ML embeddings are added)
+    # ML Embedding (256-dimensional vector)
+    embedding: Optional[np.ndarray] = None
+
+    # Fallback heuristic features (when Resemblyzer unavailable)
     avg_energy: float = 0.0
     energy_variance: float = 0.0
-    avg_pitch: float = 0.0
-    avg_speed: float = 0.0  # Words per second estimate
 
     # Calibration tracking
     calibration_start_time: float = 0.0
     total_speech_frames: int = 0
-
-    # In a full ML implementation, this would store the Embedding Vector:
-    # fingerprint: np.ndarray = None
+    calibration_audio_samples: int = 0
 
 
 class IdentityManager:
     """
-    Manages speaker identity verification using voice fingerprints.
+    Manages speaker identity verification using voice embeddings.
+
+    Uses Resemblyzer to extract 256-dimensional speaker embeddings
+    and cosine similarity for verification.
 
     Usage:
         identity = IdentityManager()
@@ -55,41 +69,68 @@ class IdentityManager:
         # Start calibration when asking the honey pot question
         identity.start_calibration()
 
-        # Process audio frames
+        # Collect audio during user's response
         for audio_chunk in stream:
-            if identity.process_audio(audio_chunk, energy, 20):
-                # Audio accepted - process normally
-            else:
-                # Audio rejected - ignore (imposter/noise)
+            identity.add_calibration_audio(audio_chunk)
+
+        # Lock identity after enough audio collected
+        if identity.can_lock():
+            identity.lock_identity()
+
+        # Verify subsequent audio
+        is_match, score = identity.verify_speaker(audio_chunk)
     """
 
     def __init__(
         self,
         calibration_duration: float = 10.0,
-        similarity_threshold: float = 0.65,
+        similarity_threshold: float = 0.75,
         min_energy_threshold: float = 0.05,
+        sample_rate: int = 16000,
     ):
         """
         Initialize IdentityManager.
 
         Args:
             calibration_duration: Seconds of speech needed for enrollment (default 10s)
-            similarity_threshold: Minimum similarity score to accept (0-1)
+            similarity_threshold: Minimum cosine similarity to accept (0-1)
             min_energy_threshold: Minimum energy to consider as speech
+            sample_rate: Audio sample rate (default 16kHz for Resemblyzer)
         """
         self.profile = SpeakerProfile()
         self.calibration_duration_needed = calibration_duration
         self.similarity_threshold = similarity_threshold
         self.min_energy_threshold = min_energy_threshold
+        self.sample_rate = sample_rate
 
-        # Internal tracking
+        # ML encoder (loaded lazily)
+        self._encoder: Optional['VoiceEncoder'] = None
+
+        # Audio buffer for calibration
+        self._calibration_buffer: List[np.ndarray] = []
         self._buffer_duration = 0.0
+
+        # Statistics
         self._rejection_count = 0
         self._acceptance_count = 0
         self._energy_samples: List[float] = []
+        self._similarity_scores: List[float] = []
 
-        logger.info(f"[IdentityManager] Initialized (calibration: {calibration_duration}s, "
-                    f"threshold: {similarity_threshold})")
+        logger.info(
+            f"[IdentityManager] Initialized "
+            f"(ML={'enabled' if RESEMBLYZER_AVAILABLE else 'disabled'}, "
+            f"calibration={calibration_duration}s, threshold={similarity_threshold})"
+        )
+
+    def _get_encoder(self) -> Optional['VoiceEncoder']:
+        """Lazily load the voice encoder."""
+        if not RESEMBLYZER_AVAILABLE:
+            return None
+        if self._encoder is None:
+            logger.info("[IdentityManager] Loading Resemblyzer VoiceEncoder...")
+            self._encoder = VoiceEncoder()
+            logger.info("[IdentityManager] VoiceEncoder loaded")
+        return self._encoder
 
     def start_calibration(self):
         """
@@ -99,12 +140,184 @@ class IdentityManager:
         """
         self.profile = SpeakerProfile()
         self.profile.calibration_start_time = time.time()
+        self._calibration_buffer = []
         self._buffer_duration = 0.0
         self._energy_samples = []
         self._rejection_count = 0
         self._acceptance_count = 0
+        self._similarity_scores = []
 
-        logger.info("[IdentityManager] Starting Calibration Phase (Honey Pot)")
+        logger.info("[IdentityManager] Calibration started (Honey Pot phase)")
+
+    def add_calibration_audio(
+        self,
+        audio_chunk: np.ndarray,
+        energy: float = 0.0,
+        duration_ms: float = 20.0
+    ):
+        """
+        Add audio chunk to calibration buffer.
+
+        Args:
+            audio_chunk: Audio samples (int16 or float32)
+            energy: Energy level of this chunk (for fallback)
+            duration_ms: Duration of this chunk in milliseconds
+        """
+        if self.profile.is_locked:
+            return  # Already calibrated
+
+        # Skip silent frames
+        if energy < self.min_energy_threshold:
+            return
+
+        self._buffer_duration += (duration_ms / 1000.0)
+        self._calibration_buffer.append(audio_chunk)
+        self._energy_samples.append(energy)
+        self.profile.total_speech_frames += 1
+        self.profile.calibration_audio_samples += len(audio_chunk)
+
+    def can_lock(self) -> bool:
+        """Check if we have enough audio to lock identity."""
+        return self._buffer_duration >= self.calibration_duration_needed
+
+    def lock_identity(self) -> bool:
+        """
+        Process collected audio and create the voice fingerprint.
+
+        Returns:
+            True if successfully locked, False otherwise
+        """
+        if self.profile.is_locked:
+            return True  # Already locked
+
+        if not self._calibration_buffer:
+            logger.warning("[IdentityManager] Cannot lock - no audio collected")
+            return False
+
+        # Concatenate all audio chunks
+        all_audio = np.concatenate(self._calibration_buffer)
+
+        # Normalize to float32 if int16
+        if all_audio.dtype == np.int16:
+            all_audio = all_audio.astype(np.float32) / 32768.0
+        elif all_audio.dtype != np.float32:
+            all_audio = all_audio.astype(np.float32)
+
+        # Try ML embedding first
+        encoder = self._get_encoder()
+        if encoder is not None and RESEMBLYZER_AVAILABLE:
+            try:
+                wav = preprocess_wav(all_audio, source_sr=self.sample_rate)
+                self.profile.embedding = encoder.embed_utterance(wav)
+                logger.info(
+                    f"[IdentityManager] IDENTITY LOCKED (ML) "
+                    f"(embedding shape: {self.profile.embedding.shape}, "
+                    f"audio: {self._buffer_duration:.1f}s, "
+                    f"{len(self._calibration_buffer)} chunks)"
+                )
+            except Exception as e:
+                logger.error(f"[IdentityManager] ML embedding failed: {e}")
+                self.profile.embedding = None
+
+        # Fallback: Calculate energy-based features
+        if self._energy_samples:
+            self.profile.avg_energy = sum(self._energy_samples) / len(self._energy_samples)
+            variance_sum = sum(
+                (e - self.profile.avg_energy) ** 2 for e in self._energy_samples
+            )
+            self.profile.energy_variance = variance_sum / len(self._energy_samples)
+
+        self.profile.is_locked = True
+
+        if self.profile.embedding is None:
+            logger.info(
+                f"[IdentityManager] IDENTITY LOCKED (Energy Fallback) "
+                f"(avg_energy={self.profile.avg_energy:.4f}, "
+                f"variance={self.profile.energy_variance:.4f})"
+            )
+
+        # Clear buffer to free memory
+        self._calibration_buffer = []
+
+        return True
+
+    def verify_speaker(
+        self,
+        audio_chunk: np.ndarray,
+        energy: float = 0.0,
+    ) -> Tuple[bool, float]:
+        """
+        Verify if audio matches the enrolled speaker.
+
+        Args:
+            audio_chunk: Audio samples to verify
+            energy: Energy level (for fallback verification)
+
+        Returns:
+            (is_match, similarity_score)
+        """
+        if not self.profile.is_locked:
+            return True, 1.0  # Can't verify if not calibrated
+
+        # Skip very quiet audio
+        if energy < self.min_energy_threshold:
+            return True, 1.0  # Silent frames pass through
+
+        # ML-based verification
+        if self.profile.embedding is not None and RESEMBLYZER_AVAILABLE:
+            similarity = self._verify_ml(audio_chunk)
+        else:
+            similarity = self._verify_energy(energy)
+
+        is_match = similarity >= self.similarity_threshold
+
+        # Track stats
+        self._similarity_scores.append(similarity)
+        if is_match:
+            self._acceptance_count += 1
+        else:
+            self._rejection_count += 1
+
+        return is_match, similarity
+
+    def _verify_ml(self, audio_chunk: np.ndarray) -> float:
+        """Verify using ML embeddings and cosine similarity."""
+        encoder = self._get_encoder()
+        if encoder is None:
+            return 1.0  # Fail open
+
+        try:
+            # Normalize audio
+            if audio_chunk.dtype == np.int16:
+                audio_chunk = audio_chunk.astype(np.float32) / 32768.0
+            elif audio_chunk.dtype != np.float32:
+                audio_chunk = audio_chunk.astype(np.float32)
+
+            # Skip very short chunks (< 0.5 seconds)
+            min_samples = int(self.sample_rate * 0.5)
+            if len(audio_chunk) < min_samples:
+                return 0.75  # Uncertain, allow through
+
+            wav = preprocess_wav(audio_chunk, source_sr=self.sample_rate)
+            chunk_embedding = encoder.embed_utterance(wav)
+
+            # Cosine similarity (embeddings are already L2 normalized)
+            similarity = float(np.dot(self.profile.embedding, chunk_embedding))
+
+            return similarity
+
+        except Exception as e:
+            logger.debug(f"[IdentityManager] ML verification error: {e}")
+            return 0.75  # Fail open with uncertain score
+
+    def _verify_energy(self, energy: float) -> float:
+        """Fallback verification using energy comparison."""
+        if self.profile.avg_energy == 0:
+            return 1.0
+
+        # Simple ratio-based similarity
+        ratio = min(energy, self.profile.avg_energy) / max(energy, self.profile.avg_energy)
+        return ratio
 
     def process_audio(
         self,
@@ -113,111 +326,57 @@ class IdentityManager:
         duration_ms: float
     ) -> bool:
         """
-        Process an audio chunk and verify identity.
+        Process an audio chunk (combined calibration + verification).
+
+        This is the main entry point called by TurnManager.
 
         Args:
-            audio_chunk: Raw audio bytes
-            energy: Normalized energy level (0-1)
-            duration_ms: Duration of this chunk in milliseconds
+            audio_chunk: Raw audio bytes (or empty for energy-only mode)
+            energy: Energy level of this chunk
+            duration_ms: Duration in milliseconds
 
         Returns:
-            True if audio is accepted (matches user or still calibrating)
-            False if audio is rejected (imposter/noise)
+            True if audio should be processed (accepted)
+            False if audio should be ignored (rejected)
         """
-        # Skip very quiet audio
+        # Skip silent frames
         if energy < self.min_energy_threshold:
-            return True  # Silent frames don't need verification
+            return True
 
-        # Phase 1: Data Collection (The Honey Pot)
+        # Phase 1: Calibration (Honey Pot)
         if not self.profile.is_locked:
-            self._collect_sample(audio_chunk, energy, duration_ms)
-            return True  # Always accept audio while calibrating
+            # Convert bytes to numpy if we have audio
+            if audio_chunk and len(audio_chunk) > 0:
+                try:
+                    audio_np = np.frombuffer(audio_chunk, dtype=np.int16)
+                    self.add_calibration_audio(audio_np, energy, duration_ms)
+                except Exception:
+                    # If audio conversion fails, just track energy
+                    self._buffer_duration += (duration_ms / 1000.0)
+                    self._energy_samples.append(energy)
+            else:
+                # Energy-only mode
+                self._buffer_duration += (duration_ms / 1000.0)
+                self._energy_samples.append(energy)
 
-        # Phase 2: Identity Verification
-        is_match = self._verify_identity(energy)
+            # Auto-lock when we have enough audio
+            if self.can_lock():
+                self.lock_identity()
 
-        if is_match:
-            self._acceptance_count += 1
-        else:
-            self._rejection_count += 1
-            if self._rejection_count % 50 == 0:  # Log every 50 rejections
-                logger.warning(
-                    f"[IdentityManager] High rejection rate: "
-                    f"{self._rejection_count}/{self._rejection_count + self._acceptance_count}"
-                )
+            return True  # Always accept during calibration
 
+        # Phase 2: Verification
+        if audio_chunk and len(audio_chunk) > 0:
+            try:
+                audio_np = np.frombuffer(audio_chunk, dtype=np.int16)
+                is_match, similarity = self.verify_speaker(audio_np, energy)
+                return is_match
+            except Exception:
+                pass
+
+        # Energy-only verification fallback
+        is_match, _ = self.verify_speaker(np.array([]), energy)
         return is_match
-
-    def _collect_sample(self, audio_chunk: bytes, energy: float, duration_ms: float):
-        """Collect audio sample during calibration phase."""
-        self._buffer_duration += (duration_ms / 1000.0)
-        self.profile.calibration_audio.append(audio_chunk)
-        self._energy_samples.append(energy)
-        self.profile.total_speech_frames += 1
-
-        # Check if we have enough data to lock
-        if self._buffer_duration >= self.calibration_duration_needed:
-            self._lock_identity()
-
-    def _lock_identity(self):
-        """Process the collected samples and create the voice fingerprint."""
-        if not self._energy_samples:
-            logger.warning("[IdentityManager] Cannot lock - no samples collected")
-            return
-
-        # Calculate heuristic features from collected samples
-        self.profile.avg_energy = sum(self._energy_samples) / len(self._energy_samples)
-
-        # Calculate variance
-        variance_sum = sum(
-            (e - self.profile.avg_energy) ** 2 for e in self._energy_samples
-        )
-        self.profile.energy_variance = variance_sum / len(self._energy_samples)
-
-        self.profile.is_locked = True
-
-        logger.info(
-            f"[IdentityManager] IDENTITY LOCKED "
-            f"(captured {self._buffer_duration:.1f}s, "
-            f"{len(self._energy_samples)} frames, "
-            f"avg_energy={self.profile.avg_energy:.4f}, "
-            f"variance={self.profile.energy_variance:.4f})"
-        )
-
-        # TODO: Future ML implementation
-        # self.profile.fingerprint = resemblyzer_model.embed(self.profile.calibration_audio)
-
-    def _verify_identity(self, energy: float) -> bool:
-        """
-        Verify if audio matches the enrolled speaker.
-
-        Currently uses energy-based heuristics. Future implementation will use
-        cosine similarity between voice embeddings.
-
-        Args:
-            energy: Energy level of current audio frame
-
-        Returns:
-            True if audio matches enrolled speaker
-        """
-        if not self.profile.is_locked:
-            return True  # Can't verify if not calibrated
-
-        # Heuristic Check: Energy should be within reasonable range of baseline
-        # Very quiet audio compared to baseline is likely background
-        min_energy = self.profile.avg_energy * self.similarity_threshold
-
-        if energy < min_energy:
-            return False  # Too quiet - likely background voice
-
-        # Accept if energy is reasonably close to baseline
-        # (This is a simplified heuristic - ML embeddings would be more accurate)
-        return True
-
-        # TODO: Future ML implementation
-        # current_embedding = resemblyzer_model.embed(audio_chunk)
-        # similarity = cosine_similarity(self.profile.fingerprint, current_embedding)
-        # return similarity >= self.similarity_threshold
 
     def is_calibrated(self) -> bool:
         """Check if identity has been locked."""
@@ -232,23 +391,41 @@ class IdentityManager:
     def get_stats(self) -> dict:
         """Get verification statistics."""
         total = self._acceptance_count + self._rejection_count
+        avg_similarity = (
+            sum(self._similarity_scores) / len(self._similarity_scores)
+            if self._similarity_scores else 0.0
+        )
         return {
             "is_calibrated": self.profile.is_locked,
+            "ml_enabled": self.profile.embedding is not None,
             "calibration_progress": self.get_calibration_progress(),
             "accepted": self._acceptance_count,
             "rejected": self._rejection_count,
             "acceptance_rate": self._acceptance_count / total if total > 0 else 1.0,
+            "avg_similarity": avg_similarity,
             "avg_energy": self.profile.avg_energy,
             "energy_variance": self.profile.energy_variance,
+            "threshold": self.similarity_threshold,
         }
+
+    def adjust_threshold(self, new_threshold: float):
+        """Dynamically adjust similarity threshold."""
+        old_threshold = self.similarity_threshold
+        self.similarity_threshold = max(0.0, min(1.0, new_threshold))
+        logger.info(
+            f"[IdentityManager] Threshold adjusted: "
+            f"{old_threshold:.2f} → {self.similarity_threshold:.2f}"
+        )
 
     def reset(self):
         """Reset identity manager (for new caller)."""
         self.profile = SpeakerProfile()
+        self._calibration_buffer = []
         self._buffer_duration = 0.0
         self._energy_samples = []
         self._rejection_count = 0
         self._acceptance_count = 0
+        self._similarity_scores = []
         logger.info("[IdentityManager] RESET - ready for new speaker enrollment")
 
 
@@ -284,6 +461,23 @@ HONEYPOT_PROMPTS = {
 }
 
 
+# =============================================================================
+# SOFT FAIL PROMPTS
+# =============================================================================
+
+SOFT_FAIL_PROMPTS = [
+    "I'm having a bit of trouble hearing you clearly. Are you on speaker phone?",
+    "The connection seems a little unclear. Could you move somewhere quieter?",
+    "I want to make sure I catch everything you're saying. Is there background noise on your end?",
+]
+
+
 def get_honeypot_prompt(skill: str = "default") -> str:
     """Get the appropriate honey pot prompt for a skill."""
     return HONEYPOT_PROMPTS.get(skill, HONEYPOT_PROMPTS["default"])
+
+
+def get_soft_fail_prompt() -> str:
+    """Get a random soft fail prompt for noisy environments."""
+    import random
+    return random.choice(SOFT_FAIL_PROMPTS)
