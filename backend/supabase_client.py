@@ -248,7 +248,7 @@ class SupabaseManager:
         modal_voice_id: str = None,
         is_public: bool = False,
     ) -> Dict:
-        """Register a new voice clone."""
+        """Register a new voice clone (or update existing)."""
         try:
             voice_data = {
                 "user_id": user_id,
@@ -263,9 +263,13 @@ class SupabaseManager:
             if modal_voice_id:
                 voice_data["modal_voice_id"] = modal_voice_id
 
-            result = self.client.table("va_voice_clones").insert(voice_data).execute()
+            # Use upsert to update existing voice clones with new audio URL
+            # This fixes playback when user re-clones after webm→WAV conversion fix
+            result = self.client.table("va_voice_clones").upsert(
+                voice_data, on_conflict="user_id,voice_name"
+            ).execute()
 
-            logger.info(f"Created voice clone '{voice_name}' for user {user_id}")
+            logger.info(f"Created/updated voice clone '{voice_name}' for user {user_id}")
             return result.data[0]
 
         except Exception as e:
@@ -427,8 +431,9 @@ class SupabaseManager:
             Public URL to the uploaded file
         """
         try:
+            # Use upsert to overwrite existing files (fixes issue where old webm files blocked WAV uploads)
             result = self.client.storage.from_(bucket).upload(
-                file_path, audio_bytes, {"content-type": "audio/wav"}
+                file_path, audio_bytes, {"content-type": "audio/wav", "upsert": "true"}
             )
 
             # Get public URL

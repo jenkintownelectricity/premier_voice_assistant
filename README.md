@@ -120,6 +120,44 @@ premier_voice_assistant/
 └── Dockerfile               # Railway deployment
 ```
 
+## TTS Providers
+
+The platform supports multiple TTS providers with per-assistant selection:
+
+| Provider | Latency | Cost | Features |
+|----------|---------|------|----------|
+| **Cartesia** | ~30ms | Paid | Ultra-low latency, recommended |
+| **Deepgram Aura** | ~80ms | Free tier | 12 voices, same provider as STT |
+| **ElevenLabs** | ~150ms | Free tier | Premium quality, expressive |
+| **OpenAI** | ~200ms | Paid | Consistent quality |
+| **Kokoro** ★ | ~100ms | **Free** | 22 voices, multi-language |
+| **Coqui XTTS** ★ | ~150ms | **Free** | Voice cloning - use your own voice! |
+
+### Free TTS with Modal
+
+Deploy free TTS endpoints on Modal:
+
+```bash
+# Install Modal
+py -3.11 -m pip install modal
+py -3.11 -m modal token new
+
+# Deploy Kokoro (22 free voices)
+py -3.11 -m modal deploy kokoro_tts.py
+
+# Deploy Coqui (voice cloning)
+py -3.11 -m modal deploy coqui_tts.py
+```
+
+### Voice Cloning (Coqui)
+
+Clone your own voice for free:
+
+1. Go to Dashboard → Voice Clones
+2. Record or upload 10-30 seconds of audio
+3. Your cloned voice appears in "★ MY CUSTOM VOICES"
+4. Select Coqui XTTS as TTS provider in assistant settings
+
 ## Environment Variables
 
 | Variable | Service | Description |
@@ -128,9 +166,12 @@ premier_voice_assistant/
 | `LIVEKIT_API_KEY` | Both | LiveKit authentication |
 | `LIVEKIT_API_SECRET` | Both | LiveKit authentication |
 | `DEEPGRAM_API_KEY` | Worker | STT service |
-| `CARTESIA_API_KEY` | Worker | TTS service |
+| `CARTESIA_API_KEY` | Worker | TTS service (default) |
+| `ELEVENLABS_API_KEY` | Worker | ElevenLabs TTS (optional) |
 | `GROQ_API_KEY` | Worker | LLM (Groq Llama) |
 | `FAST_BRAIN_URL` | Worker | Modal-deployed Fast Brain |
+| `COQUI_TTS_URL` | Worker | Modal Coqui endpoint (optional) |
+| `KOKORO_TTS_URL` | Worker | Modal Kokoro endpoint (optional) |
 | `SERVICE_TYPE` | Both | `web` or `worker` (Railway) |
 
 ## Deployment
@@ -176,12 +217,20 @@ Key packages (see `requirements.txt` for full list):
 - Iron Ear V3: Identity Lock with Resemblyzer ML embeddings
 - Honey pot prompts for natural voice enrollment
 - Soft fail prompts for noisy environments
+- **Coqui XTTS** as free TTS provider with voice cloning
+- **Kokoro** as free TTS provider (22 multi-language voices)
+- Voice preview button in dashboard
+- `/api/tts/preview` endpoint for all providers
+- `/api/tts/voices/{provider}` endpoint for dynamic voice lists
 
 ### Fixed
 - Supabase client access (`get_supabase().client.client` → `.client`)
 - LiveKit connection state check (int vs enum)
 - VoiceCallWrapper defaulting to LiveKit mode
 - Turn detector model download in Dockerfile
+- **TTS provider selection** - assistants now use correct voice/provider from database
+- **Voice cloning audio format** - webm → WAV conversion via ffmpeg
+- **Coqui voice loading** - cloned voices now appear in dropdown
 
 ---
 
