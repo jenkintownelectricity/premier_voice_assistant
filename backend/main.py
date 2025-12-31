@@ -1278,6 +1278,58 @@ async def get_voice_clones(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/voice-clones/{clone_id}/audio")
+async def get_voice_clone_audio(
+    clone_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Get a signed URL for voice clone audio playback.
+
+    The signed URL is valid for 1 hour and allows playback of private bucket audio.
+    """
+    try:
+        # Get the voice clone record
+        result = db.client.table("va_voice_clones").select("*").eq("id", clone_id).single().execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Voice clone not found")
+
+        clone = result.data
+
+        # Check access: user owns it or it's public
+        if clone["user_id"] != user_id and not clone.get("is_public", False):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Extract file path from stored URL
+        # URL format: https://xxx.supabase.co/storage/v1/object/public/va-voice-clones/{user_id}/{voice_name}.wav
+        reference_url = clone.get("reference_audio_url", "")
+
+        # Parse the file path from the URL
+        if "va-voice-clones/" in reference_url:
+            file_path = reference_url.split("va-voice-clones/")[-1]
+        else:
+            # Fallback: construct path from user_id and voice_name
+            file_path = f"{clone['user_id']}/{clone['voice_name']}.wav"
+
+        # Generate signed URL (valid for 1 hour)
+        signed_url = db.create_signed_url("va-voice-clones", file_path, expires_in=3600)
+
+        return {
+            "audio_url": signed_url,
+            "expires_in": 3600,
+            "voice_name": clone["voice_name"],
+            "display_name": clone["display_name"],
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting voice clone audio: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # SUBSCRIPTION & USAGE ROUTES
 # ============================================================================
