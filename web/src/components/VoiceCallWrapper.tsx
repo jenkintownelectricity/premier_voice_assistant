@@ -246,7 +246,9 @@ export function VoiceCallWrapper({
   }
 
   // Render the appropriate call component
-  if (mode === 'livekit' && liveKitStatus?.enabled && liveKitStatus?.configured) {
+  // When defaultMode is 'livekit', use LiveKit directly (status check may fail since
+  // /livekit/status endpoint is on FastAPI backend, not Next.js)
+  if (mode === 'livekit') {
     return (
       <LiveKitVoiceCall
         assistantId={assistantId}
@@ -257,7 +259,7 @@ export function VoiceCallWrapper({
     );
   }
 
-  // Default to WebSocket
+  // Default to WebSocket (only used if explicitly set)
   return (
     <VoiceCall
       assistantId={assistantId}
