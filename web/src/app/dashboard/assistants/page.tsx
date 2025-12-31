@@ -12,6 +12,7 @@ interface Assistant {
   id: string;
   name: string;
   description: string | null;
+  tts_provider: string;
   voice_id: string;
   model: string;
   is_active: boolean;
@@ -26,6 +27,91 @@ interface VoiceClone {
   display_name: string;
   is_public: boolean;
 }
+
+// TTS Provider configuration with available voices
+const TTS_PROVIDERS: Record<string, {
+  name: string;
+  latency: string;
+  description: string;
+  voices: { id: string; name: string; gender: string; accent?: string }[];
+}> = {
+  cartesia: {
+    name: "Cartesia",
+    latency: "~30ms",
+    description: "Ultra-low latency, recommended for real-time voice",
+    voices: [
+      { id: "a0e99841-438c-4a64-b679-ae501e7d6091", name: "Barbershop Man", gender: "male", accent: "US" },
+      { id: "156fb8d2-335b-4950-9cb3-a2d33f91d3f1", name: "Classy British Man", gender: "male", accent: "UK" },
+      { id: "638efaaa-4d0c-442e-b701-3fae16aad012", name: "Confident British Man", gender: "male", accent: "UK" },
+      { id: "ee7ea9f8-c0c1-498c-9f62-dc2f7b5dc78f", name: "Doctor Mischief", gender: "male", accent: "US" },
+      { id: "95856005-0332-41b0-935f-352e296aa0df", name: "Movieman", gender: "male", accent: "US" },
+      { id: "36b42fcb-60c5-4bec-b077-cb1a00a92ec6", name: "Newsman", gender: "male", accent: "US" },
+      { id: "726d5ae5-055f-4c3d-8355-d9677de68571", name: "Nonfiction Man", gender: "male", accent: "US" },
+      { id: "5c42302c-194b-4d0c-ba1a-8cb485c84ab9", name: "Reading Man", gender: "male", accent: "US" },
+      { id: "fb26447f-308b-471e-8b00-8b39d669f8d6", name: "Sportsman", gender: "male", accent: "US" },
+      { id: "d46abd1d-2571-4e77-a5c1-ca0ad9382e28", name: "Teacher Lady", gender: "female", accent: "US" },
+      { id: "c45bc5ec-dc68-4feb-8829-6e6b2748095d", name: "Wise Lady", gender: "female", accent: "US" },
+      { id: "c2ac25f9-ecc4-4f56-9095-651354df60c0", name: "Commercial Lady", gender: "female", accent: "US" },
+      { id: "e00d0e4c-a5c8-443f-a8a3-473eb9a62355", name: "Maria", gender: "female", accent: "US" },
+      { id: "f786b574-daa5-4673-aa0c-cbe3e8534c02", name: "Katie (Default)", gender: "female", accent: "US" },
+    ],
+  },
+  elevenlabs: {
+    name: "ElevenLabs",
+    latency: "~150ms",
+    description: "Premium quality, expressive voices",
+    voices: [
+      { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", gender: "female", accent: "US" },
+      { id: "AZnzlk1XvdvUeBnXmlld", name: "Domi", gender: "female", accent: "US" },
+      { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella", gender: "female", accent: "US" },
+      { id: "ErXwobaYiN019PkySvjV", name: "Antoni", gender: "male", accent: "US" },
+      { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli", gender: "female", accent: "US" },
+      { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh", gender: "male", accent: "US" },
+      { id: "VR6AewLTigWG4xSOukaG", name: "Arnold", gender: "male", accent: "US" },
+      { id: "pNInz6obpgDQGcFmaJgB", name: "Adam", gender: "male", accent: "US" },
+      { id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam", gender: "male", accent: "US" },
+      { id: "jBpfuIE2acCO8z3wKNLl", name: "Gigi", gender: "female", accent: "US" },
+      { id: "oWAxZDx7w5VEj9dCyTzz", name: "Grace", gender: "female", accent: "US" },
+      { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel", gender: "male", accent: "UK" },
+      { id: "pqHfZKP75CvOlQylNhV4", name: "Bill", gender: "male", accent: "US" },
+      { id: "nPczCjzI2devNBz1zQrb", name: "Brian", gender: "male", accent: "US" },
+      { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum", gender: "male", accent: "UK" },
+      { id: "IKne3meq5aSn9XLyUdCD", name: "Charlie", gender: "male", accent: "AU" },
+    ],
+  },
+  deepgram: {
+    name: "Deepgram Aura",
+    latency: "~80ms",
+    description: "Fast, natural voices (same provider as STT)",
+    voices: [
+      { id: "aura-asteria-en", name: "Asteria", gender: "female", accent: "US" },
+      { id: "aura-luna-en", name: "Luna", gender: "female", accent: "US" },
+      { id: "aura-stella-en", name: "Stella", gender: "female", accent: "US" },
+      { id: "aura-athena-en", name: "Athena", gender: "female", accent: "UK" },
+      { id: "aura-hera-en", name: "Hera", gender: "female", accent: "US" },
+      { id: "aura-orion-en", name: "Orion", gender: "male", accent: "US" },
+      { id: "aura-arcas-en", name: "Arcas", gender: "male", accent: "US" },
+      { id: "aura-perseus-en", name: "Perseus", gender: "male", accent: "US" },
+      { id: "aura-angus-en", name: "Angus", gender: "male", accent: "Ireland" },
+      { id: "aura-orpheus-en", name: "Orpheus", gender: "male", accent: "US" },
+      { id: "aura-helios-en", name: "Helios", gender: "male", accent: "UK" },
+      { id: "aura-zeus-en", name: "Zeus", gender: "male", accent: "US" },
+    ],
+  },
+  openai: {
+    name: "OpenAI",
+    latency: "~200ms",
+    description: "GPT-powered synthesis, consistent quality",
+    voices: [
+      { id: "alloy", name: "Alloy", gender: "neutral", accent: "US" },
+      { id: "echo", name: "Echo", gender: "male", accent: "US" },
+      { id: "fable", name: "Fable", gender: "male", accent: "UK" },
+      { id: "onyx", name: "Onyx", gender: "male", accent: "US" },
+      { id: "nova", name: "Nova", gender: "female", accent: "US" },
+      { id: "shimmer", name: "Shimmer", gender: "female", accent: "US" },
+    ],
+  },
+};
 
 // Industry-specific quick start templates
 const ASSISTANT_TEMPLATES = [
@@ -330,7 +416,8 @@ export default function AssistantsPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
-  const [voiceId, setVoiceId] = useState('default');
+  const [ttsProvider, setTtsProvider] = useState('cartesia');
+  const [voiceId, setVoiceId] = useState('f786b574-daa5-4673-aa0c-cbe3e8534c02'); // Katie default
   const [llmProvider, setLlmProvider] = useState('groq');
   const [model, setModel] = useState('llama-3.3-70b-versatile');
   const [temperature, setTemperature] = useState(0.7);
@@ -403,7 +490,8 @@ export default function AssistantsPage() {
       setName(assistant.name);
       setDescription(assistant.description || '');
       setSystemPrompt(assistant.system_prompt);
-      setVoiceId(assistant.voice_id || 'default');
+      setTtsProvider(assistant.tts_provider || 'cartesia');
+      setVoiceId(assistant.voice_id || 'f786b574-daa5-4673-aa0c-cbe3e8534c02');
       setLlmProvider(assistant.llm_provider || 'groq');
       setModel(assistant.model || 'llama-3.3-70b-versatile');
       setTemperature(assistant.temperature ?? 0.7);
@@ -441,7 +529,8 @@ export default function AssistantsPage() {
     setName('');
     setDescription('');
     setSystemPrompt('');
-    setVoiceId('default');
+    setTtsProvider('cartesia');
+    setVoiceId('f786b574-daa5-4673-aa0c-cbe3e8534c02'); // Katie default
     setLlmProvider('groq');
     setModel('llama-3.3-70b-versatile');
     setTemperature(0.7);
@@ -484,6 +573,7 @@ export default function AssistantsPage() {
         name: name.trim(),
         system_prompt: systemPrompt.trim(),
         description: description.trim() || undefined,
+        tts_provider: ttsProvider,
         voice_id: voiceId,
         llm_provider: llmProvider,
         model,
@@ -645,32 +735,104 @@ export default function AssistantsPage() {
                     transition-colors min-h-[120px]"
                 />
               </div>
-              {/* Voice Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gold mb-2">
-                  Voice
-                </label>
-                <select
-                  value={voiceId}
-                  onChange={(e) => setVoiceId(e.target.value)}
-                  className="w-full px-4 py-3 bg-oled-dark border border-gold/30 rounded-lg
-                    text-white focus:outline-none focus:border-gold transition-colors"
-                >
-                  <optgroup label="Built-in Voices">
-                    <option value="default">Default</option>
-                    <option value="fabio">Fabio</option>
-                    <option value="jake">Jake</option>
-                  </optgroup>
-                  {voiceClones.length > 0 && (
-                    <optgroup label="Your Voice Clones">
-                      {voiceClones.map((clone) => (
-                        <option key={clone.id} value={clone.voice_name}>
-                          {clone.display_name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
+              {/* TTS Provider & Voice Selection */}
+              <div className="space-y-3 p-4 bg-oled-dark/50 rounded-lg border border-gold/20">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium text-gold">Voice Settings</h4>
+                  <span className="text-xs text-gray-500">
+                    {TTS_PROVIDERS[ttsProvider]?.latency} latency
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500">
+                  {TTS_PROVIDERS[ttsProvider]?.description}
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* TTS Provider Dropdown */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Provider</label>
+                    <select
+                      value={ttsProvider}
+                      onChange={(e) => {
+                        const provider = e.target.value;
+                        setTtsProvider(provider);
+                        // Set default voice for the new provider
+                        const firstVoice = TTS_PROVIDERS[provider]?.voices[0];
+                        if (firstVoice) {
+                          setVoiceId(firstVoice.id);
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-oled-dark border border-gold/30 rounded-lg
+                        text-white text-sm focus:outline-none focus:border-gold transition-colors"
+                    >
+                      <optgroup label="Recommended (Low Latency)">
+                        <option value="cartesia">Cartesia (~30ms)</option>
+                        <option value="deepgram">Deepgram Aura (~80ms)</option>
+                      </optgroup>
+                      <optgroup label="Premium Quality">
+                        <option value="elevenlabs">ElevenLabs (~150ms)</option>
+                        <option value="openai">OpenAI (~200ms)</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                  {/* Voice Dropdown */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Voice</label>
+                    <select
+                      value={voiceId}
+                      onChange={(e) => setVoiceId(e.target.value)}
+                      className="w-full px-3 py-2 bg-oled-dark border border-gold/30 rounded-lg
+                        text-white text-sm focus:outline-none focus:border-gold transition-colors"
+                    >
+                      <optgroup label="Male Voices">
+                        {TTS_PROVIDERS[ttsProvider]?.voices
+                          .filter(v => v.gender === 'male')
+                          .map((voice) => (
+                            <option key={voice.id} value={voice.id}>
+                              {voice.name} {voice.accent ? `(${voice.accent})` : ''}
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="Female Voices">
+                        {TTS_PROVIDERS[ttsProvider]?.voices
+                          .filter(v => v.gender === 'female')
+                          .map((voice) => (
+                            <option key={voice.id} value={voice.id}>
+                              {voice.name} {voice.accent ? `(${voice.accent})` : ''}
+                            </option>
+                          ))}
+                      </optgroup>
+                      {TTS_PROVIDERS[ttsProvider]?.voices.some(v => v.gender === 'neutral') && (
+                        <optgroup label="Neutral Voices">
+                          {TTS_PROVIDERS[ttsProvider]?.voices
+                            .filter(v => v.gender === 'neutral')
+                            .map((voice) => (
+                              <option key={voice.id} value={voice.id}>
+                                {voice.name} {voice.accent ? `(${voice.accent})` : ''}
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                      {voiceClones.length > 0 && ttsProvider === 'cartesia' && (
+                        <optgroup label="Your Voice Clones">
+                          {voiceClones.map((clone) => (
+                            <option key={clone.id} value={clone.voice_name}>
+                              {clone.display_name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${
+                    ttsProvider === 'cartesia' ? 'bg-green-400' :
+                    ttsProvider === 'deepgram' ? 'bg-green-400' :
+                    ttsProvider === 'elevenlabs' ? 'bg-yellow-400' :
+                    'bg-orange-400'
+                  }`}></span>
+                  {TTS_PROVIDERS[ttsProvider]?.voices.length} voices available
+                </div>
               </div>
 
               {/* LLM Provider & Model Selection */}
@@ -1219,7 +1381,10 @@ export default function AssistantsPage() {
                       </p>
                     )}
                     <div className="flex gap-4 mt-3 text-sm text-gray-500">
-                      <span>Voice: {assistant.voice_id}</span>
+                      <span>
+                        Voice: {TTS_PROVIDERS[assistant.tts_provider || 'cartesia']?.voices.find(v => v.id === assistant.voice_id)?.name || assistant.voice_id?.substring(0, 8) + '...'}
+                        <span className="text-gray-600 ml-1">({assistant.tts_provider || 'cartesia'})</span>
+                      </span>
                       <span>Calls: {assistant.call_count}</span>
                       <span>Created: {formatDate(assistant.created_at)}</span>
                     </div>
