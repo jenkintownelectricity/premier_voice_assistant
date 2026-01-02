@@ -67,6 +67,24 @@ from .router import (
     TRANSITION_PHRASES,
 )
 
+# Multi-skill agent for dynamic skill orchestration
+from .multi_skill_agent import (
+    MultiSkillAgent,
+    MultiSkillConfig,
+    SkillContext,
+    create_multi_skill_agent,
+    create_receptionist_trio,
+    create_legal_intake_agent,
+    create_solar_sales_agent,
+)
+
+# LiveKit integration for voice agents
+from .livekit_integration import (
+    MultiSkillBrainLLM,
+    create_multi_skill_brain_llm,
+    load_assistant_skills,
+)
+
 __all__ = [
     # Base
     "SkillDefinition",
@@ -103,6 +121,18 @@ __all__ = [
     "route_input",
     "get_transition_phrase",
     "TRANSITION_PHRASES",
+    # Multi-Skill Agent
+    "MultiSkillAgent",
+    "MultiSkillConfig",
+    "SkillContext",
+    "create_multi_skill_agent",
+    "create_receptionist_trio",
+    "create_legal_intake_agent",
+    "create_solar_sales_agent",
+    # LiveKit Integration
+    "MultiSkillBrainLLM",
+    "create_multi_skill_brain_llm",
+    "load_assistant_skills",
     # Legacy
     "create_tara_skill",
 ]
