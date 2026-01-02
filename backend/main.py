@@ -7618,31 +7618,53 @@ async def get_fast_brain_health():
 async def get_fast_brain_skills():
     """
     Fetch available skills from Fast Brain LPU.
-    Returns list of skills with id, name, and description.
+    Returns both HIVE preloaded skills and Fast Brain custom skills.
     """
-    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
-    if not fast_brain_url:
-        return {"skills": [], "error": "Fast Brain not configured"}
+    # HIVE Preloaded Skills - always available
+    hive_preloaded_skills = [
+        {"id": "default", "name": "Default Assistant", "description": "General-purpose voice assistant", "category": "hive_preloaded"},
+        {"id": "receptionist", "name": "Professional Receptionist", "description": "Expert phone answering and call handling", "category": "hive_preloaded"},
+        {"id": "electrician", "name": "Electrician Assistant", "description": "Expert in electrical services and scheduling", "category": "hive_preloaded"},
+        {"id": "plumber", "name": "Plumber Assistant", "description": "Expert in plumbing services", "category": "hive_preloaded"},
+        {"id": "lawyer", "name": "Legal Intake Assistant", "description": "Professional legal intake and scheduling", "category": "hive_preloaded"},
+        {"id": "solar", "name": "Solar Sales Assistant", "description": "Solar installation qualification and scheduling", "category": "hive_preloaded"},
+    ]
 
-    try:
-        from backend.brain_client import FastBrainClient
-        client = FastBrainClient(base_url=fast_brain_url)
-        skills = await client.list_skills()
-        await client.close()
-        return {
-            "skills": [
+    fast_brain_url = os.getenv("FAST_BRAIN_URL", "")
+    fast_brain_skills = []
+    fast_brain_configured = bool(fast_brain_url)
+    fast_brain_error = None
+
+    if fast_brain_url:
+        try:
+            from backend.brain_client import FastBrainClient
+            client = FastBrainClient(base_url=fast_brain_url)
+            skills = await client.list_skills()
+            await client.close()
+            fast_brain_skills = [
                 {
                     "id": s.id,
                     "name": s.name,
                     "description": s.description,
                     "version": s.version,
+                    "category": "fast_brain",
                 }
                 for s in skills
             ]
-        }
-    except Exception as e:
-        logger.error(f"Failed to fetch Fast Brain skills: {e}")
-        return {"skills": [], "error": str(e)}
+        except Exception as e:
+            logger.error(f"Failed to fetch Fast Brain skills: {e}")
+            fast_brain_error = str(e)
+
+    # Combine all skills for backwards compatibility
+    all_skills = hive_preloaded_skills + fast_brain_skills
+
+    return {
+        "skills": all_skills,
+        "hive_preloaded": hive_preloaded_skills,
+        "fast_brain": fast_brain_skills,
+        "fast_brain_configured": fast_brain_configured,
+        "fast_brain_error": fast_brain_error,
+    }
 
 
 class CreateSkillRequest(BaseModel):
