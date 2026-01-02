@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HIVE215 Visual Documentation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 60px 40px;
+            text-align: center;
+            border-bottom: 1px solid #30363d;
+        }
+        h1 {
+            font-size: 3rem;
+            background: linear-gradient(90deg, #ffd700, #ffed4a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 16px;
+        }
+        .subtitle {
+            color: #8b949e;
+            font-size: 1.2rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px;
+        }
+        .section-title {
+            font-size: 1.5rem;
+            color: #ffd700;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: linear-gradient(180deg, #ffd700, #ffed4a);
+            border-radius: 2px;
+        }
+        .docs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 24px;
+        }
+        .doc-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 24px;
+            transition: all 0.3s;
+        }
+        .doc-card:hover {
+            border-color: #ffd700;
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+        }
+        .doc-date {
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #ffd700;
+            margin-bottom: 8px;
+        }
+        .doc-title {
+            font-size: 1.3rem;
+            margin-bottom: 12px;
+        }
+        .doc-title a {
+            color: #e6edf3;
+            text-decoration: none;
+        }
+        .doc-title a:hover {
+            color: #ffd700;
+        }
+        .doc-desc {
+            color: #8b949e;
+            font-size: 0.95rem;
+            margin-bottom: 16px;
+        }
+        .doc-tags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .tag {
+            font-size: 0.75rem;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: rgba(255,215,0,0.1);
+            color: #ffd700;
+        }
+        .tag.architecture { background: rgba(0,217,255,0.15); color: #00d9ff; }
+        .tag.interactive { background: rgba(0,255,136,0.15); color: #00ff88; }
+        .tag.api { background: rgba(168,85,247,0.15); color: #a855f7; }
+        .tag.deployment { background: rgba(255,107,107,0.15); color: #ff6b6b; }
+        .footer {
+            text-align: center;
+            padding: 40px;
+            color: #8b949e;
+            border-top: 1px solid #30363d;
+            margin-top: 60px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>HIVE215 Documentation</h1>
+        <p class="subtitle">Visual documentation for the HIVE215 Voice AI Platform. Architecture diagrams, API references, and deployment guides.</p>
+    </div>
+
+    <div class="content">
+        <h2 class="section-title">Documentation Timeline</h2>
+        <div class="docs-grid">
+            <div class="doc-card">
+                <div class="doc-date">December 31, 2025</div>
+                <h3 class="doc-title"><a href="2025-12-31_hive215_architecture.html">HIVE215 Voice AI Platform Architecture</a></h3>
+                <p class="doc-desc">Complete system architecture including voice pipeline, Iron Ear stack, Fast Brain LLM tiers, TTS providers, voice cloning flow, and API endpoints.</p>
+                <div class="doc-tags">
+                    <span class="tag architecture">Architecture</span>
+                    <span class="tag interactive">Interactive</span>
+                    <span class="tag api">API Reference</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>HIVE215 Voice AI Platform | Last Updated: December 31, 2025</p>
+    </div>
+</body>
+</html>
