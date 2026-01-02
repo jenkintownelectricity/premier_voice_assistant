@@ -22,13 +22,13 @@ from .multi_skill_agent import MultiSkillAgent
 
 
 # =============================================================================
-# SKILL IDs - UPDATE THESE TO MATCH YOUR FAST BRAIN
+# SKILL IDs - MATCHED TO YOUR FAST BRAIN
 # =============================================================================
 
-# TODO: Update these to match your actual Fast Brain skill IDs
-DETAILER_SKILL_ID = "the-detailer"    # or "detailer" - check Fast Brain
-ESTIMATOR_SKILL_ID = "the-estimator"  # or "estimator" - check Fast Brain
-EYES_SKILL_ID = "the-eyes"            # or "eyes" - check Fast Brain
+# Your actual Fast Brain skill IDs (from /v1/skills endpoint)
+DETAILER_SKILL_ID = "the_detailer_specs"       # Specs, Codes & Compliance
+ESTIMATOR_SKILL_ID = "the_estimator_quantities" # Quantities & JSON Logic
+EYES_SKILL_ID = "the_eyes_spatial_analysis"     # Spatial Relationships & Drawing Analysis
 
 
 # =============================================================================
@@ -37,39 +37,67 @@ EYES_SKILL_ID = "the-eyes"            # or "eyes" - check Fast Brain
 
 CONSTRUCTION_KEYWORDS = {
     # The Detailer: Specs, Codes & Compliance
+    # "Ingests Assembly Letters, Spec Sheets, Wind Uplift Reports, Manufacturer Details"
+    # "Enforces warranty compliance, material compatibility, code requirements"
     DETAILER_SKILL_ID: [
-        "code", "codes", "compliance", "spec", "specs", "specification",
-        "requirement", "requirements", "regulation", "regulations",
-        "standard", "standards", "nec", "ibc", "astm", "ansi",
-        "detail", "details", "specification sheet", "data sheet",
-        "rated", "rating", "approved", "listed", "certified",
-        "fire rating", "egress", "ada", "accessibility",
-        "setback", "zoning", "permit", "inspection",
+        # Codes & Standards
+        "code", "codes", "compliance", "ansi", "spri", "es-1", "asce-7", "asce",
+        "fm", "ul", "astm", "ibc", "nrca", "standard", "standards",
+        # Specs & Documentation
+        "spec", "specs", "specification", "assembly letter", "spec sheet",
+        "manufacturer", "data sheet", "submittal", "warranty",
+        # Materials & Compatibility
+        "material", "pvc", "tpo", "epdm", "asphalt", "modified bitumen",
+        "compatibility", "compatible", "membrane", "insulation", "cover board",
+        # Wind & Structural
+        "wind uplift", "wind load", "uplift", "fastener", "attachment",
+        "securement", "fm approved", "rated", "rating",
+        # Rules & Requirements
+        "requirement", "requirements", "rule", "rules", "governing",
+        "detail", "details", "flashing", "termination", "edge metal",
     ],
 
     # The Estimator: Quantities & JSON Logic
+    # "Calculate Linear Feet (LF), Square Footage (SF), Item Counts"
+    # "Applies waste factors, unit conversions, bills of materials"
     ESTIMATOR_SKILL_ID: [
-        "quantity", "quantities", "how many", "count", "total",
-        "estimate", "estimation", "takeoff", "take-off",
-        "calculate", "calculation", "formula", "compute",
-        "cost", "pricing", "budget", "price per",
-        "labor", "material", "materials list", "bill of materials",
-        "square feet", "linear feet", "cubic yards", "gallons",
-        "json", "data", "export", "format", "structure",
-        "unit", "units", "measurement", "measurements",
+        # Quantities
+        "quantity", "quantities", "how many", "count", "total", "amount",
+        "linear feet", "lf", "square feet", "sf", "square footage",
+        # Calculations
+        "calculate", "calculation", "compute", "formula", "waste factor",
+        "waste", "10%", "15%", "taper", "conversion", "convert",
+        # Takeoffs & Estimates
+        "estimate", "estimation", "takeoff", "take-off", "take off",
+        "bill of materials", "bom", "materials list", "order",
+        # Data & JSON
+        "json", "data", "dxf", "dwg", "export", "structured",
+        "millimeters", "feet", "inches", "unit", "units",
+        # Costs
+        "cost", "pricing", "budget", "price", "labor", "material cost",
     ],
 
     # The Eyes: Spatial Relationships & Drawing Analysis
+    # "Cross-references Taper Plans, Arch Plans, Details"
+    # "Identifies spatial conflicts (X, Y, Z axis), water flow, elevation data"
     EYES_SKILL_ID: [
-        "drawing", "drawings", "blueprint", "blueprints", "plan", "plans",
+        # Drawings & Plans
+        "drawing", "drawings", "plan", "plans", "taper plan", "arch plan",
+        "architectural", "shop drawing", "fabrication", "blueprint",
+        # Visual Analysis
         "look at", "analyze", "see", "show me", "what do you see",
-        "spatial", "layout", "position", "location", "where",
-        "dimension", "dimensions", "scale", "distance",
-        "elevation", "section", "detail", "view",
-        "north", "south", "east", "west", "adjacent", "next to",
-        "above", "below", "left", "right", "center",
-        "room", "wall", "door", "window", "opening",
-        "pdf", "image", "cad", "dwg", "revit",
+        "identify", "find", "locate", "check", "review", "compare",
+        # Spatial
+        "spatial", "conflict", "x axis", "y axis", "z axis",
+        "location", "position", "layout", "orientation",
+        # Elevation & Flow
+        "elevation", "slope", "water flow", "drainage", "drain",
+        "high point", "low point", "cricket", "saddle", "tapered",
+        # Dimensions
+        "dimension", "dimensions", "distance", "length", "width",
+        "north", "south", "east", "west", "adjacent",
+        # Design Intent vs Reality
+        "design intent", "fabrication", "reality", "missing", "discrepancy",
     ],
 }
 
