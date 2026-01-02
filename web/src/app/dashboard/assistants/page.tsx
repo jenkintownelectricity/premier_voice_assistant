@@ -472,6 +472,11 @@ export default function AssistantsPage() {
   const [ttsProvider, setTtsProvider] = useState('cartesia');
   const [voiceId, setVoiceId] = useState('f786b574-daa5-4673-aa0c-cbe3e8534c02'); // Katie default
 
+  // Fast Brain skill state
+  const [skill, setSkill] = useState('default');
+  const [availableSkills, setAvailableSkills] = useState<{id: string, name: string, description: string, category: string}[]>([]);
+  const [loadingSkills, setLoadingSkills] = useState(false);
+
   // Voice preview state
   const [previewingVoice, setPreviewingVoice] = useState(false);
   const [previewAudio, setPreviewAudio] = useState<HTMLAudioElement | null>(null);
@@ -540,6 +545,7 @@ export default function AssistantsPage() {
     if (user?.id) {
       loadAssistants();
       loadVoiceClones();
+      loadSkills();
       loadProviderVoices(ttsProvider);
     }
   }, [user?.id]);
@@ -564,6 +570,22 @@ export default function AssistantsPage() {
       }
     } catch (err) {
       console.error('Failed to load voice clones:', err);
+    }
+  };
+
+  const loadSkills = async () => {
+    setLoadingSkills(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
+      const response = await fetch(`${apiUrl}/api/fast-brain/skills`);
+      const data = await response.json();
+      if (data.skills) {
+        setAvailableSkills(data.skills);
+      }
+    } catch (error) {
+      console.error('Failed to load skills:', error);
+    } finally {
+      setLoadingSkills(false);
     }
   };
 
@@ -625,6 +647,7 @@ export default function AssistantsPage() {
       setSystemPrompt(assistant.system_prompt);
       setTtsProvider(assistant.tts_provider || 'cartesia');
       setVoiceId(assistant.voice_id || 'f786b574-daa5-4673-aa0c-cbe3e8534c02');
+      setSkill((assistant as any).fast_brain_skill || 'default');
       setLlmProvider(assistant.llm_provider || 'groq');
       setModel(assistant.model || 'llama-3.3-70b-versatile');
       setTemperature(assistant.temperature ?? 0.7);
@@ -664,6 +687,7 @@ export default function AssistantsPage() {
     setSystemPrompt('');
     setTtsProvider('cartesia');
     setVoiceId('f786b574-daa5-4673-aa0c-cbe3e8534c02'); // Katie default
+    setSkill('default');
     setLlmProvider('groq');
     setModel('llama-3.3-70b-versatile');
     setTemperature(0.7);
@@ -725,6 +749,8 @@ export default function AssistantsPage() {
         punctuation_pause_ms: punctuationPauseMs,
         no_punctuation_pause_ms: noPunctuationPauseMs,
         turn_eagerness: turnEagerness,
+        // Fast Brain skill
+        fast_brain_skill: skill,
       };
 
       if (editingId) {
@@ -867,6 +893,40 @@ export default function AssistantsPage() {
                     text-white placeholder-gray-500 focus:outline-none focus:border-gold
                     transition-colors min-h-[120px]"
                 />
+              </div>
+              {/* Fast Brain Skill Selection */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gold">
+                  🧠 Fast Brain Skill
+                </label>
+                <select
+                  value={skill}
+                  onChange={(e) => setSkill(e.target.value)}
+                  className="w-full px-4 py-3 bg-oled-dark border border-gold/30 rounded-lg
+                    text-white focus:outline-none focus:border-gold transition-colors"
+                >
+                  {loadingSkills ? (
+                    <option>Loading skills...</option>
+                  ) : (
+                    <>
+                      <optgroup label="⬡ HIVE Preloaded">
+                        {availableSkills.filter(s => s.category === 'hive_preloaded').map(s => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </optgroup>
+                      {availableSkills.filter(s => s.category === 'fast_brain').length > 0 && (
+                        <optgroup label="🧠 Fast Brain Custom">
+                          {availableSkills.filter(s => s.category === 'fast_brain').map(s => (
+                            <option key={`fb-${s.id}`} value={s.id}>{s.name}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </>
+                  )}
+                </select>
+                <p className="text-xs text-gray-500">
+                  Select a skill to customize AI behavior. Includes your Construction Trio: Detailer, Estimator, Eyes.
+                </p>
               </div>
               {/* TTS Provider & Voice Selection */}
               <div className="space-y-3 p-4 bg-oled-dark/50 rounded-lg border border-gold/20">
