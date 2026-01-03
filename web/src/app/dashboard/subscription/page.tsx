@@ -8,53 +8,37 @@ import { api } from '@/lib/api';
 
 const plans = [
   {
-    name: 'free',
-    display: 'Free Trial',
-    price: 0,
-    minutes: 30,
-    assistants: 1,
-    voiceClones: 0,
-    platforms: 'Web only',
-    analytics: 'Basic logs',
-    callSharing: false,
-    teamMembers: 1,
-    webhooks: false,
-    crmIntegrations: false,
-    support: 'Community',
-    description: 'Try it out',
-  },
-  {
     name: 'worker_bee',
     display: 'The Worker Bee',
     price: 97,
     minutes: 400,
-    assistants: 3,
-    voiceClones: 2,
-    platforms: 'Web + Phone',
-    analytics: 'Basic analytics',
+    assistants: -1,
+    voiceClones: 1,
+    platforms: 'All platforms',
+    analytics: 'Basic logs',
     callSharing: true,
     teamMembers: 1,
     webhooks: false,
     crmIntegrations: false,
     support: 'Email',
-    description: 'For solo operators',
+    phoneNumbers: 1,
   },
   {
     name: 'swarm',
     display: 'The Swarm',
     price: 297,
     minutes: 1350,
-    assistants: 10,
-    voiceClones: 5,
+    assistants: -1,
+    voiceClones: 3,
     platforms: 'All platforms',
     analytics: 'Full analytics',
     callSharing: true,
-    teamMembers: 5,
+    teamMembers: 3,
     webhooks: true,
     crmIntegrations: false,
-    support: 'Priority',
+    support: 'Priority Email',
+    phoneNumbers: 3,
     popular: true,
-    description: 'For growing teams',
   },
   {
     name: 'queen_bee',
@@ -62,39 +46,38 @@ const plans = [
     price: 697,
     minutes: 3500,
     assistants: -1,
-    voiceClones: -1,
+    voiceClones: 10,
     platforms: 'All platforms',
     analytics: 'Advanced analytics',
     callSharing: true,
-    teamMembers: 15,
+    teamMembers: 10,
     webhooks: true,
     crmIntegrations: true,
-    support: 'Dedicated',
-    description: 'For power users',
+    support: 'Live Chat',
+    phoneNumbers: 10,
   },
   {
     name: 'hive_mind',
     display: 'The Hive Mind',
     price: null,
-    minutes: -1,
+    minutes: 10000,
     assistants: -1,
     voiceClones: -1,
-    platforms: 'All platforms + On-premise',
+    platforms: 'All platforms + White Label',
     analytics: 'Custom dashboards',
     callSharing: true,
     teamMembers: -1,
     webhooks: true,
     crmIntegrations: true,
-    support: '24/7 Dedicated',
-    sla: true,
-    customIntegrations: true,
-    description: 'Enterprise-grade',
+    support: 'Dedicated Rep',
+    phoneNumbers: -1,
+    enterprise: true,
   },
 ];
 
 export default function SubscriptionPage() {
   const { user } = useAuth();
-  const [currentPlan, setCurrentPlan] = useState('free');
+  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isTrial, setIsTrial] = useState(false);
@@ -219,15 +202,15 @@ export default function SubscriptionPage() {
         </CardContent>
       </Card>
 
-      {/* 30-Day Trial Card */}
-      {currentPlan === 'free' && !isTrial && (
+      {/* Trial Banner - Show for new users */}
+      {!currentPlan && !isTrial && (
         <Card className="border-yellow-500/30 bg-gradient-to-r from-yellow-500/10 to-gold/10">
           <CardContent>
             <div className="flex justify-between items-center">
               <div>
-                <div className="text-xl font-bold text-yellow-400">🐝 Try The Swarm Free for 30 Days!</div>
+                <div className="text-xl font-bold text-yellow-400">🐝 Try The Swarm Free for 14 Days!</div>
                 <p className="text-gray-300 mt-1">
-                  Get full access to The Swarm features: 1,350 minutes, 5 voice clones, webhooks, team collaboration & more.
+                  Start with our most popular plan: 1,350 minutes, 3 voice clones, webhooks, and priority support.
                 </p>
                 <p className="text-sm text-gray-400 mt-2">
                   No credit card required. Cancel anytime.
@@ -242,7 +225,7 @@ export default function SubscriptionPage() {
       )}
 
       {/* Plan Comparison */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {plans.map((plan) => (
           <Card
             key={plan.name}
@@ -293,41 +276,29 @@ export default function SubscriptionPage() {
                   <span className="text-white">{plan.platforms}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Call Sharing</span>
-                  <span className={plan.callSharing ? 'text-green-500' : 'text-gray-500'}>
-                    {plan.callSharing ? '✓' : '—'}
+                  <span className="text-gray-400">Phone Numbers</span>
+                  <span className="text-white">
+                    {(plan as { phoneNumbers?: number }).phoneNumbers === -1 ? 'Unlimited' : (plan as { phoneNumbers?: number }).phoneNumbers}
                   </span>
                 </div>
-                {plan.teamMembers > 1 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Team Members</span>
-                    <span className="text-white">{plan.teamMembers}</span>
-                  </div>
-                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Team Members</span>
+                  <span className="text-white">
+                    {plan.teamMembers === -1 ? 'Unlimited' : plan.teamMembers}
+                  </span>
+                </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">Webhooks</span>
                   <span className={plan.webhooks ? 'text-green-500' : 'text-gray-500'}>
                     {plan.webhooks ? '✓' : '—'}
                   </span>
                 </div>
-                {plan.crmIntegrations && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">CRM Integrations</span>
-                    <span className="text-green-500">✓</span>
-                  </div>
-                )}
-                {(plan as { sla?: boolean }).sla && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">SLA Guarantee</span>
-                    <span className="text-green-500">✓</span>
-                  </div>
-                )}
-                {(plan as { customIntegrations?: boolean }).customIntegrations && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Custom Integrations</span>
-                    <span className="text-green-500">✓</span>
-                  </div>
-                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-400">CRM Integrations</span>
+                  <span className={plan.crmIntegrations ? 'text-green-500' : 'text-gray-500'}>
+                    {plan.crmIntegrations ? '✓' : '—'}
+                  </span>
+                </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">Analytics</span>
                   <span className="text-white">{plan.analytics}</span>

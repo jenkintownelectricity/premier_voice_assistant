@@ -253,41 +253,53 @@ export default function HomePage() {
           🐝 Simple Pricing
         </h2>
         <p className="text-gray-400 text-center mb-12">Join the hive. Scale with your business.</p>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <Card className="hover:border-amber-500/50 transition-colors">
             <CardContent>
               <div className="text-lg font-bold text-gold">The Worker Bee</div>
-              <div className="text-3xl font-bold text-white mt-2">$97</div>
+              <div className="text-3xl font-bold text-white mt-2">$97<span className="text-sm text-gray-400">/mo</span></div>
               <div className="text-gray-400 text-sm mt-2">400 minutes/month</div>
-              <div className="text-zinc-500 text-xs mt-1">For solo operators</div>
+              <div className="text-zinc-500 text-xs mt-1">1 phone number • 1 voice clone</div>
+              <HoneycombButton size="sm" variant="outline" className="w-full mt-4" onClick={() => window.location.href = '/dashboard'}>
+                Start Trial
+              </HoneycombButton>
             </CardContent>
           </Card>
 
-          <Card glow>
+          <Card glow className="border-amber-500/50">
             <CardContent>
-              <div className="text-xs text-gold font-semibold mb-1">POPULAR</div>
+              <div className="text-xs text-amber-400 font-semibold mb-1">🔥 MOST POPULAR</div>
               <div className="text-lg font-bold text-gold">The Swarm</div>
-              <div className="text-3xl font-bold text-white mt-2">$297</div>
+              <div className="text-3xl font-bold text-white mt-2">$297<span className="text-sm text-gray-400">/mo</span></div>
               <div className="text-gray-400 text-sm mt-2">1,350 minutes/month</div>
-              <div className="text-zinc-500 text-xs mt-1">For growing teams</div>
+              <div className="text-zinc-500 text-xs mt-1">3 phone numbers • 3 voice clones</div>
+              <HoneycombButton size="sm" className="w-full mt-4" onClick={() => window.location.href = '/dashboard'}>
+                Get Started
+              </HoneycombButton>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hover:border-amber-500/50 transition-colors">
             <CardContent>
               <div className="text-lg font-bold text-gold">The Queen Bee</div>
-              <div className="text-3xl font-bold text-white mt-2">$697</div>
+              <div className="text-3xl font-bold text-white mt-2">$697<span className="text-sm text-gray-400">/mo</span></div>
               <div className="text-gray-400 text-sm mt-2">3,500 minutes/month</div>
-              <div className="text-zinc-500 text-xs mt-1">For power users</div>
+              <div className="text-zinc-500 text-xs mt-1">10 phone numbers • 10 voice clones</div>
+              <HoneycombButton size="sm" variant="outline" className="w-full mt-4" onClick={() => window.location.href = '/dashboard'}>
+                Go Big
+              </HoneycombButton>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hover:border-amber-500/50 transition-colors">
             <CardContent>
               <div className="text-lg font-bold text-gold">The Hive Mind</div>
               <div className="text-3xl font-bold text-white mt-2">Custom</div>
-              <div className="text-gray-400 text-sm mt-2">Unlimited minutes</div>
-              <div className="text-zinc-500 text-xs mt-1">Enterprise-grade</div>
+              <div className="text-gray-400 text-sm mt-2">10,000+ minutes/month</div>
+              <div className="text-zinc-500 text-xs mt-1">White label • Dedicated rep</div>
+              <HoneycombButton size="sm" variant="outline" className="w-full mt-4" onClick={() => window.location.href = 'mailto:sales@hive215.com?subject=The%20Hive%20Mind%20Inquiry'}>
+                Contact Us
+              </HoneycombButton>
             </CardContent>
           </Card>
         </div>
