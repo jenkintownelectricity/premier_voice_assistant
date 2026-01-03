@@ -402,6 +402,13 @@ export default function CallsPage() {
       filename = `call-${selectedCall.id}.json`;
       mimeType = 'application/json';
     } else {
+      // Format transcript for CSV (combine all messages)
+      const transcriptText = selectedCall.transcript && Array.isArray(selectedCall.transcript)
+        ? selectedCall.transcript.map((t: { role: string; content: string }) =>
+            `[${t.role}]: ${t.content}`
+          ).join(' | ')
+        : (typeof selectedCall.transcript === 'string' ? selectedCall.transcript : '');
+
       const rows = [
         ['Field', 'Value'],
         ['ID', selectedCall.id],
@@ -416,8 +423,9 @@ export default function CallsPage() {
         ['Issue', extractedInfo?.issue || ''],
         ['Urgency', extractedInfo?.urgency || ''],
         ['Summary', typeof selectedCall.summary === 'string' ? selectedCall.summary : (selectedCall.summary ? `Score: ${selectedCall.summary.quality_score || 0}` : '')],
+        ['Full Transcript', transcriptText.replace(/"/g, '""')],  // Escape quotes for CSV
       ];
-      content = rows.map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+      content = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
       filename = `call-${selectedCall.id}.csv`;
       mimeType = 'text/csv';
     }
