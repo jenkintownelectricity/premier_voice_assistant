@@ -1,6 +1,6 @@
 # Project Context and AI Agent Instructions
 
-> **Single source of truth for Claude** | Last Updated: December 31, 2025
+> **Single source of truth for Claude** | Last Updated: January 2, 2026
 
 This document ensures consistent and high-quality contributions to the HIVE215 Voice AI Platform repository.
 
@@ -149,6 +149,18 @@ Fast Brain uses **Kahneman's "Thinking, Fast and Slow"** architecture:
 - `solar` - Solar panel sales
 - `tara-sales` - Product demos
 
+**Construction Expert (Trio) - Multi-Mode Skill:**
+
+A unified skill for roofing/construction that auto-switches between three modes:
+
+| Mode | Skill ID | Specialty |
+|------|----------|-----------|
+| **MODE 1 - THE DETAILER** | `the_detailer_specs` | Codes, specs, ANSI, SPRI, ES-1, ASCE-7, FM, warranties |
+| **MODE 2 - THE ESTIMATOR** | `the_estimator_quantities` | Calculations, LF, SF, quantities, waste factors, BOMs |
+| **MODE 3 - THE EYES** | `the_eyes_spatial_analysis` | Drawings, taper plans, water flow, drainage, spatial conflicts |
+| **UNIFIED** | `construction_expert` | All three modes combined |
+| **VOICE OPTIMIZED** | `construction_expert_voice` | Brevity-focused for voice calls |
+
 ### 3.3. Infrastructure
 
 | Layer | Technology | Notes |
@@ -186,6 +198,54 @@ cmd = "bash scripts/start.sh"
 | `CARTESIA_API_KEY` | Worker | TTS service |
 | `OPENAI_API_KEY` | Worker | LLM fallback |
 | `SERVICE_TYPE` | Both | `web` or `worker` (Railway) |
+| `FAST_BRAIN_URL` | Both | Modal Fast Brain endpoint |
+
+### 3.6. Fast Brain Management
+
+**Deployment Location:** `D:\APP_CENTRAL\fast_brain` (Windows) or Modal Cloud
+
+**Commands (PowerShell with venv):**
+
+```powershell
+# Activate venv
+.\venv\Scripts\Activate
+
+# Deploy to Modal
+modal deploy deploy_groq.py
+
+# Check logs
+modal app logs fast-brain-lpu
+
+# List deployed apps
+modal app list
+
+# Test skills endpoint
+curl.exe "https://jenkintownelectricity--fast-brain-lpu-fastapi-app.modal.run/v1/skills"
+```
+
+**Creating Skills via API:**
+
+```powershell
+# Create skill JSON
+@'
+{
+  "skill_id": "your_skill_id",
+  "name": "Your Skill Name",
+  "description": "Description here",
+  "system_prompt": "Your system prompt here"
+}
+'@ | Out-File -FilePath "skill.json" -Encoding utf8
+
+# POST to Fast Brain
+curl.exe -X POST "https://jenkintownelectricity--fast-brain-lpu-fastapi-app.modal.run/v1/skills" -H "Content-Type: application/json" -d "@skill.json"
+```
+
+**Voice Optimization Rules:**
+- Max 2 sentences per response
+- No lists or bullet points in voice skills
+- Ask follow-up questions instead of info dumps
+- Set Max Tokens to 75-100 for voice assistants
+- Set Temperature to 0.3-0.5 for focused responses
 
 ---
 
