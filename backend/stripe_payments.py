@@ -10,10 +10,17 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 # Stripe price IDs (set these in .env - get from Stripe Dashboard > Products > Pricing)
+# Bee-themed pricing tiers (updated January 2026)
 STRIPE_PRICE_IDS = {
-    "starter": os.getenv("STRIPE_PRICE_STARTER"),
-    "pro": os.getenv("STRIPE_PRICE_PRO"),
-    "enterprise": os.getenv("STRIPE_PRICE_ENTERPRISE"),
+    "worker_bee": os.getenv("STRIPE_PRICE_WORKER_BEE"),      # $97/mo - 400 mins
+    "swarm": os.getenv("STRIPE_PRICE_SWARM"),                 # $297/mo - 1,350 mins
+    "queen_bee": os.getenv("STRIPE_PRICE_QUEEN_BEE"),        # $697/mo - 3,500 mins
+    "hive_mind": os.getenv("STRIPE_PRICE_HIVE_MIND"),        # Custom enterprise
+    # Legacy mappings (deprecated - kept for migration)
+    "starter": os.getenv("STRIPE_PRICE_WORKER_BEE"),          # Maps to Worker Bee
+    "pro": os.getenv("STRIPE_PRICE_SWARM"),                   # Maps to Swarm
+    "business": os.getenv("STRIPE_PRICE_QUEEN_BEE"),          # Maps to Queen Bee
+    "enterprise": os.getenv("STRIPE_PRICE_HIVE_MIND"),        # Maps to Hive Mind
 }
 
 
@@ -24,10 +31,13 @@ def validate_stripe_config():
         issues.append("STRIPE_SECRET_KEY not set")
     if not os.getenv("STRIPE_WEBHOOK_SECRET"):
         issues.append("STRIPE_WEBHOOK_SECRET not set")
-    if not STRIPE_PRICE_IDS.get("starter"):
-        issues.append("STRIPE_PRICE_STARTER not set")
-    if not STRIPE_PRICE_IDS.get("pro"):
-        issues.append("STRIPE_PRICE_PRO not set")
+    # Check bee-themed pricing tiers
+    if not STRIPE_PRICE_IDS.get("worker_bee"):
+        issues.append("STRIPE_PRICE_WORKER_BEE not set")
+    if not STRIPE_PRICE_IDS.get("swarm"):
+        issues.append("STRIPE_PRICE_SWARM not set")
+    if not STRIPE_PRICE_IDS.get("queen_bee"):
+        issues.append("STRIPE_PRICE_QUEEN_BEE not set")
     return issues
 
 
