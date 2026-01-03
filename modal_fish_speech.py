@@ -390,10 +390,11 @@ class FishSpeechModel:
 @modal.asgi_app()
 def fastapi_app():
     """FastAPI web server for Fish Speech TTS."""
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, File, UploadFile, Form
     from fastapi.responses import StreamingResponse, JSONResponse
     from pydantic import BaseModel
     from typing import Optional
+    import base64
 
     web_app = FastAPI(
         title="Fish Speech TTS",
@@ -473,15 +474,28 @@ def fastapi_app():
         )
 
     @web_app.post("/clone")
-    async def clone_voice(request: CloneRequest):
-        """Clone a voice from an audio sample."""
+    async def clone_voice(
+        audio: UploadFile = File(...),
+        voice_id: str = Form(...),
+        voice_name: str = Form(...),
+        description: str = Form(""),
+        language: str = Form("en"),
+    ):
+        """Clone a voice from an audio sample (accepts form data with file upload)."""
         try:
+            # Read audio file and encode as base64
+            audio_bytes = await audio.read()
+            audio_b64 = base64.b64encode(audio_bytes).decode()
+
             result = model.clone_voice.remote(
-                audio_b64=request.audio,
-                voice_name=request.voice_name,
-                description=request.description or "",
-                language=request.language,
+                audio_b64=audio_b64,
+                voice_name=voice_name,
+                description=description,
+                language=language,
             )
+            # Include voice_id in the response
+            if isinstance(result, dict):
+                result["voice_id"] = voice_id
             return result
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
