@@ -194,6 +194,36 @@ uvicorn backend.main:app --reload --port 8000
 python backend/livekit_worker.py start
 ```
 
+### Fast Brain (Modal)
+
+Fast Brain provides Groq LPU for <200ms LLM responses.
+
+**Deployment from `D:\APP_CENTRAL\fast_brain`:**
+
+```powershell
+# Activate venv
+.\venv\Scripts\Activate
+
+# Deploy to Modal
+modal deploy deploy_groq.py
+
+# Check logs
+modal app logs fast-brain-lpu
+
+# Test skills endpoint
+curl.exe "https://jenkintownelectricity--fast-brain-lpu-fastapi-app.modal.run/v1/skills"
+```
+
+**Create Custom Skill:**
+
+```powershell
+curl.exe -X POST "https://jenkintownelectricity--fast-brain-lpu-fastapi-app.modal.run/v1/skills" `
+  -H "Content-Type: application/json" `
+  -d '{"skill_id": "my-skill", "name": "My Skill", "system_prompt": "You are..."}'
+```
+
+See `docs/SKILLS_PROTOCOL.md` for full skill management guide.
+
 ## Dependencies
 
 Key packages (see `requirements.txt` for full list):
@@ -209,6 +239,24 @@ Key packages (see `requirements.txt` for full list):
 - `docs/ARCHITECTURE_GUIDE.md` - System architecture
 - `docs/DEPLOYMENT.md` - Deployment guide
 - `docs/visuals/` - Visual documentation
+
+## Session Updates (January 2, 2026)
+
+### Added
+- **Fast Brain Skill Dropdown** in dashboard (HIVE Preloaded + Fast Brain Custom)
+- **Construction Expert (Trio)** multi-mode skill for roofing/construction
+  - The Detailer: Codes, specs, ANSI, SPRI, ES-1 compliance
+  - The Estimator: Quantities, calculations, waste factors, BOMs
+  - The Eyes: Drawing analysis, taper plans, drainage verification
+- Fast Brain management documentation in CLAUDE.md
+
+### Architecture Clarified
+```
+Vercel (hive215.vercel.app) → Railway Backend → Fast Brain (Modal)
+Frontend                      API Gateway      Skills + Inference
+```
+
+---
 
 ## Session Updates (December 31, 2025)
 

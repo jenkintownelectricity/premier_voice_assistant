@@ -1,6 +1,6 @@
 # HIVE215 Skills Protocol
 
-> **Version 1.0** | Last Updated: December 20, 2025
+> **Version 1.1** | Last Updated: January 2, 2026
 
 This document defines the skills protocol for HIVE215 Voice AI Platform.
 
@@ -84,6 +84,54 @@ curl -X POST https://your-api/api/fast-brain/skills \
   "knowledge": ["Topic 1", "Topic 2"],
   "version": "1.0"
 }
+```
+
+---
+
+## Construction Expert (Multi-Mode Skill)
+
+> **Added:** January 2, 2026
+
+A specialized multi-mode skill for roofing/construction that intelligently switches between three expertise modes.
+
+### Skill IDs
+
+| Skill | ID | Description |
+|-------|-----|-------------|
+| **Construction Expert (Unified)** | `construction_expert` | All three modes combined |
+| **Construction Expert (Voice)** | `construction_expert_voice` | Brevity-optimized for voice |
+| **The Detailer** | `the_detailer_specs` | Codes, specs, compliance |
+| **The Estimator** | `the_estimator_quantities` | Quantities, calculations, BOMs |
+| **The Eyes** | `the_eyes_spatial_analysis` | Drawing analysis, spatial relationships |
+
+### Mode Details
+
+**MODE 1 - THE DETAILER (Specs, Codes & Compliance)**
+- ANSI, SPRI, ES-1, ASCE-7, FM standards
+- Manufacturer warranties and requirements
+- Code compliance verification
+
+**MODE 2 - THE ESTIMATOR (Quantities & JSON Logic)**
+- Square footage and linear footage calculations
+- Waste factor calculations (10-15%)
+- Bill of Materials (BOM) generation
+- JSON-structured output for integrations
+
+**MODE 3 - THE EYES (Spatial Relationships & Drawing Analysis)**
+- Shop drawing interpretation
+- Taper plan analysis for drainage
+- Water flow and slope verification
+- Spatial conflict detection
+
+### Voice Optimization
+
+For voice assistants using Construction Expert:
+
+```
+Max Tokens: 75-100
+Temperature: 0.3-0.5
+Response Style: Max 2 sentences, no bullet points
+Follow-up: Ask clarifying questions instead of info dumps
 ```
 
 ---
@@ -227,6 +275,7 @@ You should NOT:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1 | 2026-01-02 | Added Construction Expert multi-mode skill, voice optimization guidelines |
 | 1.0 | 2025-12-20 | Initial protocol with HIVE Preloaded and Fast Brain distinction |
 
 ---

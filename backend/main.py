@@ -367,6 +367,8 @@ class CreateAssistantRequest(BaseModel):
     system_prompt: str
     description: Optional[str] = None
     voice_id: Optional[str] = "default"
+    tts_provider: Optional[str] = "cartesia"  # TTS provider: cartesia, elevenlabs, deepgram, openai, etc.
+    fast_brain_skill: Optional[str] = "default"  # Fast Brain skill ID
     llm_provider: Optional[str] = "groq"  # Provider: groq, anthropic, openai, google, mistral, etc.
     model: Optional[str] = "llama-3.3-70b-versatile"  # Model ID from the selected provider
     temperature: Optional[float] = 0.7
@@ -392,6 +394,8 @@ class UpdateAssistantRequest(BaseModel):
     description: Optional[str] = None
     system_prompt: Optional[str] = None
     voice_id: Optional[str] = None
+    tts_provider: Optional[str] = None  # TTS provider: cartesia, elevenlabs, deepgram, openai, etc.
+    fast_brain_skill: Optional[str] = None  # Fast Brain skill ID
     llm_provider: Optional[str] = None  # Provider: groq, anthropic, openai, google, mistral, etc.
     model: Optional[str] = None
     temperature: Optional[float] = None
@@ -2661,6 +2665,8 @@ async def create_assistant(
             "description": request.description,
             "system_prompt": request.system_prompt,
             "voice_id": request.voice_id,
+            "tts_provider": request.tts_provider,
+            "fast_brain_skill": request.fast_brain_skill,
             "llm_provider": request.llm_provider,
             "model": request.model,
             "temperature": request.temperature,
@@ -2726,6 +2732,7 @@ async def update_assistant(
         # Build update dict
         updates = {}
         for field in ["name", "description", "system_prompt", "voice_id",
+                      "tts_provider", "fast_brain_skill",
                       "llm_provider", "model", "temperature", "max_tokens", "first_message", "is_active",
                       "vad_sensitivity", "endpointing_ms", "enable_bargein",
                       "streaming_chunks", "first_message_latency_ms", "turn_detection_mode",
