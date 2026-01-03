@@ -1194,8 +1194,8 @@ async def clone_voice(
 async def fish_speech_clone_voice(
     user_id: str = Header(..., alias="X-User-ID"),
     voice_name: str = Form(...),
-    description: str = Form(""),
-    language: str = Form("en"),
+    display_name: str = Form(...),
+    is_public: str = Form("false"),
     audio: UploadFile = File(...),
     db: SupabaseManager = Depends(get_db),
 ):
@@ -1211,14 +1211,39 @@ async def fish_speech_clone_voice(
     Returns the new voice_id for use in TTS synthesis.
     """
     import httpx
-    import base64
+    import tempfile
+    import subprocess
+    from pathlib import Path as FilePath
 
     FISH_SPEECH_URL = os.getenv(
         "FISH_SPEECH_URL",
-        "https://jenkintownelectricity--fish-speech-tts-app.modal.run"
+        "https://jenkintownelectricity--fish-speech-tts-fastapi-app.modal.run"
     )
 
     try:
+        # Convert is_public string to boolean
+        is_public_bool = is_public.lower() in ("true", "1", "yes")
+
+        # Check if user's plan allows custom voices
+        feature_gate = get_feature_gate()
+        from backend.feature_gates import get_plan_features
+
+        plan = feature_gate.get_user_plan(user_id)
+        plan_name = plan.get("plan_name", "free") if plan else "free"
+        plan_features = get_plan_features(plan_name)
+
+        if not plan_features.get("custom_voices", False):
+            raise HTTPException(
+                status_code=402,
+                detail="Custom voices not available on your plan. Upgrade to Starter or higher."
+            )
+
+        # Check voice clone limit
+        try:
+            feature_gate.enforce_feature(user_id, "max_voice_clones", 1)
+        except FeatureGateError as e:
+            raise HTTPException(status_code=402, detail=e.message)
+
         # Read audio file
         audio_bytes = await audio.read()
 
@@ -1226,44 +1251,71 @@ async def fish_speech_clone_voice(
         if len(audio_bytes) > 10 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="Audio file too large (max 10MB)")
 
-        # Encode as base64
-        audio_b64 = base64.b64encode(audio_bytes).decode()
+        # Convert audio to WAV using ffmpeg
+        with tempfile.NamedTemporaryFile(suffix=".input", delete=False) as f:
+            f.write(audio_bytes)
+            input_path = f.name
 
-        # Call Fish Speech clone endpoint
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{FISH_SPEECH_URL}/clone",
-                json={
-                    "audio": audio_b64,
-                    "voice_name": voice_name,
-                    "description": description,
-                    "language": language,
-                }
+        wav_path = input_path.replace(".input", ".wav")
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-i", input_path, "-ar", "44100", "-ac", "1", wav_path],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
+            if result.returncode != 0:
+                logger.warning(f"FFmpeg conversion failed: {result.stderr}")
+                wav_bytes = audio_bytes
+            else:
+                with open(wav_path, "rb") as wf:
+                    wav_bytes = wf.read()
+                logger.info(f"Converted audio to WAV: {len(audio_bytes)} -> {len(wav_bytes)} bytes")
+        except Exception as conv_err:
+            logger.warning(f"Audio conversion failed: {conv_err}, using original")
+            wav_bytes = audio_bytes
+        finally:
+            FilePath(input_path).unlink(missing_ok=True)
+            FilePath(wav_path).unlink(missing_ok=True)
 
-            if response.status_code != 200:
-                error_detail = response.json().get("detail", "Voice cloning failed")
-                raise HTTPException(status_code=response.status_code, detail=error_detail)
+        # Upload converted WAV to Supabase Storage
+        file_path = f"{user_id}/{voice_name}.wav"
+        audio_url = db.upload_audio("va-voice-clones", file_path, wav_bytes)
 
-            clone_result = response.json()
+        # Clone voice on Fish Speech Modal
+        sample_duration = 0
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                files = {"audio": ("audio.wav", wav_bytes, "audio/wav")}
+                data = {"voice_id": voice_name, "voice_name": display_name}
+                response = await client.post(
+                    f"{FISH_SPEECH_URL}/clone",
+                    files=files,
+                    data=data,
+                )
+
+                if response.status_code == 200:
+                    clone_result = response.json()
+                    sample_duration = clone_result.get("duration", 0)
+                    logger.info(f"Fish Speech clone successful: {clone_result}")
+                else:
+                    logger.warning(f"Fish Speech clone failed: {response.status_code} - {response.text}")
+        except Exception as e:
+            logger.error(f"Fish Speech clone HTTP error: {e}")
 
         # Save to database
-        voice_id = clone_result["voice_id"]
-        voice_clone = await save_voice_clone(
-            db=db,
+        voice_clone = db.create_voice_clone(
             user_id=user_id,
-            provider="fish_speech",
-            voice_id=voice_id,
-            display_name=voice_name,
-            sample_duration=clone_result.get("duration"),
-            modal_voice_id=voice_id,
-            is_public=False,
+            voice_name=voice_name,
+            display_name=display_name,
+            reference_audio_url=audio_url,
+            sample_duration=sample_duration,
+            modal_voice_id=voice_name,
+            is_public=is_public_bool,
         )
 
         return {
             "success": True,
-            "voice_id": voice_id,
-            "voice_name": voice_name,
             "voice_clone": voice_clone,
         }
 
