@@ -1303,7 +1303,7 @@ async def fish_speech_clone_voice(
         except Exception as e:
             logger.error(f"Fish Speech clone HTTP error: {e}")
 
-        # Save to database
+        # Save to database with fish_speech provider
         voice_clone = db.create_voice_clone(
             user_id=user_id,
             voice_name=voice_name,
@@ -1312,6 +1312,7 @@ async def fish_speech_clone_voice(
             sample_duration=sample_duration,
             modal_voice_id=voice_name,
             is_public=is_public_bool,
+            tts_provider="fish_speech",
         )
 
         return {
@@ -8285,13 +8286,12 @@ async def get_tts_voices(
         except Exception as e:
             logger.warning(f"Failed to fetch user voice clones: {e}")
 
-    # Get Coqui cloned voices - load from database (same as Cartesia)
+    # Get Coqui cloned voices - load from database
     if provider == "coqui" and user_id:
         try:
-            result = supabase.client.rpc(
-                "va_client_get_voice_clones",
-                {"p_user_id": user_id}
-            ).execute()
+            result = supabase.client.table("va_voice_clones").select("*").eq(
+                "user_id", user_id
+            ).eq("tts_provider", "coqui").execute()
             if result.data:
                 # For Coqui, user clones ARE the voices (no preset voices)
                 user_clones = [
@@ -8308,6 +8308,27 @@ async def get_tts_voices(
                 logger.info(f"Loaded {len(user_clones)} Coqui cloned voices for user {user_id}")
         except Exception as e:
             logger.warning(f"Failed to fetch Coqui voice clones: {e}")
+
+    # Get Fish Speech cloned voices - load from database
+    if provider == "fish_speech" and user_id:
+        try:
+            result = supabase.client.table("va_voice_clones").select("*").eq(
+                "user_id", user_id
+            ).eq("tts_provider", "fish_speech").execute()
+            if result.data:
+                user_clones = [
+                    {
+                        "id": clone["voice_name"],  # Modal uses voice_name as ID
+                        "name": clone["display_name"],
+                        "gender": "custom",
+                        "accent": "Cloned",
+                        "is_user_clone": True,
+                    }
+                    for clone in result.data
+                ]
+                logger.info(f"Loaded {len(user_clones)} Fish Speech cloned voices for user {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch Fish Speech voice clones: {e}")
 
     return {
         "provider": provider,

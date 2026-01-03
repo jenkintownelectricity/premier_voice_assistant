@@ -247,6 +247,7 @@ class SupabaseManager:
         sample_duration: float = None,
         modal_voice_id: str = None,
         is_public: bool = False,
+        tts_provider: str = "coqui",
     ) -> Dict:
         """Register a new voice clone (or update existing)."""
         try:
@@ -256,6 +257,7 @@ class SupabaseManager:
                 "display_name": display_name,
                 "reference_audio_url": reference_audio_url,
                 "is_public": is_public,
+                "tts_provider": tts_provider,
             }
 
             if sample_duration:
