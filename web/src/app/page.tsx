@@ -249,40 +249,45 @@ export default function HomePage() {
 
       {/* Pricing Preview */}
       <section className="max-w-7xl mx-auto px-6 py-16">
-        <h2 className="text-3xl font-bold text-gold text-center mb-12">
-          Simple Pricing
+        <h2 className="text-3xl font-bold text-gold text-center mb-4">
+          🐝 Simple Pricing
         </h2>
+        <p className="text-gray-400 text-center mb-12">Join the hive. Scale with your business.</p>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardContent>
-              <div className="text-lg font-bold text-gold">Free</div>
-              <div className="text-3xl font-bold text-white mt-2">$0</div>
-              <div className="text-gray-400 text-sm mt-2">100 minutes/month</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent>
-              <div className="text-lg font-bold text-gold">Starter</div>
-              <div className="text-3xl font-bold text-white mt-2">$99</div>
-              <div className="text-gray-400 text-sm mt-2">2,000 minutes/month</div>
+              <div className="text-lg font-bold text-gold">The Worker Bee</div>
+              <div className="text-3xl font-bold text-white mt-2">$97</div>
+              <div className="text-gray-400 text-sm mt-2">400 minutes/month</div>
+              <div className="text-zinc-500 text-xs mt-1">For solo operators</div>
             </CardContent>
           </Card>
 
           <Card glow>
             <CardContent>
               <div className="text-xs text-gold font-semibold mb-1">POPULAR</div>
-              <div className="text-lg font-bold text-gold">Pro</div>
-              <div className="text-3xl font-bold text-white mt-2">$299</div>
-              <div className="text-gray-400 text-sm mt-2">10,000 minutes/month</div>
+              <div className="text-lg font-bold text-gold">The Swarm</div>
+              <div className="text-3xl font-bold text-white mt-2">$297</div>
+              <div className="text-gray-400 text-sm mt-2">1,350 minutes/month</div>
+              <div className="text-zinc-500 text-xs mt-1">For growing teams</div>
             </CardContent>
           </Card>
 
           <Card>
             <CardContent>
-              <div className="text-lg font-bold text-gold">Enterprise</div>
+              <div className="text-lg font-bold text-gold">The Queen Bee</div>
+              <div className="text-3xl font-bold text-white mt-2">$697</div>
+              <div className="text-gray-400 text-sm mt-2">3,500 minutes/month</div>
+              <div className="text-zinc-500 text-xs mt-1">For power users</div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <div className="text-lg font-bold text-gold">The Hive Mind</div>
               <div className="text-3xl font-bold text-white mt-2">Custom</div>
               <div className="text-gray-400 text-sm mt-2">Unlimited minutes</div>
+              <div className="text-zinc-500 text-xs mt-1">Enterprise-grade</div>
             </CardContent>
           </Card>
         </div>

@@ -9,10 +9,10 @@ import { api } from '@/lib/api';
 const plans = [
   {
     name: 'free',
-    display: 'Free',
+    display: 'Free Trial',
     price: 0,
     minutes: 30,
-    assistants: -1,
+    assistants: 1,
     voiceClones: 0,
     platforms: 'Web only',
     analytics: 'Basic logs',
@@ -21,56 +21,60 @@ const plans = [
     webhooks: false,
     crmIntegrations: false,
     support: 'Community',
+    description: 'Try it out',
   },
   {
-    name: 'starter',
-    display: 'Starter',
-    price: 9.99,
-    minutes: 200,
-    assistants: -1,
+    name: 'worker_bee',
+    display: 'The Worker Bee',
+    price: 97,
+    minutes: 400,
+    assistants: 3,
     voiceClones: 2,
-    platforms: 'All platforms',
-    analytics: 'Basic logs',
+    platforms: 'Web + Phone',
+    analytics: 'Basic analytics',
     callSharing: true,
     teamMembers: 1,
     webhooks: false,
     crmIntegrations: false,
     support: 'Email',
+    description: 'For solo operators',
   },
   {
-    name: 'pro',
-    display: 'Pro',
-    price: 29.99,
-    minutes: 1000,
-    assistants: -1,
-    voiceClones: 11,
+    name: 'swarm',
+    display: 'The Swarm',
+    price: 297,
+    minutes: 1350,
+    assistants: 10,
+    voiceClones: 5,
     platforms: 'All platforms',
     analytics: 'Full analytics',
     callSharing: true,
-    teamMembers: 3,
+    teamMembers: 5,
     webhooks: true,
     crmIntegrations: false,
     support: 'Priority',
     popular: true,
+    description: 'For growing teams',
   },
   {
-    name: 'business',
-    display: 'Business',
-    price: 79.99,
-    minutes: 5000,
+    name: 'queen_bee',
+    display: 'The Queen Bee',
+    price: 697,
+    minutes: 3500,
     assistants: -1,
     voiceClones: -1,
     platforms: 'All platforms',
     analytics: 'Advanced analytics',
     callSharing: true,
-    teamMembers: 10,
+    teamMembers: 15,
     webhooks: true,
     crmIntegrations: true,
     support: 'Dedicated',
+    description: 'For power users',
   },
   {
-    name: 'enterprise',
-    display: 'Enterprise',
+    name: 'hive_mind',
+    display: 'The Hive Mind',
     price: null,
     minutes: -1,
     assistants: -1,
@@ -84,6 +88,7 @@ const plans = [
     support: '24/7 Dedicated',
     sla: true,
     customIntegrations: true,
+    description: 'Enterprise-grade',
   },
 ];
 
@@ -120,10 +125,10 @@ export default function SubscriptionPage() {
     try {
       const response = await api.startTrial(user.id);
       if (response.success) {
-        setCurrentPlan('pro');
+        setCurrentPlan('swarm');
         setIsTrial(true);
         setTrialEnd(response.trial_end);
-        alert('30-day trial started! Enjoy Pro features.');
+        alert('30-day trial started! Enjoy The Swarm features.');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start trial');
@@ -220,9 +225,9 @@ export default function SubscriptionPage() {
           <CardContent>
             <div className="flex justify-between items-center">
               <div>
-                <div className="text-xl font-bold text-yellow-400">Try Pro Free for 30 Days!</div>
+                <div className="text-xl font-bold text-yellow-400">🐝 Try The Swarm Free for 30 Days!</div>
                 <p className="text-gray-300 mt-1">
-                  Get full access to Pro features: 1000 minutes, 11 voice clones, webhooks, team collaboration & more.
+                  Get full access to The Swarm features: 1,350 minutes, 5 voice clones, webhooks, team collaboration & more.
                 </p>
                 <p className="text-sm text-gray-400 mt-2">
                   No credit card required. Cancel anytime.
@@ -338,11 +343,11 @@ export default function SubscriptionPage() {
                   <div className="text-center py-2 text-gold font-semibold">
                     Current Plan
                   </div>
-                ) : plan.name === 'enterprise' ? (
+                ) : plan.name === 'hive_mind' ? (
                   <HoneycombButton
                     className="w-full"
                     variant="outline"
-                    onClick={() => window.location.href = 'mailto:sales@hive215.com?subject=Enterprise%20Plan%20Inquiry'}
+                    onClick={() => window.location.href = 'mailto:sales@hive215.com?subject=The%20Hive%20Mind%20Enterprise%20Inquiry'}
                   >
                     Contact Sales
                   </HoneycombButton>
