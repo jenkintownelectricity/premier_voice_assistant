@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth-context';
 import { Card, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { Input } from '@/components/Input';
+import HipaaBadge from '@/components/compliance/HipaaBadge';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -78,6 +79,10 @@ export default function LoginPage() {
               >
                 {loading ? 'Signing in...' : 'Sign In'}
               </HoneycombButton>
+
+              <div className="flex justify-center mt-4">
+                <HipaaBadge size="sm" />
+              </div>
             </form>
 
             <div className="mt-6 text-center text-sm">
