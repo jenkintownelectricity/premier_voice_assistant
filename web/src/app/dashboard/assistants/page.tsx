@@ -159,6 +159,16 @@ const TTS_PROVIDERS: Record<string, {
       { id: "zm_yunjian", name: "Yunjian", gender: "male", accent: "Chinese" },
     ],
   },
+  fish_speech: {
+    name: "Fish Speech (Open Source)",
+    latency: "~120ms",
+    description: "High-quality open-source TTS with voice cloning - 44100 Hz",
+    voices: [
+      { id: "default", name: "Default", gender: "neutral", accent: "US" },
+      { id: "warm_female", name: "Warm Female", gender: "female", accent: "US" },
+      { id: "professional_male", name: "Professional Male", gender: "male", accent: "US" },
+    ],
+  },
 };
 
 // Industry-specific quick start templates
@@ -959,6 +969,7 @@ export default function AssistantsPage() {
                     >
                       <optgroup label="★ Free TTS">
                         <option value="kokoro">Kokoro - 22 Free Voices! (~100ms)</option>
+                        <option value="fish_speech">Fish Speech - Open Source + Voice Cloning (~120ms)</option>
                         <option value="coqui">Coqui XTTS - Clone Your Voice (~150ms)</option>
                       </optgroup>
                       <optgroup label="Recommended (Low Latency)">

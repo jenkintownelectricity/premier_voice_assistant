@@ -76,6 +76,18 @@ except ImportError:
     NOISE_CANCELLATION_AVAILABLE = False
     noise_cancellation = None
 
+# Fish Speech TTS (open source with voice cloning)
+try:
+    from backend.fish_speech_client import FishSpeechTTS, FishSpeechConfig, FishSpeechLiveKitTTS
+    from backend.stream_smoother import StreamSmoother, generate_smooth_stream
+    FISH_SPEECH_AVAILABLE = True
+except ImportError:
+    FISH_SPEECH_AVAILABLE = False
+    FishSpeechTTS = None
+    FishSpeechConfig = None
+    FishSpeechLiveKitTTS = None
+    StreamSmoother = None
+
 # For database access (optional - may not be configured for local testing)
 try:
     from backend.supabase_client import get_supabase
@@ -391,7 +403,7 @@ class LiveKitAgentConfig:
     max_tokens: int = 150
     temperature: float = 0.7
 
-    # TTS Provider (cartesia, elevenlabs, deepgram, openai, playht, rime)
+    # TTS Provider (cartesia, elevenlabs, deepgram, openai, fish_speech, kokoro, coqui)
     tts_provider: str = field(default_factory=lambda: os.getenv("TTS_PROVIDER", "cartesia"))
     tts_voice_id: str = field(default_factory=lambda: os.getenv("TTS_VOICE_ID", "f786b574-daa5-4673-aa0c-cbe3e8534c02"))
     speech_speed: float = 1.0
@@ -406,6 +418,10 @@ class LiveKitAgentConfig:
 
     # Modal-hosted TTS (Free tier) - Kokoro and Coqui
     modal_tts_url: str = field(default_factory=lambda: os.getenv("MODAL_TTS_URL", "https://jenkintownelectricity--hive215-kokoro-tts-synthesize-web.modal.run"))
+
+    # Fish Speech TTS (Open source with voice cloning) - 44100 Hz
+    fish_speech_url: str = field(default_factory=lambda: os.getenv("FISH_SPEECH_URL", "https://jenkintownelectricity--fish-speech-tts-app.modal.run"))
+    fish_speech_sample_rate: int = field(default_factory=lambda: int(os.getenv("FISH_SPEECH_SAMPLE_RATE", "44100")))
 
     # Fallback LLM (Anthropic/OpenAI)
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
@@ -1561,6 +1577,22 @@ async def entrypoint(ctx: JobContext):
             logger.info(f"OpenAI TTS initialized (voice={voice_id or 'alloy'})")
         except Exception as e:
             logger.warning(f"OpenAI TTS failed: {e}, falling back to Cartesia")
+            tts_provider = "cartesia"
+
+    elif tts_provider == "fish_speech" and FISH_SPEECH_AVAILABLE:
+        try:
+            # Fish Speech with StreamSmoother for jitter-free playback
+            fish_config = FishSpeechConfig(
+                api_url=config.fish_speech_url,
+                sample_rate=config.fish_speech_sample_rate,
+            )
+            tts = FishSpeechLiveKitTTS(
+                config=fish_config,
+                voice_id=voice_id or "default",
+            )
+            logger.info(f"Fish Speech TTS initialized (voice={voice_id or 'default'}, sample_rate={config.fish_speech_sample_rate})")
+        except Exception as e:
+            logger.warning(f"Fish Speech TTS failed: {e}, falling back to Cartesia")
             tts_provider = "cartesia"
 
     elif tts_provider == "coqui":

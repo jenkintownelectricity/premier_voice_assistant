@@ -1186,6 +1186,170 @@ async def clone_voice(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =============================================================================
+# FISH SPEECH TTS (Open Source Voice Cloning)
+# =============================================================================
+
+@app.post("/fish-speech/clone")
+async def fish_speech_clone_voice(
+    user_id: str = Header(..., alias="X-User-ID"),
+    voice_name: str = Form(...),
+    description: str = Form(""),
+    language: str = Form("en"),
+    audio: UploadFile = File(...),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Clone a voice using Fish Speech.
+
+    The audio file should be:
+    - 3-30 seconds of clear speech
+    - Single speaker
+    - Minimal background noise
+    - WAV or MP3 format
+
+    Returns the new voice_id for use in TTS synthesis.
+    """
+    import httpx
+    import base64
+
+    FISH_SPEECH_URL = os.getenv(
+        "FISH_SPEECH_URL",
+        "https://jenkintownelectricity--fish-speech-tts-app.modal.run"
+    )
+
+    try:
+        # Read audio file
+        audio_bytes = await audio.read()
+
+        # Validate size (max 10MB)
+        if len(audio_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Audio file too large (max 10MB)")
+
+        # Encode as base64
+        audio_b64 = base64.b64encode(audio_bytes).decode()
+
+        # Call Fish Speech clone endpoint
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{FISH_SPEECH_URL}/clone",
+                json={
+                    "audio": audio_b64,
+                    "voice_name": voice_name,
+                    "description": description,
+                    "language": language,
+                }
+            )
+
+            if response.status_code != 200:
+                error_detail = response.json().get("detail", "Voice cloning failed")
+                raise HTTPException(status_code=response.status_code, detail=error_detail)
+
+            clone_result = response.json()
+
+        # Save to database
+        voice_id = clone_result["voice_id"]
+        voice_clone = await save_voice_clone(
+            db=db,
+            user_id=user_id,
+            provider="fish_speech",
+            voice_id=voice_id,
+            display_name=voice_name,
+            sample_duration=clone_result.get("duration"),
+            modal_voice_id=voice_id,
+            is_public=False,
+        )
+
+        return {
+            "success": True,
+            "voice_id": voice_id,
+            "voice_name": voice_name,
+            "voice_clone": voice_clone,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Fish Speech cloning error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/fish-speech/voices")
+async def fish_speech_list_voices(
+    include_cloned: bool = True,
+    user_id: Optional[str] = Header(None, alias="X-User-ID"),
+):
+    """
+    List available Fish Speech voices.
+
+    Returns built-in voices and optionally user's cloned voices.
+    """
+    import httpx
+
+    FISH_SPEECH_URL = os.getenv(
+        "FISH_SPEECH_URL",
+        "https://jenkintownelectricity--fish-speech-tts-app.modal.run"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{FISH_SPEECH_URL}/voices",
+                params={"include_cloned": include_cloned}
+            )
+
+            if response.status_code != 200:
+                # Return default voices on error
+                return {
+                    "voices": [
+                        {"id": "default", "name": "Default", "is_cloned": False},
+                        {"id": "warm_female", "name": "Warm Female", "is_cloned": False},
+                        {"id": "professional_male", "name": "Professional Male", "is_cloned": False},
+                    ]
+                }
+
+            return response.json()
+
+    except Exception as e:
+        logger.warning(f"Fish Speech voices error: {e}")
+        return {
+            "voices": [
+                {"id": "default", "name": "Default", "is_cloned": False},
+            ]
+        }
+
+
+@app.delete("/fish-speech/voices/{voice_id}")
+async def fish_speech_delete_voice(
+    voice_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Delete a cloned Fish Speech voice."""
+    import httpx
+
+    FISH_SPEECH_URL = os.getenv(
+        "FISH_SPEECH_URL",
+        "https://jenkintownelectricity--fish-speech-tts-app.modal.run"
+    )
+
+    try:
+        # Delete from Fish Speech
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.delete(f"{FISH_SPEECH_URL}/voices/{voice_id}")
+
+        # Delete from database
+        db.client.table("va_voice_clones").delete().eq(
+            "user_id", user_id
+        ).eq("voice_id", voice_id).execute()
+
+        return {"success": True, "message": f"Voice {voice_id} deleted"}
+
+    except Exception as e:
+        logger.error(f"Fish Speech delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/conversations")
 async def get_conversations(
     user_id: str = Header(..., alias="X-User-ID"),
@@ -7904,6 +8068,19 @@ TTS_PROVIDER_VOICES = {
             {"id": "zf_xiaobei", "name": "Xiaobei", "gender": "female", "accent": "Chinese"},
             {"id": "zm_yunjian", "name": "Yunjian", "gender": "male", "accent": "Chinese"},
         ],
+    },
+    "fish_speech": {
+        "name": "Fish Speech (Open Source)",
+        "description": "High-quality open-source TTS with voice cloning - 44100 Hz",
+        "latency": "~120ms TTFB",
+        "voices": [
+            {"id": "default", "name": "Default", "gender": "neutral", "accent": "US"},
+            {"id": "warm_female", "name": "Warm Female", "gender": "female", "accent": "US"},
+            {"id": "professional_male", "name": "Professional Male", "gender": "male", "accent": "US"},
+            # Cloned voices are loaded dynamically
+        ],
+        "supports_cloning": True,
+        "sample_rate": 44100,
     },
 }
 
