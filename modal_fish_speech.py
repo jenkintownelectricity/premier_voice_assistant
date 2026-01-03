@@ -82,7 +82,7 @@ voices_volume = modal.Volume.from_name("fish-speech-voices", create_if_missing=T
     timeout=300,
     container_idle_timeout=120,
     volumes={"/voices": voices_volume},
-    secrets=[modal.Secret.from_name("hive215-secrets", required_modules=[])],
+    secrets=[modal.Secret.from_name("hive215-secrets")],
 )
 class FishSpeechModel:
     """Fish Speech TTS model running on GPU."""
