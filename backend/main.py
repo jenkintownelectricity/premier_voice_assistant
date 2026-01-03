@@ -1498,6 +1498,58 @@ async def get_voice_clone_audio(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.delete("/voice-clones/{clone_id}")
+async def delete_voice_clone(
+    clone_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """
+    Delete a voice clone.
+
+    Removes the voice clone record from the database and deletes the audio file
+    from storage.
+    """
+    try:
+        # Get the voice clone record first
+        result = db.client.table("va_voice_clones").select("*").eq("id", clone_id).single().execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Voice clone not found")
+
+        clone = result.data
+
+        # Check ownership - only owner can delete
+        if clone["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="You can only delete your own voice clones")
+
+        # Delete the audio file from storage
+        reference_url = clone.get("reference_audio_url", "")
+        if "va-voice-clones/" in reference_url:
+            file_path = reference_url.split("va-voice-clones/")[-1]
+            try:
+                db.client.storage.from_("va-voice-clones").remove([file_path])
+                logger.info(f"Deleted voice clone audio: {file_path}")
+            except Exception as storage_err:
+                logger.warning(f"Failed to delete audio file (continuing): {storage_err}")
+
+        # Delete the database record
+        db.client.table("va_voice_clones").delete().eq("id", clone_id).execute()
+
+        logger.info(f"Deleted voice clone {clone_id} for user {user_id}")
+
+        return {
+            "success": True,
+            "message": f"Voice clone '{clone['display_name']}' deleted successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting voice clone: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # SUBSCRIPTION & USAGE ROUTES
 # ============================================================================
