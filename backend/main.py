@@ -1406,7 +1406,7 @@ async def start_trial(
         # Check if user already has an active paid subscription
         existing_sub = db.client.table("va_user_subscriptions").select("id").eq(
             "user_id", user_id
-        ).eq("status", "active").neq("plan_id", None).execute()
+        ).eq("status", "active").not_.is_("plan_id", "null").execute()
 
         if existing_sub.data:
             raise HTTPException(
@@ -8259,3 +8259,4 @@ if __name__ == "__main__":
         port=int(os.getenv("PORT", "8000")),
         reload=os.getenv("DEBUG", "true").lower() == "true",
     )
+
