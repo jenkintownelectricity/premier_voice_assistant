@@ -8264,11 +8264,14 @@ async def get_tts_voices(
         for v in provider_info["voices"]
     ]
 
+    # Get supabase client for voice clone queries
+    db = get_supabase()
+
     # Get user's voice clones (direct table query - RPC function doesn't exist)
     user_clones = []
     if user_id and provider == "cartesia":
         try:
-            result = supabase.client.table("va_voice_clones").select(
+            result = db.client.table("va_voice_clones").select(
                 "voice_name, display_name"
             ).eq("user_id", user_id).execute()
             if result.data:
@@ -8289,7 +8292,7 @@ async def get_tts_voices(
     # Also includes clones with NULL tts_provider (legacy clones before migration)
     if provider == "coqui" and user_id:
         try:
-            result = supabase.client.table("va_voice_clones").select("*").eq(
+            result = db.client.table("va_voice_clones").select("*").eq(
                 "user_id", user_id
             ).execute()
             if result.data:
@@ -8315,7 +8318,7 @@ async def get_tts_voices(
     # Get Fish Speech cloned voices - load from database
     if provider == "fish_speech" and user_id:
         try:
-            result = supabase.client.table("va_voice_clones").select("*").eq(
+            result = db.client.table("va_voice_clones").select("*").eq(
                 "user_id", user_id
             ).execute()
             if result.data:
