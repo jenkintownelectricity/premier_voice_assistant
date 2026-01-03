@@ -68,6 +68,23 @@ const plans = [
     crmIntegrations: true,
     support: 'Dedicated',
   },
+  {
+    name: 'enterprise',
+    display: 'Enterprise',
+    price: null,
+    minutes: -1,
+    assistants: -1,
+    voiceClones: -1,
+    platforms: 'All platforms + On-premise',
+    analytics: 'Custom dashboards',
+    callSharing: true,
+    teamMembers: -1,
+    webhooks: true,
+    crmIntegrations: true,
+    support: '24/7 Dedicated',
+    sla: true,
+    customIntegrations: true,
+  },
 ];
 
 export default function SubscriptionPage() {
@@ -220,7 +237,7 @@ export default function SubscriptionPage() {
       )}
 
       {/* Plan Comparison */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {plans.map((plan) => (
           <Card
             key={plan.name}
@@ -294,6 +311,18 @@ export default function SubscriptionPage() {
                     <span className="text-green-500">✓</span>
                   </div>
                 )}
+                {(plan as { sla?: boolean }).sla && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">SLA Guarantee</span>
+                    <span className="text-green-500">✓</span>
+                  </div>
+                )}
+                {(plan as { customIntegrations?: boolean }).customIntegrations && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Custom Integrations</span>
+                    <span className="text-green-500">✓</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-gray-400">Analytics</span>
                   <span className="text-white">{plan.analytics}</span>
@@ -309,6 +338,14 @@ export default function SubscriptionPage() {
                   <div className="text-center py-2 text-gold font-semibold">
                     Current Plan
                   </div>
+                ) : plan.name === 'enterprise' ? (
+                  <HoneycombButton
+                    className="w-full"
+                    variant="outline"
+                    onClick={() => window.location.href = 'mailto:sales@hive215.com?subject=Enterprise%20Plan%20Inquiry'}
+                  >
+                    Contact Sales
+                  </HoneycombButton>
                 ) : (
                   <HoneycombButton
                     className="w-full"
