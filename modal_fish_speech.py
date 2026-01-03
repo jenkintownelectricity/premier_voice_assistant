@@ -80,9 +80,8 @@ voices_volume = modal.Volume.from_name("fish-speech-voices", create_if_missing=T
     image=fish_speech_image,
     gpu="T4",  # T4 is cost-effective for TTS
     timeout=300,
-    container_idle_timeout=120,
+    scaledown_window=120,
     volumes={"/voices": voices_volume},
-    secrets=[modal.Secret.from_name("hive215-secrets")],
 )
 class FishSpeechModel:
     """Fish Speech TTS model running on GPU."""
