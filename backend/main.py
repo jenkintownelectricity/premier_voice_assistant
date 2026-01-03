@@ -1773,12 +1773,39 @@ async def get_limits(
 
         plan_name = plan.get("plan_name", "free")
 
-        # Get all features for this plan
+        # First try to get limits from plan table directly (bee-themed plans)
+        # These have columns: minutes_included, phone_numbers, voice_clones, team_members
+        limits = {}
+
+        # Check for bee-themed plan columns
+        if "voice_clones" in plan:
+            limits["max_voice_clones"] = plan.get("voice_clones", 0)
+        if "minutes_included" in plan:
+            limits["max_minutes"] = plan.get("minutes_included", 0)
+        if "phone_numbers" in plan:
+            limits["max_phone_numbers"] = plan.get("phone_numbers", 1)
+        if "team_members" in plan:
+            limits["max_team_members"] = plan.get("team_members", 1)
+
+        # Fallback to va_plan_features table for any missing features
         from backend.feature_gates import get_plan_features
         features = get_plan_features(plan_name)
 
+        # Merge: plan columns take precedence, features fill in gaps
+        for key, value in features.items():
+            if key not in limits:
+                limits[key] = value
+
+        # Set reasonable defaults for common keys if still missing
+        if "max_voice_clones" not in limits:
+            limits["max_voice_clones"] = 0
+        if "max_assistants" not in limits:
+            limits["max_assistants"] = features.get("max_assistants", 3)
+        if "max_minutes" not in limits:
+            limits["max_minutes"] = features.get("max_minutes", 10)
+
         return {
-            "limits": features
+            "limits": limits
         }
 
     except Exception as e:
