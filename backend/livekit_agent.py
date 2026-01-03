@@ -88,6 +88,16 @@ except ImportError:
     FishSpeechLiveKitTTS = None
     StreamSmoother = None
 
+# Coqui XTTS (open source with voice cloning)
+try:
+    from backend.coqui_livekit_tts import CoquiLiveKitTTS, CoquiConfig, CoquiStreamingAdapter
+    COQUI_AVAILABLE = True
+except ImportError:
+    COQUI_AVAILABLE = False
+    CoquiLiveKitTTS = None
+    CoquiConfig = None
+    CoquiStreamingAdapter = None
+
 # For database access (optional - may not be configured for local testing)
 try:
     from backend.supabase_client import get_supabase
@@ -1595,12 +1605,26 @@ async def entrypoint(ctx: JobContext):
             logger.warning(f"Fish Speech TTS failed: {e}, falling back to Cartesia")
             tts_provider = "cartesia"
 
-    elif tts_provider == "coqui":
-        # NOTE: Coqui XTTS is a batch API, not streaming. LiveKit needs streaming TTS.
-        # For real-time calls, we fall back to Cartesia but log the Coqui voice name.
-        # Future: implement streaming adapter for Coqui or use for async audio generation.
-        logger.warning(f"Coqui XTTS selected (voice={voice_id}) - falling back to Cartesia for real-time streaming")
-        logger.info("Coqui works for voice cloning and preview, but real-time calls need streaming TTS")
+    elif tts_provider == "coqui" and COQUI_AVAILABLE:
+        # Coqui XTTS with streaming adapter for voice clones
+        try:
+            coqui_url = os.getenv(
+                "COQUI_TTS_URL",
+                "https://jenkintownelectricity--premier-coqui-tts-synthesize-web.modal.run"
+            )
+            coqui_config = CoquiConfig(api_url=coqui_url)
+            tts = CoquiLiveKitTTS(
+                config=coqui_config,
+                voice_id=voice_id or "default",
+            )
+            logger.info(f"Coqui XTTS initialized (voice={voice_id or 'default'}, url={coqui_url[:50]}...)")
+        except Exception as e:
+            logger.warning(f"Coqui TTS failed: {e}, falling back to Cartesia")
+            tts_provider = "cartesia"
+
+    elif tts_provider == "coqui" and not COQUI_AVAILABLE:
+        # Coqui module not available, fall back
+        logger.warning(f"Coqui TTS not available (voice={voice_id}) - falling back to Cartesia")
         # Fall through to Cartesia below
 
     elif tts_provider == "kokoro":
