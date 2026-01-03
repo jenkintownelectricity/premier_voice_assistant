@@ -8286,25 +8286,29 @@ async def get_tts_voices(
             logger.warning(f"Failed to fetch user voice clones: {e}")
 
     # Get Coqui cloned voices - load from database
+    # Also includes clones with NULL tts_provider (legacy clones before migration)
     if provider == "coqui" and user_id:
         try:
             result = supabase.client.table("va_voice_clones").select("*").eq(
                 "user_id", user_id
-            ).eq("tts_provider", "coqui").execute()
+            ).execute()
             if result.data:
-                # For Coqui, user clones ARE the voices (no preset voices)
-                user_clones = [
-                    {
-                        "id": clone["voice_name"],  # Modal uses voice_name as ID
-                        "name": clone["display_name"],
-                        "gender": "custom",
-                        "accent": "Cloned",
-                        "is_user_clone": True,
-                    }
-                    for clone in result.data
-                ]
-                voices = []  # Clear placeholder since we have real clones
-                logger.info(f"Loaded {len(user_clones)} Coqui cloned voices for user {user_id}")
+                # Filter for coqui or NULL/empty provider (legacy clones)
+                coqui_clones = [c for c in result.data
+                               if c.get("tts_provider") in ("coqui", None, "")]
+                if coqui_clones:
+                    user_clones = [
+                        {
+                            "id": clone["voice_name"],
+                            "name": clone["display_name"],
+                            "gender": "custom",
+                            "accent": "Cloned",
+                            "is_user_clone": True,
+                        }
+                        for clone in coqui_clones
+                    ]
+                    voices = []  # Clear placeholder since we have real clones
+                    logger.info(f"Loaded {len(user_clones)} Coqui cloned voices for user {user_id}")
         except Exception as e:
             logger.warning(f"Failed to fetch Coqui voice clones: {e}")
 
@@ -8313,19 +8317,27 @@ async def get_tts_voices(
         try:
             result = supabase.client.table("va_voice_clones").select("*").eq(
                 "user_id", user_id
-            ).eq("tts_provider", "fish_speech").execute()
+            ).execute()
             if result.data:
-                user_clones = [
-                    {
-                        "id": clone["voice_name"],  # Modal uses voice_name as ID
-                        "name": clone["display_name"],
-                        "gender": "custom",
-                        "accent": "Cloned",
-                        "is_user_clone": True,
-                    }
-                    for clone in result.data
-                ]
-                logger.info(f"Loaded {len(user_clones)} Fish Speech cloned voices for user {user_id}")
+                # Filter for fish_speech provider
+                fish_clones = [c for c in result.data
+                              if c.get("tts_provider") == "fish_speech"]
+                if fish_clones:
+                    user_clones = [
+                        {
+                            "id": clone["voice_name"],
+                            "name": clone["display_name"],
+                            "gender": "custom",
+                            "accent": "Cloned",
+                            "is_user_clone": True,
+                        }
+                        for clone in fish_clones
+                    ]
+                    logger.info(f"Loaded {len(user_clones)} Fish Speech cloned voices for user {user_id}")
+                else:
+                    # Log what providers we found for debugging
+                    providers_found = set(c.get("tts_provider") for c in result.data)
+                    logger.info(f"No Fish Speech clones found. Providers in DB: {providers_found}")
         except Exception as e:
             logger.warning(f"Failed to fetch Fish Speech voice clones: {e}")
 
