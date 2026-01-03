@@ -32,6 +32,7 @@ export default function VoiceClonesPage() {
   const [voiceName, setVoiceName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [isPublic, setIsPublic] = useState(false);
+  const [ttsProvider, setTtsProvider] = useState<'coqui' | 'fish_speech'>('fish_speech');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -185,8 +186,14 @@ export default function VoiceClonesPage() {
       formData.append('voice_name', voiceName.toLowerCase().replace(/\s+/g, '_'));
       formData.append('display_name', displayName);
       formData.append('is_public', String(isPublic));
+      formData.append('tts_provider', ttsProvider);
 
-      const response = await fetch(`${apiUrl}/clone-voice`, {
+      // Use different endpoint based on TTS provider
+      const endpoint = ttsProvider === 'fish_speech'
+        ? `${apiUrl}/fish-speech/clone`
+        : `${apiUrl}/clone-voice`;
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'X-User-ID': user.id,
@@ -417,6 +424,26 @@ export default function VoiceClonesPage() {
                   required
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gold mb-2">
+                TTS Provider
+              </label>
+              <select
+                value={ttsProvider}
+                onChange={(e) => setTtsProvider(e.target.value as 'coqui' | 'fish_speech')}
+                className="w-full px-4 py-3 bg-oled-black border border-gold/30 rounded-lg
+                  text-white focus:outline-none focus:border-gold transition-colors"
+              >
+                <option value="fish_speech">Fish Speech (Open Source - Recommended)</option>
+                <option value="coqui">Coqui TTS (Legacy)</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {ttsProvider === 'fish_speech'
+                  ? 'High-quality open source voice cloning with fast inference'
+                  : 'Legacy Coqui TTS cloning'}
+              </p>
             </div>
 
             <div>
