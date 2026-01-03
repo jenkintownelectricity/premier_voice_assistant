@@ -801,6 +801,186 @@ async def save_call_log(
 
 
 # ============================================================================
+# CALL INFO EXTRACTION
+# ============================================================================
+
+# Filler words to filter out from extracted names
+FILLER_WORDS = frozenset([
+    "um", "uh", "good", "okay", "yes", "no", "hi", "hello", "hey",
+    "oh", "ah", "well", "so", "like", "yeah", "yep", "nope", "sure",
+    "right", "ok", "hmm", "hm", "thanks", "thank", "bye", "goodbye"
+])
+
+
+def _format_transcript_for_extraction(transcript: List[Dict[str, str]]) -> str:
+    """
+    Format transcript messages with speaker labels for LLM extraction.
+
+    Args:
+        transcript: List of {"role": "user"|"assistant", "content": "..."}
+
+    Returns:
+        Formatted string like "User: hello\nAssistant: Hi how can I help?"
+    """
+    if not transcript:
+        return ""
+
+    lines = []
+    for msg in transcript:
+        role = msg.get("role", "user")
+        content = msg.get("content", "").strip()
+        if content:
+            # Capitalize role for readability
+            speaker = "User" if role == "user" else "Assistant"
+            lines.append(f"{speaker}: {content}")
+
+    return "\n".join(lines)
+
+
+def _validate_extracted_name(name: str) -> str:
+    """
+    Validate an extracted name and return "Unknown" if it's invalid.
+
+    Args:
+        name: The extracted name
+
+    Returns:
+        The name if valid, "Unknown" otherwise
+    """
+    if not name:
+        return "Unknown"
+
+    # Clean up the name
+    name = name.strip()
+
+    # Check if too short
+    if len(name) < 2:
+        return "Unknown"
+
+    # Check if it's a filler word
+    if name.lower() in FILLER_WORDS:
+        return "Unknown"
+
+    # Check if it's just "Unknown" already
+    if name.lower() == "unknown":
+        return "Unknown"
+
+    return name
+
+
+async def extract_call_info(
+    transcript: List[Dict[str, str]],
+    llm_client: Optional[Any] = None,
+) -> Dict[str, str]:
+    """
+    Extract caller name, company name, and summary from a call transcript.
+
+    Uses LLM to analyze the transcript and extract explicitly stated information.
+    Falls back to simple extraction if LLM is unavailable.
+
+    Args:
+        transcript: List of messages [{"role": "user", "content": "..."}]
+        llm_client: Optional LLM client (uses Groq if not provided)
+
+    Returns:
+        Dict with caller_name, company_name, and summary
+    """
+    default_result = {
+        "caller_name": "Unknown",
+        "company_name": "Unknown",
+        "summary": "Call completed"
+    }
+
+    if not transcript:
+        return default_result
+
+    # Format transcript for extraction
+    formatted_transcript = _format_transcript_for_extraction(transcript)
+
+    if not formatted_transcript:
+        return default_result
+
+    # Build the extraction prompt
+    prompt = f"""Analyze this phone call transcript and extract ONLY explicitly stated information.
+
+Rules:
+- caller_name: ONLY extract if the caller clearly states their name (e.g., "My name is John", "This is Sarah calling", "I'm Mike"). If no name is clearly stated, return "Unknown".
+- company_name: ONLY extract if a business/company name is clearly mentioned (e.g., "I'm calling from ABC Plumbing", "This is for Smith Construction"). If no company is clearly stated, return "Unknown".
+- summary: Write a brief 1-2 sentence summary of what the caller wanted or discussed.
+
+DO NOT extract:
+- Filler words (um, uh, good, okay, yes, no, hi, hello)
+- Partial words or unclear speech
+- Guesses or assumptions
+- Names that are just greetings
+
+Transcript:
+{formatted_transcript}
+
+Respond ONLY with valid JSON:
+{{"caller_name": "Unknown", "company_name": "Unknown", "summary": "Brief summary here"}}"""
+
+    try:
+        # Try to use the provided LLM client or fall back to Groq
+        import httpx
+        import os
+
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if not groq_api_key:
+            logger.warning("No GROQ_API_KEY for call info extraction")
+            return default_result
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {groq_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "llama-3.1-8b-instant",  # Fast, small model for extraction
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 150,
+                    "temperature": 0.1,  # Low temperature for consistent extraction
+                }
+            )
+
+            if response.status_code != 200:
+                logger.warning(f"Groq extraction failed: {response.status_code}")
+                return default_result
+
+            data = response.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            # Parse JSON response
+            import re
+            # Try to extract JSON from the response (might have extra text)
+            json_match = re.search(r'\{[^{}]*\}', content)
+            if json_match:
+                extracted = json.loads(json_match.group())
+            else:
+                logger.warning(f"Could not parse extraction response: {content[:100]}")
+                return default_result
+
+            # Validate extracted values
+            result = {
+                "caller_name": _validate_extracted_name(extracted.get("caller_name", "Unknown")),
+                "company_name": _validate_extracted_name(extracted.get("company_name", "Unknown")),
+                "summary": extracted.get("summary", "Call completed")[:500],  # Limit summary length
+            }
+
+            logger.info(f"Extracted call info: name={result['caller_name']}, company={result['company_name']}")
+            return result
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"JSON decode error in extraction: {e}")
+        return default_result
+    except Exception as e:
+        logger.warning(f"Call info extraction failed: {e}")
+        return default_result
+
+
+# ============================================================================
 # LIVEKIT VOICE AGENT
 # ============================================================================
 
@@ -1681,6 +1861,13 @@ Be natural and engaging, like talking to a friend."""
                 avg_metrics = latency.get_average_metrics()
                 sentiment_data = sentiment.get_overall()
                 supabase = get_supabase().client
+
+                # Extract caller name, company name, and summary from transcript
+                call_info = await extract_call_info(transcript)
+                caller_name = call_info.get("caller_name", "Unknown")
+                company_name = call_info.get("company_name", "Unknown")
+                extracted_summary = call_info.get("summary", "Call completed")
+
                 # Determine overall sentiment
                 overall_sentiment = "neutral"
                 if sentiment_data.get("average", 0) > 0.2:
@@ -1694,6 +1881,8 @@ Be natural and engaging, like talking to a friend."""
                     "status": "completed",
                     "ended_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "sentiment": overall_sentiment,
+                    "caller_name": caller_name if caller_name != "Unknown" else None,
+                    "company_name": company_name if company_name != "Unknown" else None,
                     "summary": {
                         "quality_score": quality_score.get("score", 0),
                         "quality_grade": quality_score.get("grade", "C"),
@@ -1701,15 +1890,20 @@ Be natural and engaging, like talking to a friend."""
                         "sentiment_score": round(sentiment_data.get("average", 0) * 100),
                         "urgency_level": "normal",
                         "exchange_count": len(transcript) // 2,
+                        "extracted_summary": extracted_summary,
                     },
                     "metadata": {
                         "llm": llm_name,
                         "latency": avg_metrics,
                         "sentiment_data": sentiment_data,
                         "transport": "webrtc",
+                        "extraction": {
+                            "caller_name": caller_name,
+                            "company_name": company_name,
+                        }
                     }
                 }).eq("id", call_id).execute()
-                logger.info(f"Call log updated: {call_id}, duration={duration}s, quality={quality_score['grade']}")
+                logger.info(f"Call log updated: {call_id}, duration={duration}s, quality={quality_score['grade']}, caller={caller_name}")
             except Exception as e:
                 logger.error(f"Failed to update call log: {e}")
 
