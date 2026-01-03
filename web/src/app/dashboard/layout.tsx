@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { useAuth } from '@/lib/auth-context';
 import { Sidebar } from '@/components/Sidebar';
 import { profileApi } from '@/lib/api';
+import HipaaBadge from '@/components/compliance/HipaaBadge';
 
 interface DashboardSettings {
   show_phone_numbers?: boolean;
@@ -276,7 +277,7 @@ export default function DashboardLayout({
           },
         ]}
       />
-      <main className="flex-1 p-8 relative overflow-hidden">
+      <main className="flex-1 p-8 relative overflow-hidden flex flex-col">
         {/* Background logo watermark */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <Image
@@ -289,9 +290,18 @@ export default function DashboardLayout({
           />
         </div>
         {/* Content */}
-        <div className="relative z-10">
+        <div className="relative z-10 flex-1">
           {children}
         </div>
+        {/* Footer */}
+        <footer className="relative z-10 mt-8 pt-4 border-t border-gray-800 flex items-center justify-between text-xs text-gray-500">
+          <div className="flex items-center gap-4">
+            <span>&copy; 2026 HIVE215. All rights reserved.</span>
+            <a href="/privacy" className="hover:text-gold transition-colors">Privacy</a>
+            <a href="/terms" className="hover:text-gold transition-colors">Terms</a>
+          </div>
+          <HipaaBadge size="sm" />
+        </footer>
       </main>
     </div>
   );

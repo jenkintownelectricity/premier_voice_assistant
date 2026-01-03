@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardTitle, CardContent } from '@/components/Card';
 import { HoneycombButton } from '@/components/HoneycombButton';
 import { TelephonySettings } from '@/components/TelephonySettings';
+import HipaaBadge from '@/components/compliance/HipaaBadge';
 import { useAuth } from '@/lib/auth-context';
 import { profileApi } from '@/lib/api';
 
@@ -260,10 +261,13 @@ export default function SettingsPage() {
           </div>
         </CardTitle>
         <CardContent>
-          <p className="text-gray-400 text-sm mb-4">
-            Enter your API keys for the LLM providers you want to use. Keys are encrypted and stored securely.
-            You only need keys for the providers you plan to use with your agents.
-          </p>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-gray-400 text-sm">
+              Enter your API keys for the LLM providers you want to use. Keys are encrypted and stored securely.
+              You only need keys for the providers you plan to use with your agents.
+            </p>
+            <HipaaBadge size="sm" className="ml-4 flex-shrink-0" />
+          </div>
           <div className="space-y-4">
             {LLM_PROVIDERS_CONFIG.map((provider) => (
               <div key={provider.id} className="space-y-2">
