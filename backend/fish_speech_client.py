@@ -132,8 +132,9 @@ class FishSpeechTTS:
     """
     Fish Speech TTS client for HIVE215.
 
-    Uses Fish Audio Cloud API when API key is configured,
-    otherwise falls back to Modal deployment.
+    Priority:
+    1. Fish Audio Cloud API (if FISH_AUDIO_API_KEY is set)
+    2. Self-hosted Modal endpoint (fallback)
     """
 
     def __init__(self, config: Optional[FishSpeechConfig] = None):
@@ -149,16 +150,19 @@ class FishSpeechTTS:
         self._is_healthy: Optional[bool] = None
 
         if self.config.has_api_key:
+            self._use_cloud = True
+            self._api_base = self.config.api_base_url
             logger.info(f"Fish Audio Cloud API initialized (key: {self.config.api_key[:8]}...)")
         else:
-            logger.warning("FISH_AUDIO_API_KEY not set - TTS will not work!")
-            logger.warning("Get your API key from https://fish.audio and set FISH_AUDIO_API_KEY")
+            self._use_cloud = False
+            self._api_base = self.config.modal_url
+            logger.info(f"Using self-hosted Fish Speech Modal: {self._api_base}")
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
         if self._http_client is None:
             headers = {}
-            if self.config.has_api_key:
+            if self._use_cloud and self.config.has_api_key:
                 headers["Authorization"] = f"Bearer {self.config.api_key}"
             self._http_client = httpx.AsyncClient(
                 timeout=self.config.timeout,
@@ -175,25 +179,21 @@ class FishSpeechTTS:
 
     async def is_healthy(self) -> bool:
         """Check if Fish Audio service is healthy."""
-        if not self.config.has_api_key:
-            logger.warning("Cannot check health - no API key configured")
-            return False
         try:
             client = await self._get_client()
-            # Fish Audio uses /model endpoint to list models
             response = await client.get(
-                f"{self.config.api_base_url}/model",
+                f"{self._api_base}/health",
                 timeout=5.0,
             )
             self._is_healthy = response.status_code == 200
             return self._is_healthy
         except Exception as e:
-            logger.warning(f"Fish Audio health check failed: {e}")
+            logger.warning(f"Fish Speech health check failed: {e}")
             self._is_healthy = False
             return False
 
     # =========================================================================
-    # SYNTHESIS - Fish Audio Cloud API
+    # SYNTHESIS
     # =========================================================================
 
     async def synthesize(
@@ -208,18 +208,14 @@ class FishSpeechTTS:
 
         Args:
             text: Text to synthesize
-            voice_id: Voice/model ID to use (Fish Audio model ID)
+            voice_id: Voice/model ID to use
             language: Language code (e.g., "en", "zh", "ja")
             speed: Speech speed multiplier (0.5 to 2.0)
 
         Returns:
             SynthesisResult with audio bytes and metadata
         """
-        if not self.config.has_api_key:
-            raise FishSpeechError("FISH_AUDIO_API_KEY not configured")
-
         voice_id = voice_id or self.config.default_voice
-        # Use default voice if voice_id is "default" or empty
         if voice_id in ("default", ""):
             voice_id = self.config.default_voice
 
@@ -227,23 +223,35 @@ class FishSpeechTTS:
             try:
                 client = await self._get_client()
 
-                # Fish Audio TTS API endpoint
-                response = await client.post(
-                    f"{self.config.api_base_url}/v1/tts",
-                    json={
-                        "text": text,
-                        "reference_id": voice_id,
-                        "format": "pcm",
-                        "mp3_bitrate": 128,
-                        "normalize": True,
-                        "latency": "normal",  # Options: normal, balanced
-                    },
-                    timeout=self.config.timeout,
-                )
+                if self._use_cloud:
+                    # Fish Audio Cloud API
+                    response = await client.post(
+                        f"{self._api_base}/v1/tts",
+                        json={
+                            "text": text,
+                            "reference_id": voice_id,
+                            "format": "pcm",
+                            "normalize": True,
+                            "latency": "normal",
+                        },
+                        timeout=self.config.timeout,
+                    )
+                else:
+                    # Self-hosted Modal endpoint
+                    response = await client.post(
+                        f"{self._api_base}/v1/tts",
+                        json={
+                            "text": text,
+                            "reference_id": voice_id,
+                            "voice_id": voice_id,
+                            "format": "pcm",
+                            "language": language,
+                        },
+                        timeout=self.config.timeout,
+                    )
 
                 if response.status_code == 200:
                     audio_bytes = response.content
-                    # Calculate approximate duration (PCM 16-bit mono at sample_rate)
                     duration_ms = (len(audio_bytes) / 2 / self.config.sample_rate) * 1000
                     return SynthesisResult(
                         audio_bytes=audio_bytes,
@@ -252,12 +260,12 @@ class FishSpeechTTS:
                         format="pcm",
                     )
                 else:
-                    logger.warning(f"Fish Audio synthesis failed: {response.status_code} - {response.text[:200]}")
+                    logger.warning(f"Fish Speech synthesis failed: {response.status_code} - {response.text[:200]}")
 
             except httpx.TimeoutException:
-                logger.warning(f"Fish Audio timeout (attempt {attempt + 1}/{self.config.max_retries})")
+                logger.warning(f"Fish Speech timeout (attempt {attempt + 1}/{self.config.max_retries})")
             except Exception as e:
-                logger.error(f"Fish Audio synthesis error: {e}")
+                logger.error(f"Fish Speech synthesis error: {e}")
 
         raise FishSpeechError("Synthesis failed after all retries")
 
@@ -269,7 +277,7 @@ class FishSpeechTTS:
         speed: float = 1.0,
     ) -> AsyncIterator[bytes]:
         """
-        Stream synthesize text to audio chunks using Fish Audio Cloud API.
+        Stream synthesize text to audio chunks.
 
         Args:
             text: Text to synthesize
@@ -280,10 +288,6 @@ class FishSpeechTTS:
         Yields:
             Audio chunks as bytes (PCM 16-bit)
         """
-        if not self.config.has_api_key:
-            logger.error("FISH_AUDIO_API_KEY not configured - cannot synthesize")
-            return
-
         voice_id = voice_id or self.config.default_voice
         if voice_id in ("default", ""):
             voice_id = self.config.default_voice
@@ -291,33 +295,44 @@ class FishSpeechTTS:
         try:
             client = await self._get_client()
 
-            # Fish Audio streaming TTS API
-            async with client.stream(
-                "POST",
-                f"{self.config.api_base_url}/v1/tts",
-                json={
+            if self._use_cloud:
+                endpoint = f"{self._api_base}/v1/tts"
+                payload = {
                     "text": text,
                     "reference_id": voice_id,
                     "format": "pcm",
                     "normalize": True,
-                    "latency": "balanced",  # Lower latency for streaming
-                },
+                    "latency": "balanced",
+                }
+            else:
+                endpoint = f"{self._api_base}/tts/stream"
+                payload = {
+                    "text": text,
+                    "voice_id": voice_id,
+                    "language": language,
+                    "speed": speed,
+                    "sample_rate": self.config.sample_rate,
+                }
+
+            async with client.stream(
+                "POST",
+                endpoint,
+                json=payload,
                 timeout=self.config.stream_timeout,
             ) as response:
                 if response.status_code != 200:
                     error_text = await response.aread()
-                    logger.error(f"Fish Audio stream failed: {response.status_code} - {error_text[:200]}")
+                    logger.error(f"Fish Speech stream failed: {response.status_code} - {error_text[:200]}")
                     return
 
-                # Yield audio chunks as they arrive
                 async for chunk in response.aiter_bytes():
                     if chunk:
                         yield chunk
 
         except httpx.TimeoutException:
-            logger.error("Fish Audio stream timed out")
+            logger.error("Fish Speech stream timed out")
         except Exception as e:
-            logger.error(f"Fish Audio stream error: {e}")
+            logger.error(f"Fish Speech stream error: {e}")
 
     # =========================================================================
     # VOICE CLONING - Fish Audio Model Creation

@@ -1592,21 +1592,20 @@ async def entrypoint(ctx: JobContext):
 
     elif tts_provider == "fish_speech" and FISH_SPEECH_AVAILABLE:
         try:
-            # Fish Speech via Fish Audio Cloud API
-            # Requires FISH_AUDIO_API_KEY environment variable
+            # Fish Speech TTS
+            # Uses Fish Audio Cloud API if FISH_AUDIO_API_KEY is set,
+            # otherwise uses self-hosted Modal deployment
             fish_config = FishSpeechConfig(
                 sample_rate=config.fish_speech_sample_rate,
             )
-            if not fish_config.has_api_key:
-                logger.warning("FISH_AUDIO_API_KEY not set - Fish Speech will not work!")
-                logger.warning("Get your API key from https://fish.audio and set FISH_AUDIO_API_KEY")
-                raise ValueError("FISH_AUDIO_API_KEY not configured")
-
             tts = FishSpeechLiveKitTTS(
                 config=fish_config,
                 voice_id=voice_id or "default",
             )
-            logger.info(f"Fish Speech TTS initialized (voice={voice_id or 'default'}, sample_rate={config.fish_speech_sample_rate})")
+            if fish_config.has_api_key:
+                logger.info(f"Fish Speech TTS via Cloud API (voice={voice_id or 'default'})")
+            else:
+                logger.info(f"Fish Speech TTS via Modal (voice={voice_id or 'default'})")
         except Exception as e:
             logger.warning(f"Fish Speech TTS failed: {e}, falling back to Cartesia")
             tts_provider = "cartesia"
