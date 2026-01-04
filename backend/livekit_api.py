@@ -259,17 +259,8 @@ async def create_room(
                 )
             )
             logger.info(f"Created LiveKit room: {room_name}")
-
-            # Dispatch an agent to join the room
-            # This is required for the agent worker to receive the job
-            await room_api.agent_dispatch.create_dispatch(
-                livekit_api.CreateAgentDispatchRequest(
-                    room=room_name,
-                    agent_name="",  # Empty string = dispatch to any available agent
-                    metadata=room_metadata,  # Pass room metadata to agent
-                )
-            )
-            logger.info(f"Dispatched agent to room: {room_name}")
+            # Note: Agent dispatch is handled automatically by LiveKit Cloud
+            # when the worker is registered and the room is created
         finally:
             await room_api.aclose()
 

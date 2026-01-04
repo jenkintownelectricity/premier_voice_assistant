@@ -1680,6 +1680,7 @@ Be natural and engaging, like talking to a friend."""
             logger.warning(f"Could not load turn detector: {e}")
 
     # Create the session with turn detection settings
+    logger.info(f"Creating AgentSession with TTS type: {type(tts).__name__}, LLM type: {type(llm).__name__}")
     session = AgentSession(
         vad=vad,
         stt=stt,
@@ -1690,6 +1691,7 @@ Be natural and engaging, like talking to a friend."""
         max_endpointing_delay=6.0,  # Max wait if turn detector thinks user will continue
         allow_interruptions=True,   # Allow user to interrupt agent
     )
+    logger.info("AgentSession created successfully")
 
     # Note: transcript, call_start_time, call_id, user_id, assistant_id, latency, sentiment
     # are already initialized above (lines 831-854). No re-initialization needed here.
@@ -1898,13 +1900,17 @@ Be natural and engaging, like talking to a friend."""
             logger.warning(f"Failed to get Fast Brain greeting: {e}")
 
     if greeting_text:
+        logger.info(f"[GREETING] Generating greeting with Fast Brain skill")
         await session.generate_reply(
             instructions=f"Say exactly this greeting: {greeting_text}"
         )
+        logger.info("[GREETING] generate_reply completed")
     else:
+        logger.info("[GREETING] Using default greeting")
         await session.generate_reply(
             instructions="Greet the user warmly and ask how you can help them today."
         )
+        logger.info("[GREETING] generate_reply completed")
 
     # Wait for the session to end (room closes)
     try:
