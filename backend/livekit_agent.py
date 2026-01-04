@@ -24,6 +24,7 @@ This is the next evolution of the Lightning Pipeline - now with WebRTC!
 
 import os
 import sys
+import re
 import logging
 import asyncio
 import time
@@ -1641,8 +1642,13 @@ async def entrypoint(ctx: JobContext):
         # (the original voice_id might be a clone name like "Armand" which Cartesia doesn't know)
         fallback_voice = config.cartesia_voice_id
         if tts_provider == "cartesia" and voice_id:
-            # Only use voice_id if we're explicitly using Cartesia (not falling back)
-            fallback_voice = voice_id
+            # Check if voice_id looks like a valid Cartesia UUID (has hyphens and is ~36 chars)
+            # Clone names like "Armand" won't have this format
+            uuid_pattern = re.compile(r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$', re.I)
+            if uuid_pattern.match(voice_id):
+                fallback_voice = voice_id
+            else:
+                logger.warning(f"Voice ID '{voice_id}' is not a valid Cartesia UUID, using default voice")
         tts = cartesia.TTS(
             model="sonic-english",
             voice=fallback_voice,
