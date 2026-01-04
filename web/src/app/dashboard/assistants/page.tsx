@@ -327,7 +327,7 @@ Keep responses clear and concise.`,
 ];
 
 export default function AssistantsPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -557,8 +557,11 @@ export default function AssistantsPage() {
       loadVoiceClones();
       loadSkills();
       loadProviderVoices(ttsProvider);
+    } else if (!authLoading) {
+      // Auth is done loading but no user - stop page loading state
+      setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, authLoading]);
 
   // Load voices when TTS provider changes
   useEffect(() => {
