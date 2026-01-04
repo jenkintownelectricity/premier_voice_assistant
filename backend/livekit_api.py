@@ -265,7 +265,7 @@ async def create_room(
             await room_api.agent_dispatch.create_dispatch(
                 livekit_api.CreateAgentDispatchRequest(
                     room=room_name,
-                    agent_name="hive-agent",  # Named agent helps debug duplicates
+                    agent_name="",  # Empty = match any available agent
                     metadata=room_metadata,
                 )
             )
