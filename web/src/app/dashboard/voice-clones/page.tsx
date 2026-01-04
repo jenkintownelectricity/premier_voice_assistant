@@ -44,6 +44,7 @@ export default function VoiceClonesPage() {
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [playingCloneId, setPlayingCloneId] = useState<string | null>(null);
+  const [deletingCloneId, setDeletingCloneId] = useState<string | null>(null);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
 
@@ -264,6 +265,39 @@ export default function VoiceClonesPage() {
       console.error('Error playing voice sample:', err);
       setError('Failed to play voice sample');
       setPlayingCloneId(null);
+    }
+  };
+
+  const handleDeleteClone = async (clone: VoiceClone) => {
+    if (!user) return;
+
+    if (!confirm(`Are you sure you want to delete "${clone.display_name}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingCloneId(clone.id);
+    setError(null);
+
+    try {
+      const response = await fetch(`${apiUrl}/voice-clones/${clone.id}`, {
+        method: 'DELETE',
+        headers: {
+          'X-User-ID': user.id,
+        },
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || 'Failed to delete voice clone');
+      }
+
+      setSuccess(`Voice clone "${clone.display_name}" deleted successfully`);
+      await fetchVoiceClones();
+      await fetchUsageLimits();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete voice clone');
+    } finally {
+      setDeletingCloneId(null);
     }
   };
 
@@ -518,11 +552,25 @@ export default function VoiceClonesPage() {
                   <h3 className="text-lg font-medium text-white">{clone.display_name}</h3>
                   <p className="text-sm text-gray-500">{clone.voice_name}</p>
                 </div>
-                {clone.is_public && (
-                  <span className="px-2 py-1 text-xs bg-gold/20 text-gold rounded">
-                    Public
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {clone.is_public && (
+                    <span className="px-2 py-1 text-xs bg-gold/20 text-gold rounded">
+                      Public
+                    </span>
+                  )}
+                  <button
+                    onClick={() => handleDeleteClone(clone)}
+                    disabled={deletingCloneId === clone.id}
+                    className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors disabled:opacity-50"
+                    title="Delete voice clone"
+                  >
+                    {deletingCloneId === clone.id ? (
+                      <span className="animate-spin">⏳</span>
+                    ) : (
+                      <span>🗑️</span>
+                    )}
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center justify-between">
