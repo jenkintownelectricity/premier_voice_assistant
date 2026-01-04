@@ -334,6 +334,117 @@ def clone_voice_web():
     return web_app
 
 
+@app.function(image=tts_image, gpu="T4", scaledown_window=300, timeout=600, volumes={"/voice_models": voice_models_volume})
+@modal.asgi_app()
+def synthesize_stream_web():
+    """
+    Streaming TTS endpoint for LiveKit integration.
+    Returns chunked PCM audio (24kHz, 16-bit, mono) for smooth playback.
+    """
+    from fastapi import FastAPI, Form, HTTPException
+    from fastapi.responses import StreamingResponse
+    import tempfile
+    import time
+    import io
+    import struct
+    from pathlib import Path
+    from TTS.api import TTS
+    import numpy as np
+
+    web_app = FastAPI()
+
+    # Pre-load TTS model at startup for faster responses
+    tts_model = None
+
+    def get_tts():
+        nonlocal tts_model
+        if tts_model is None:
+            tts_model = TTS(
+                model_name="tts_models/multilingual/multi-dataset/xtts_v2",
+                gpu=True,
+            )
+        return tts_model
+
+    @web_app.post("/")
+    async def synthesize_stream(
+        text: str = Form(...),
+        voice_name: str = Form("fabio"),
+        language: str = Form("en"),
+        sample_rate: int = Form(24000),
+    ):
+        """
+        Stream synthesized speech as raw PCM audio chunks.
+
+        Returns: Chunked PCM audio (24kHz, 16-bit signed, mono)
+        """
+        start_time = time.time()
+
+        # Get voice reference
+        voice_path = f"/voice_models/{voice_name}.wav"
+        if not Path(voice_path).exists():
+            raise HTTPException(status_code=404, detail=f"Voice '{voice_name}' not found")
+
+        tts = get_tts()
+
+        async def audio_generator():
+            """
+            Generate audio chunks using XTTS streaming inference.
+            Yields PCM audio in ~20ms chunks for smooth playback.
+            """
+            try:
+                # XTTS-v2 streaming synthesis
+                # Returns a generator of audio chunks
+                gpt_cond_latent, speaker_embedding = tts.synthesizer.tts_model.get_conditioning_latents(
+                    audio_path=voice_path
+                )
+
+                # Stream the audio generation
+                chunks = tts.synthesizer.tts_model.inference_stream(
+                    text,
+                    language,
+                    gpt_cond_latent,
+                    speaker_embedding,
+                    stream_chunk_size=20,  # ~20 tokens per chunk
+                )
+
+                chunk_count = 0
+                for chunk in chunks:
+                    if chunk is not None:
+                        # Convert to 16-bit PCM
+                        audio_np = chunk.cpu().numpy()
+
+                        # Normalize and convert to int16
+                        audio_np = np.clip(audio_np, -1.0, 1.0)
+                        audio_int16 = (audio_np * 32767).astype(np.int16)
+
+                        # Yield raw PCM bytes
+                        yield audio_int16.tobytes()
+                        chunk_count += 1
+
+                elapsed = time.time() - start_time
+                print(f"Streamed {chunk_count} chunks for '{text[:50]}...' in {elapsed:.2f}s")
+
+            except Exception as e:
+                print(f"Streaming error: {e}")
+                raise
+
+        return StreamingResponse(
+            audio_generator(),
+            media_type="audio/pcm",
+            headers={
+                "X-Audio-Sample-Rate": str(sample_rate),
+                "X-Audio-Channels": "1",
+                "X-Audio-Bits": "16",
+            }
+        )
+
+    @web_app.get("/health")
+    async def health():
+        return {"status": "ok", "streaming": True}
+
+    return web_app
+
+
 @app.function(image=tts_image)
 def test_tts():
     """Test function to verify deployment"""

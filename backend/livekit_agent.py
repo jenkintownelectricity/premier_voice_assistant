@@ -109,6 +109,16 @@ except ImportError as e:
     TurnState = None
     logging.getLogger(__name__).warning(f"VoiceAgent not available: {e}")
 
+# Coqui Streaming TTS with jitter buffer
+try:
+    from backend.coqui_streaming_tts import CoquiStreamingTTS, CoquiStreamingConfig
+    COQUI_STREAMING_AVAILABLE = True
+except ImportError as e:
+    COQUI_STREAMING_AVAILABLE = False
+    CoquiStreamingTTS = None
+    CoquiStreamingConfig = None
+    logging.getLogger(__name__).warning(f"Coqui streaming TTS not available: {e}")
+
 logger = logging.getLogger(__name__)
 
 
@@ -1564,12 +1574,25 @@ async def entrypoint(ctx: JobContext):
             tts_provider = "cartesia"
 
     elif tts_provider == "coqui":
-        # NOTE: Coqui XTTS is a batch API, not streaming. LiveKit needs streaming TTS.
-        # For real-time calls, we fall back to Cartesia but log the Coqui voice name.
-        # Future: implement streaming adapter for Coqui or use for async audio generation.
-        logger.warning(f"Coqui XTTS selected (voice={voice_id}) - falling back to Cartesia for real-time streaming")
-        logger.info("Coqui works for voice cloning and preview, but real-time calls need streaming TTS")
-        # Fall through to Cartesia below
+        # Coqui XTTS streaming TTS with jitter buffer for smooth playback
+        if COQUI_STREAMING_AVAILABLE and CoquiStreamingTTS:
+            try:
+                coqui_url = os.getenv(
+                    "COQUI_STREAM_URL",
+                    "https://jenkintownelectricity--premier-coqui-tts-synthesize-stream-web.modal.run"
+                )
+                tts = CoquiStreamingTTS(
+                    api_url=coqui_url,
+                    voice_name=voice_id or "fabio",
+                    pre_buffer_frames=3,  # ~60ms jitter buffer for smooth playback
+                )
+                logger.info(f"Coqui streaming TTS initialized (voice={voice_id or 'fabio'}, buffer=60ms)")
+            except Exception as e:
+                logger.warning(f"Coqui streaming TTS failed: {e}, falling back to Cartesia")
+                tts = None
+        else:
+            logger.warning(f"Coqui streaming TTS not available, falling back to Cartesia")
+            # Fall through to Cartesia below
 
     elif tts_provider == "kokoro":
         # NOTE: Kokoro is also a batch API deployed on Modal, not streaming.
