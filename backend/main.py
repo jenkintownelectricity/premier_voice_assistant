@@ -8011,7 +8011,8 @@ async def get_tts_voices(
     if user_id and provider in ("cartesia", "coqui"):
         try:
             # Direct table query instead of RPC
-            result = supabase.client.table("va_voice_clones") \
+            db = get_supabase()
+            result = db.client.table("va_voice_clones") \
                 .select("id, voice_name, display_name, is_public") \
                 .or_(f"user_id.eq.{user_id},is_public.eq.true") \
                 .execute()
