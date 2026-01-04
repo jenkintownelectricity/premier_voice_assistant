@@ -383,6 +383,18 @@ export default function AssistantsPage() {
       latency: "~60ms TTFB",
       default_voice: "mist",
     },
+    coqui: {
+      name: "Coqui XTTS (Voice Clones)",
+      description: "Your cloned voices via Modal GPU",
+      latency: "~500ms TTFB",
+      default_voice: "default",
+    },
+    fish_speech: {
+      name: "Fish Speech (Voice Clones)",
+      description: "Open-source voice synthesis with cloning",
+      latency: "~400ms TTFB",
+      default_voice: "default",
+    },
   };
 
   // Dynamic voice state - fetched from API
@@ -810,6 +822,10 @@ export default function AssistantsPage() {
                         <option value="elevenlabs">ElevenLabs</option>
                         <option value="openai">OpenAI TTS</option>
                         <option value="playht">PlayHT</option>
+                      </optgroup>
+                      <optgroup label="Voice Clones (Your Voices)">
+                        <option value="coqui">Coqui XTTS (GPU)</option>
+                        <option value="fish_speech">Fish Speech (GPU)</option>
                       </optgroup>
                     </select>
                   </div>
