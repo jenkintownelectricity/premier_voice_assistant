@@ -103,6 +103,79 @@ def seed_plan_features():
                 "overage_allowed": True,  # Allow overages
                 "overage_rate_cents": 3,  # $0.03 per minute overage (best rate)
             },
+            # Bee-themed plans
+            "worker_bee": {
+                "max_minutes": 400,  # 400 minutes per month
+                "max_assistants": -1,  # Unlimited assistants
+                "max_voice_clones": 1,  # 1 voice clone
+                "custom_voices": True,  # Can create custom voices
+                "api_access": True,  # API access
+                "priority_support": True,  # Priority support
+                "analytics": True,  # Full analytics
+                "advanced_analytics": False,
+                "webrtc_enabled": True,
+                "all_platforms": True,
+                "call_sharing": True,
+                "team_members": 1,
+                "webhooks": True,
+                "crm_integrations": False,
+                "overage_allowed": True,
+                "overage_rate_cents": 4,
+            },
+            "swarm": {
+                "max_minutes": 1350,  # 1,350 minutes per month
+                "max_assistants": -1,  # Unlimited assistants
+                "max_voice_clones": 3,  # 3 voice clones
+                "custom_voices": True,
+                "api_access": True,
+                "priority_support": True,
+                "analytics": True,
+                "advanced_analytics": True,
+                "webrtc_enabled": True,
+                "all_platforms": True,
+                "call_sharing": True,
+                "team_members": 3,
+                "webhooks": True,
+                "crm_integrations": True,
+                "overage_allowed": True,
+                "overage_rate_cents": 3,
+            },
+            "queen_bee": {
+                "max_minutes": 3500,  # 3,500 minutes per month
+                "max_assistants": -1,  # Unlimited assistants
+                "max_voice_clones": 10,  # 10 voice clones
+                "custom_voices": True,
+                "api_access": True,
+                "priority_support": True,
+                "analytics": True,
+                "advanced_analytics": True,
+                "webrtc_enabled": True,
+                "all_platforms": True,
+                "call_sharing": True,
+                "team_members": 10,
+                "webhooks": True,
+                "crm_integrations": True,
+                "overage_allowed": True,
+                "overage_rate_cents": 2,
+            },
+            "hive_mind": {
+                "max_minutes": 10000,  # 10,000 minutes per month
+                "max_assistants": -1,  # Unlimited assistants
+                "max_voice_clones": -1,  # Unlimited voice clones
+                "custom_voices": True,
+                "api_access": True,
+                "priority_support": True,
+                "analytics": True,
+                "advanced_analytics": True,
+                "webrtc_enabled": True,
+                "all_platforms": True,
+                "call_sharing": True,
+                "team_members": -1,  # Unlimited
+                "webhooks": True,
+                "crm_integrations": True,
+                "overage_allowed": True,
+                "overage_rate_cents": 1,
+            },
         }
 
         # Delete existing features (for re-seeding)
