@@ -406,6 +406,12 @@ class FishSpeechError(Exception):
 # LIVEKIT INTEGRATION
 # =============================================================================
 
+@dataclass
+class TTSCapabilities:
+    """TTS capabilities for LiveKit compatibility."""
+    streaming: bool = True
+
+
 class FishSpeechLiveKitTTS:
     """
     LiveKit-compatible TTS wrapper for Fish Speech.
@@ -422,6 +428,8 @@ class FishSpeechLiveKitTTS:
         self.config = config or FishSpeechConfig()
         self.voice_id = voice_id or self.config.default_voice
         self._client = FishSpeechTTS(self.config)
+        # LiveKit requires capabilities attribute
+        self.capabilities = TTSCapabilities(streaming=True)
 
     @property
     def sample_rate(self) -> int:

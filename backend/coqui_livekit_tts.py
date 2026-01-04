@@ -59,6 +59,12 @@ class CoquiConfig:
     stream_timeout: float = 60.0
 
 
+@dataclass
+class TTSCapabilities:
+    """TTS capabilities for LiveKit compatibility."""
+    streaming: bool = True
+
+
 class CoquiLiveKitTTS:
     """
     LiveKit-compatible TTS wrapper for Coqui XTTS.
@@ -82,6 +88,8 @@ class CoquiLiveKitTTS:
             self.config.api_url = api_url
         self.voice_id = voice_id or "default"
         self._http_client: Optional[httpx.AsyncClient] = None
+        # LiveKit requires capabilities attribute
+        self.capabilities = TTSCapabilities(streaming=True)
 
         logger.info(f"Coqui LiveKit TTS initialized: {self.config.api_url}, voice={self.voice_id}")
 
