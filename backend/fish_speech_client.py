@@ -1,18 +1,23 @@
 """
-Fish Speech TTS Client - Cloud API + Voice Cloning
+Fish Speech TTS Client - Cloud API + OpenVoice Fallback
 
 This client uses the Fish Audio Cloud API (https://fish.audio) for TTS synthesis.
-Falls back to placeholder if no API key is configured.
+Falls back to self-hosted OpenVoice (MIT licensed) on Modal if no API key is configured.
 
 Features:
 - Real-time streaming synthesis via Fish Audio Cloud
 - Zero-shot voice cloning from audio samples
 - Multiple languages (English, Chinese, Japanese, Korean, etc.)
-- High-quality audio output (44100 Hz by default)
+- MIT licensed fallback (OpenVoice + MeloTTS) for commercial use
 
 Configuration:
-    FISH_AUDIO_API_KEY - API key from https://fish.audio (REQUIRED for real TTS)
-    FISH_SPEECH_SAMPLE_RATE - Output sample rate (default: 44100)
+    FISH_AUDIO_API_KEY - API key from https://fish.audio (optional, for Cloud API)
+    FISH_SPEECH_URL - Modal endpoint URL (default: OpenVoice Modal deployment)
+    FISH_SPEECH_SAMPLE_RATE - Output sample rate (default: 24000)
+
+Priority:
+    1. Fish Audio Cloud API (if FISH_AUDIO_API_KEY is set) - Paid service
+    2. OpenVoice Modal (fallback) - MIT licensed, free self-hosted
 
 Usage:
     from fish_speech_client import FishSpeechTTS, FishSpeechConfig
@@ -69,17 +74,17 @@ class FishSpeechConfig:
         )
     )
 
-    # Fallback Modal endpoint (used if no API key)
+    # Fallback Modal endpoint (OpenVoice - MIT licensed)
     modal_url: str = field(
         default_factory=lambda: os.getenv(
             "FISH_SPEECH_URL",
-            "https://jenkintownelectricity--fish-speech-tts-fastapi-app.modal.run"
+            "https://jenkintownelectricity--openvoice-tts-fastapi-app.modal.run"
         )
     )
 
-    # Audio settings
+    # Audio settings (24000 Hz for OpenVoice compatibility)
     sample_rate: int = field(
-        default_factory=lambda: int(os.getenv("FISH_SPEECH_SAMPLE_RATE", "44100"))
+        default_factory=lambda: int(os.getenv("FISH_SPEECH_SAMPLE_RATE", "24000"))
     )
     channels: int = 1  # Mono output
     format: str = "pcm"  # PCM 16-bit
@@ -156,7 +161,7 @@ class FishSpeechTTS:
         else:
             self._use_cloud = False
             self._api_base = self.config.modal_url
-            logger.info(f"Using self-hosted Fish Speech Modal: {self._api_base}")
+            logger.info(f"Using OpenVoice TTS (MIT licensed) via Modal: {self._api_base}")
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""

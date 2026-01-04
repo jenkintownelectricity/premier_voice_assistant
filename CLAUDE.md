@@ -1,6 +1,6 @@
 # Project Context and AI Agent Instructions
 
-> **Single source of truth for Claude** | Last Updated: January 2, 2026
+> **Single source of truth for Claude** | Last Updated: January 4, 2026
 
 This document ensures consistent and high-quality contributions to the HIVE215 Voice AI Platform repository.
 
@@ -196,7 +196,8 @@ cmd = "bash scripts/start.sh"
 | `LIVEKIT_API_SECRET` | Both | LiveKit authentication |
 | `DEEPGRAM_API_KEY` | Worker | STT service (also enables Deepgram TTS) |
 | `CARTESIA_API_KEY` | Worker | TTS service (recommended) |
-| `FISH_AUDIO_API_KEY` | Worker | Fish Audio Cloud TTS (for Fish Speech voices) |
+| `FISH_AUDIO_API_KEY` | Worker | Fish Audio Cloud TTS (optional, paid) |
+| `FISH_SPEECH_URL` | Worker | OpenVoice Modal endpoint (fallback if no Fish Audio key) |
 | `ELEVENLABS_API_KEY` | Worker | ElevenLabs TTS (optional, premium) |
 | `GROQ_API_KEY` | Worker | LLM (Groq Llama) |
 | `OPENAI_API_KEY` | Worker | LLM fallback |
@@ -327,6 +328,7 @@ When creating visual HTML documentation:
 | ADR-007 | Iron Ear V2: Speaker Locking (volume-based filtering) | Accepted | 2025-12-31 |
 | ADR-008 | Iron Ear V3: Identity Lock with Resemblyzer embeddings | Accepted | 2025-12-31 |
 | ADR-009 | Default VoiceCallWrapper to LiveKit mode | Accepted | 2025-12-31 |
+| ADR-010 | OpenVoice (MIT) as self-hosted TTS fallback | Accepted | 2026-01-04 |
 
 ---
 
@@ -657,4 +659,4 @@ git push origin main
 
 ---
 
-*Last updated by Claude on December 31, 2025*
+*Last updated by Claude on January 4, 2026*
