@@ -8006,40 +8006,20 @@ async def get_tts_voices(
         for v in provider_info["voices"]
     ]
 
-    # Get user's voice clones
+    # Get user's voice clones (for any provider that supports cloning)
     user_clones = []
-    if user_id and provider == "cartesia":
+    if user_id and provider in ("cartesia", "coqui"):
         try:
-            result = supabase.client.rpc(
-                "va_client_get_voice_clones",
-                {"p_user_id": user_id}
-            ).execute()
+            # Direct table query instead of RPC
+            result = supabase.client.table("va_voice_clones") \
+                .select("id, voice_name, display_name, is_public") \
+                .or_(f"user_id.eq.{user_id},is_public.eq.true") \
+                .execute()
+
             if result.data:
                 user_clones = [
                     {
                         "id": clone["voice_name"],
-                        "name": clone["display_name"],
-                        "gender": "unknown",
-                        "accent": "Custom",
-                        "is_user_clone": True,
-                    }
-                    for clone in result.data
-                ]
-        except Exception as e:
-            logger.warning(f"Failed to fetch user voice clones: {e}")
-
-    # Get Coqui cloned voices - load from database (same as Cartesia)
-    if provider == "coqui" and user_id:
-        try:
-            result = supabase.client.rpc(
-                "va_client_get_voice_clones",
-                {"p_user_id": user_id}
-            ).execute()
-            if result.data:
-                # For Coqui, user clones ARE the voices (no preset voices)
-                user_clones = [
-                    {
-                        "id": clone["voice_name"],  # Modal uses voice_name as ID
                         "name": clone["display_name"],
                         "gender": "custom",
                         "accent": "Cloned",
@@ -8047,10 +8027,13 @@ async def get_tts_voices(
                     }
                     for clone in result.data
                 ]
-                voices = []  # Clear placeholder since we have real clones
-                logger.info(f"Loaded {len(user_clones)} Coqui cloned voices for user {user_id}")
+                logger.info(f"Loaded {len(user_clones)} voice clones for user {user_id}")
+
+                # For Coqui, clones ARE the voices (clear placeholders)
+                if provider == "coqui" and user_clones:
+                    voices = []
         except Exception as e:
-            logger.warning(f"Failed to fetch Coqui voice clones: {e}")
+            logger.warning(f"Failed to fetch voice clones: {e}")
 
     return {
         "provider": provider,
