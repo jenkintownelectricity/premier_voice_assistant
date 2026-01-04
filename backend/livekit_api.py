@@ -259,8 +259,17 @@ async def create_room(
                 )
             )
             logger.info(f"Created LiveKit room: {room_name}")
-            # Note: Agent dispatch is handled automatically by LiveKit Cloud
-            # when the worker is registered and the room is created
+
+            # Dispatch an agent to join the room explicitly
+            # Required because LiveKit Cloud auto-dispatch is not configured
+            await room_api.agent_dispatch.create_dispatch(
+                livekit_api.CreateAgentDispatchRequest(
+                    room=room_name,
+                    agent_name="hive-agent",  # Named agent helps debug duplicates
+                    metadata=room_metadata,
+                )
+            )
+            logger.info(f"Dispatched agent to room: {room_name}")
         finally:
             await room_api.aclose()
 
