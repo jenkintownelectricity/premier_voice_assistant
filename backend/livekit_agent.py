@@ -1592,11 +1592,16 @@ async def entrypoint(ctx: JobContext):
 
     elif tts_provider == "fish_speech" and FISH_SPEECH_AVAILABLE:
         try:
-            # Fish Speech with StreamSmoother for jitter-free playback
+            # Fish Speech via Fish Audio Cloud API
+            # Requires FISH_AUDIO_API_KEY environment variable
             fish_config = FishSpeechConfig(
-                api_url=config.fish_speech_url,
                 sample_rate=config.fish_speech_sample_rate,
             )
+            if not fish_config.has_api_key:
+                logger.warning("FISH_AUDIO_API_KEY not set - Fish Speech will not work!")
+                logger.warning("Get your API key from https://fish.audio and set FISH_AUDIO_API_KEY")
+                raise ValueError("FISH_AUDIO_API_KEY not configured")
+
             tts = FishSpeechLiveKitTTS(
                 config=fish_config,
                 voice_id=voice_id or "default",

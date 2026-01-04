@@ -194,11 +194,15 @@ cmd = "bash scripts/start.sh"
 | `LIVEKIT_URL` | Worker | LiveKit Cloud WebSocket URL |
 | `LIVEKIT_API_KEY` | Both | LiveKit authentication |
 | `LIVEKIT_API_SECRET` | Both | LiveKit authentication |
-| `DEEPGRAM_API_KEY` | Worker | STT service |
-| `CARTESIA_API_KEY` | Worker | TTS service |
+| `DEEPGRAM_API_KEY` | Worker | STT service (also enables Deepgram TTS) |
+| `CARTESIA_API_KEY` | Worker | TTS service (recommended) |
+| `FISH_AUDIO_API_KEY` | Worker | Fish Audio Cloud TTS (for Fish Speech voices) |
+| `ELEVENLABS_API_KEY` | Worker | ElevenLabs TTS (optional, premium) |
+| `GROQ_API_KEY` | Worker | LLM (Groq Llama) |
 | `OPENAI_API_KEY` | Worker | LLM fallback |
 | `SERVICE_TYPE` | Both | `web` or `worker` (Railway) |
 | `FAST_BRAIN_URL` | Both | Modal Fast Brain endpoint |
+| `DEFAULT_SKILL` | Worker | Fast Brain skill (default: `default`) |
 
 ### 3.6. Fast Brain Management
 
