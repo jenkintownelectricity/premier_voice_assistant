@@ -444,8 +444,17 @@ class FishSpeechLiveKitTTS:
         result = await self._client.synthesize(text, voice_id=self.voice_id)
         return result.audio_bytes
 
-    async def stream(self, text: str) -> AsyncIterator[bytes]:
-        """Stream synthesize text to audio chunks."""
+    async def stream(self, text: str = None, *, conn_options=None, **kwargs) -> AsyncIterator[bytes]:
+        """Stream synthesize text to audio chunks.
+
+        Args:
+            text: Text to synthesize (can also be passed via kwargs)
+            conn_options: LiveKit connection options (ignored, for compatibility)
+            **kwargs: Additional arguments for LiveKit compatibility
+        """
+        # Handle text being passed different ways
+        if text is None:
+            text = kwargs.get('text', '')
         async for chunk in self._client.synthesize_stream(text, voice_id=self.voice_id):
             yield chunk
 

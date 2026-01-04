@@ -153,18 +153,23 @@ class CoquiLiveKitTTS:
             logger.error(f"Coqui synthesis error: {e}")
             return b''
 
-    async def stream(self, text: str) -> AsyncIterator[bytes]:
+    async def stream(self, text: str = None, *, conn_options=None, **kwargs) -> AsyncIterator[bytes]:
         """
         Stream synthesize text to audio chunks.
 
         This method tries streaming first, then falls back to chunked batch.
 
         Args:
-            text: Text to synthesize
+            text: Text to synthesize (can also be passed via kwargs)
+            conn_options: LiveKit connection options (ignored, for compatibility)
+            **kwargs: Additional arguments for LiveKit compatibility
 
         Yields:
             Audio chunks as bytes (PCM 16-bit)
         """
+        # Handle text being passed different ways
+        if text is None:
+            text = kwargs.get('text', '')
         # Try streaming endpoint first
         try:
             client = await self._get_client()
