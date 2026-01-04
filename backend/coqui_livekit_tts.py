@@ -65,6 +65,31 @@ class TTSCapabilities:
     streaming: bool = True
 
 
+class TTSStreamWrapper:
+    """Wrapper to make async generator compatible with async context manager protocol."""
+
+    def __init__(self, generator):
+        self._generator = generator
+        self._iterator = None
+
+    async def __aenter__(self):
+        self._iterator = self._generator.__aiter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Cleanup if needed
+        pass
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return await self._iterator.__anext__()
+        except StopAsyncIteration:
+            raise
+
+
 class CoquiLiveKitTTS:
     """
     LiveKit-compatible TTS wrapper for Coqui XTTS.
@@ -153,64 +178,69 @@ class CoquiLiveKitTTS:
             logger.error(f"Coqui synthesis error: {e}")
             return b''
 
-    async def stream(self, text: str = None, *, conn_options=None, **kwargs) -> AsyncIterator[bytes]:
+    def stream(self, text: str = None, *, conn_options=None, **kwargs) -> TTSStreamWrapper:
         """
         Stream synthesize text to audio chunks.
 
         This method tries streaming first, then falls back to chunked batch.
+        Returns an async context manager that yields audio chunks.
 
         Args:
             text: Text to synthesize (can also be passed via kwargs)
             conn_options: LiveKit connection options (ignored, for compatibility)
             **kwargs: Additional arguments for LiveKit compatibility
 
-        Yields:
-            Audio chunks as bytes (PCM 16-bit)
+        Returns:
+            TTSStreamWrapper that yields audio chunks as bytes (PCM 16-bit)
         """
         # Handle text being passed different ways
         if text is None:
             text = kwargs.get('text', '')
-        # Try streaming endpoint first
-        try:
-            client = await self._get_client()
 
-            # Try streaming request
-            async with client.stream(
-                "POST",
-                self.config.api_url,
-                data={
-                    "text": text,
-                    "voice_name": self.voice_id,
-                    "language": "en",
-                    "stream": "true",
-                },
-                timeout=self.config.stream_timeout,
-            ) as response:
-                if response.status_code == 200:
-                    # Check if response is streaming
-                    content_type = response.headers.get("content-type", "")
+        async def _generate():
+            # Try streaming endpoint first
+            try:
+                client = await self._get_client()
 
-                    if "chunked" in response.headers.get("transfer-encoding", ""):
-                        # True streaming response
-                        async for chunk in response.aiter_bytes():
-                            if chunk:
+                # Try streaming request
+                async with client.stream(
+                    "POST",
+                    self.config.api_url,
+                    data={
+                        "text": text,
+                        "voice_name": self.voice_id,
+                        "language": "en",
+                        "stream": "true",
+                    },
+                    timeout=self.config.stream_timeout,
+                ) as response:
+                    if response.status_code == 200:
+                        # Check if response is streaming
+                        content_type = response.headers.get("content-type", "")
+
+                        if "chunked" in response.headers.get("transfer-encoding", ""):
+                            # True streaming response
+                            async for chunk in response.aiter_bytes():
+                                if chunk:
+                                    yield chunk
+                            return
+                        else:
+                            # Batch response - read all and chunk
+                            full_audio = await response.aread()
+                            async for chunk in self._chunk_audio(full_audio):
                                 yield chunk
-                        return
-                    else:
-                        # Batch response - read all and chunk
-                        full_audio = await response.aread()
-                        async for chunk in self._chunk_audio(full_audio):
-                            yield chunk
-                        return
+                            return
 
-        except Exception as e:
-            logger.warning(f"Streaming request failed: {e}, trying batch")
+            except Exception as e:
+                logger.warning(f"Streaming request failed: {e}, trying batch")
 
-        # Fall back to batch synthesis
-        audio_bytes = await self.synthesize(text)
-        if audio_bytes:
-            async for chunk in self._chunk_audio(audio_bytes):
-                yield chunk
+            # Fall back to batch synthesis
+            audio_bytes = await self.synthesize(text)
+            if audio_bytes:
+                async for chunk in self._chunk_audio(audio_bytes):
+                    yield chunk
+
+        return TTSStreamWrapper(_generate())
 
     async def _chunk_audio(self, audio_bytes: bytes, chunk_ms: int = 100) -> AsyncIterator[bytes]:
         """

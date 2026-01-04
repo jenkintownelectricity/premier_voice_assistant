@@ -412,6 +412,31 @@ class TTSCapabilities:
     streaming: bool = True
 
 
+class TTSStreamWrapper:
+    """Wrapper to make async generator compatible with async context manager protocol."""
+
+    def __init__(self, generator):
+        self._generator = generator
+        self._iterator = None
+
+    async def __aenter__(self):
+        self._iterator = self._generator.__aiter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # Cleanup if needed
+        pass
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return await self._iterator.__anext__()
+        except StopAsyncIteration:
+            raise
+
+
 class FishSpeechLiveKitTTS:
     """
     LiveKit-compatible TTS wrapper for Fish Speech.
@@ -444,8 +469,10 @@ class FishSpeechLiveKitTTS:
         result = await self._client.synthesize(text, voice_id=self.voice_id)
         return result.audio_bytes
 
-    async def stream(self, text: str = None, *, conn_options=None, **kwargs) -> AsyncIterator[bytes]:
+    def stream(self, text: str = None, *, conn_options=None, **kwargs) -> TTSStreamWrapper:
         """Stream synthesize text to audio chunks.
+
+        Returns an async context manager that yields audio chunks.
 
         Args:
             text: Text to synthesize (can also be passed via kwargs)
@@ -455,8 +482,12 @@ class FishSpeechLiveKitTTS:
         # Handle text being passed different ways
         if text is None:
             text = kwargs.get('text', '')
-        async for chunk in self._client.synthesize_stream(text, voice_id=self.voice_id):
-            yield chunk
+
+        async def _generate():
+            async for chunk in self._client.synthesize_stream(text, voice_id=self.voice_id):
+                yield chunk
+
+        return TTSStreamWrapper(_generate())
 
     async def close(self):
         """Close the TTS client."""
