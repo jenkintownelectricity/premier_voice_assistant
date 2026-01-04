@@ -21,13 +21,6 @@ interface Assistant {
   call_count: number;
 }
 
-interface VoiceClone {
-  id: string;
-  voice_name: string;
-  display_name: string;
-  is_public: boolean;
-}
-
 interface TTSVoice {
   id: string;
   name: string;
@@ -329,9 +322,6 @@ export default function AssistantsPage() {
   // Template selection
   const [selectedTemplate, setSelectedTemplate] = useState('custom');
 
-  // Voice clones
-  const [voiceClones, setVoiceClones] = useState<VoiceClone[]>([]);
-
   // Dynamic voices from API
   const [providerVoices, setProviderVoices] = useState<TTSVoice[]>([]);
   const [userVoiceClones, setUserVoiceClones] = useState<TTSVoice[]>([]);
@@ -544,7 +534,6 @@ export default function AssistantsPage() {
   useEffect(() => {
     if (user?.id) {
       loadAssistants();
-      loadVoiceClones();
       loadSkills();
       loadProviderVoices(ttsProvider);
     }
@@ -556,22 +545,6 @@ export default function AssistantsPage() {
       loadProviderVoices(ttsProvider);
     }
   }, [ttsProvider, user?.id]);
-
-  const loadVoiceClones = async () => {
-    if (!user?.id) return;
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://web-production-1b085.up.railway.app';
-      const response = await fetch(`${apiUrl}/voice-clones`, {
-        headers: { 'X-User-ID': user.id },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setVoiceClones(data.voice_clones || []);
-      }
-    } catch (err) {
-      console.error('Failed to load voice clones:', err);
-    }
-  };
 
   const loadSkills = async () => {
     setLoadingSkills(true);
