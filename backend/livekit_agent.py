@@ -1637,11 +1637,19 @@ async def entrypoint(ctx: JobContext):
 
     # Default/fallback: Cartesia (recommended - lowest latency)
     if tts is None:
+        # When falling back from Coqui/Fish Speech/Kokoro, use default Cartesia voice
+        # (the original voice_id might be a clone name like "Armand" which Cartesia doesn't know)
+        fallback_voice = config.cartesia_voice_id
+        if tts_provider == "cartesia" and voice_id:
+            # Only use voice_id if we're explicitly using Cartesia (not falling back)
+            fallback_voice = voice_id
         tts = cartesia.TTS(
             model="sonic-english",
-            voice=voice_id or config.cartesia_voice_id,
+            voice=fallback_voice,
         )
-        logger.info(f"Cartesia TTS initialized (voice={voice_id[:16] if voice_id else config.cartesia_voice_id[:16]}...)")
+        if tts_provider != "cartesia":
+            logger.warning(f"Falling back to Cartesia TTS with default voice (original: {voice_id})")
+        logger.info(f"Cartesia TTS initialized (voice={fallback_voice[:16]}...)")
 
     # Initialize VAD (Silero) - required for detecting user speech
     vad = silero.VAD.load()
