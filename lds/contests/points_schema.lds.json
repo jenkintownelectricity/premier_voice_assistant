@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "id": "schema:points:v1",
+  "t": 1736899200000,
+  "kernel": [
+    "presence.true",
+    "state.stable",
+    "integrity.intact"
+  ],
+  "sense": {
+    "actions": {
+      "invite_sent": 10,
+      "invite_converted": 100,
+      "first_call": 50,
+      "daily_login": 5,
+      "feature_used": 25
+    },
+    "redemptions": {
+      "trial_extension_7d": 200,
+      "trial_extension_30d": 500,
+      "voice_clone_unlock": 300,
+      "extra_minutes_100": 400
+    }
+  },
+  "instruction": {
+    "prune_unused": "ask_permission",
+    "auto_create": false
+  }
+}

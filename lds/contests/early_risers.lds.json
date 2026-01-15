@@ -1,0 +1,28 @@
+{
+  "v": 1,
+  "id": "contest:early_risers:2026",
+  "t": 1736899200000,
+  "kernel": [
+    "presence.true",
+    "gate.open",
+    "state.stable",
+    "phase.active",
+    "flow.on"
+  ],
+  "sense": {
+    "contest_name": "EARLY RISERS",
+    "trial_days": 90,
+    "tier": "premium",
+    "funding_dependent": true
+  },
+  "capability": [
+    "cap.invite",
+    "cap.redeem",
+    "cap.observe"
+  ],
+  "instruction": {
+    "pricing": "preserve_existing",
+    "access": "all_features",
+    "end_condition": "funding_depleted"
+  }
+}
