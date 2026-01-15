@@ -830,6 +830,66 @@ export const referralApi = {
     ),
 };
 
+// Contest API (Early Risers)
+export const contestApi = {
+  getContestInfo: (userId: string) =>
+    fetchAPI<{
+      contest: {
+        id: string;
+        contest_id: string;
+        name: string;
+        description: string;
+        status: string;
+        trial_days: number;
+        tier: string;
+      } | null;
+      entry: {
+        id: string;
+        points_balance: number;
+        invites_sent: number;
+        invites_converted: number;
+        trial_start: string;
+        trial_end: string;
+        features_unlocked: string[];
+      } | null;
+      points_history: Array<{
+        id: string;
+        action: string;
+        points: number;
+        created_at: string;
+      }>;
+      points_schema: Record<string, number>;
+      rewards_schema: Record<string, { points: number; days?: number; minutes?: number; feature?: string }>;
+    }>('/contest', {}, userId),
+
+  joinContest: (userId: string, contestId: string = 'early_risers_2026') =>
+    fetchAPI<{ success: boolean; message: string; entry: any; trial_end: string }>(
+      '/contest/join',
+      { method: 'POST', body: JSON.stringify({ contest_id: contestId }) },
+      userId
+    ),
+
+  addPoints: (userId: string, action: string, metadata?: Record<string, any>) =>
+    fetchAPI<{ success: boolean; action: string; points_earned: number; new_balance: number }>(
+      '/contest/points',
+      { method: 'POST', body: JSON.stringify({ action, metadata }) },
+      userId
+    ),
+
+  redeemReward: (userId: string, rewardType: string, pointsCost: number) =>
+    fetchAPI<{ success: boolean; reward_type: string; reward_applied: any; new_balance: number }>(
+      '/contest/redeem',
+      { method: 'POST', body: JSON.stringify({ reward_type: rewardType, points_cost: pointsCost }) },
+      userId
+    ),
+
+  getLeaderboard: (limit: number = 20) =>
+    fetchAPI<{ leaderboard: Array<{ user_id: string; points_balance: number; invites_converted: number; created_at: string }> }>(
+      `/contest/leaderboard?limit=${limit}`,
+      {}
+    ),
+};
+
 // Team Enhancements
 export const teamApi = {
   ...api,
