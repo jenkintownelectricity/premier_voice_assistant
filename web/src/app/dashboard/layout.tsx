@@ -125,6 +125,12 @@ const ReferralIcon = () => (
   </svg>
 );
 
+const ContestIcon = () => (
+  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+  </svg>
+);
+
 const MonitoringIcon = () => (
   <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -149,6 +155,7 @@ const navItems = [
   { name: 'Usage', href: '/dashboard/usage', icon: <UsageIcon /> },
   { name: 'Teams', href: '/dashboard/teams', icon: <TeamIcon /> },
   { name: 'Referrals', href: '/dashboard/referrals', icon: <ReferralIcon /> },
+  { name: 'Contest', href: '/dashboard/contest', icon: <ContestIcon /> },
   { name: 'Profile', href: '/dashboard/profile', icon: <ProfileIcon /> },
   { name: 'Settings', href: '/dashboard/settings', icon: <SettingsIcon /> },
   { name: 'Developer', href: '/dashboard/developer', icon: <DeveloperIcon /> },
