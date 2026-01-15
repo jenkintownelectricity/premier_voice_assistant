@@ -1,0 +1,27 @@
+{
+  "v": 1,
+  "id": "template:contest_entry",
+  "t": 1736899200000,
+  "kernel": [
+    "presence.true",
+    "phase.init",
+    "count.zero",
+    "link.none"
+  ],
+  "sense": {
+    "points_balance": 0,
+    "invites_sent": 0,
+    "invites_converted": 0,
+    "trial_start": null,
+    "trial_end": null,
+    "features_unlocked": []
+  },
+  "capability": [
+    "cap.emit",
+    "cap.reference"
+  ],
+  "validation": {
+    "requires": ["user_id", "contest_id"],
+    "immutable_after": "trial_end"
+  }
+}

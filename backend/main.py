@@ -8239,6 +8239,296 @@ async def preview_tts_voice(
 # =============================================================================
 
 
+# =============================================================================
+# EARLY RISERS CONTEST ENDPOINTS
+# =============================================================================
+
+class ContestJoinRequest(BaseModel):
+    contest_id: str = "early_risers_2026"
+
+class ContestPointsRequest(BaseModel):
+    action: str
+    metadata: Optional[Dict] = None
+
+class ContestRedeemRequest(BaseModel):
+    reward_type: str
+    points_cost: int
+
+# Points values (from LDS schema)
+CONTEST_POINTS = {
+    "invite_sent": 10,
+    "invite_converted": 100,
+    "first_call": 50,
+    "daily_login": 5,
+    "feature_used": 25
+}
+
+CONTEST_REWARDS = {
+    "trial_extension_7d": {"points": 200, "days": 7},
+    "trial_extension_30d": {"points": 500, "days": 30},
+    "voice_clone_unlock": {"points": 300, "feature": "voice_clone"},
+    "extra_minutes_100": {"points": 400, "minutes": 100}
+}
+
+@app.get("/contest")
+async def get_contest_info(
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get active contest info and user's standing."""
+    try:
+        # Get active contest
+        contest_result = db.client.table("va_contests").select("*").eq(
+            "status", "active"
+        ).execute()
+
+        if not contest_result.data:
+            return {"contest": None, "entry": None}
+
+        contest = contest_result.data[0]
+
+        # Get user's entry
+        entry_result = db.client.table("va_contest_entries").select("*").eq(
+            "contest_id", contest["id"]
+        ).eq("user_id", user_id).execute()
+
+        entry = entry_result.data[0] if entry_result.data else None
+
+        # Get points history if enrolled
+        points_history = []
+        if entry:
+            history_result = db.client.table("va_contest_points").select("*").eq(
+                "entry_id", entry["id"]
+            ).order("created_at", desc=True).limit(20).execute()
+            points_history = history_result.data or []
+
+        return {
+            "contest": contest,
+            "entry": entry,
+            "points_history": points_history,
+            "points_schema": CONTEST_POINTS,
+            "rewards_schema": CONTEST_REWARDS
+        }
+    except Exception as e:
+        logger.error(f"Error getting contest: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/contest/join")
+async def join_contest(
+    request: ContestJoinRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Join the Early Risers Contest - get 90-day premium trial."""
+    try:
+        # Get contest
+        contest_result = db.client.table("va_contests").select("*").eq(
+            "contest_id", request.contest_id
+        ).eq("status", "active").execute()
+
+        if not contest_result.data:
+            raise HTTPException(status_code=404, detail="Contest not active")
+
+        contest = contest_result.data[0]
+
+        # Check if already enrolled
+        existing = db.client.table("va_contest_entries").select("id").eq(
+            "contest_id", contest["id"]
+        ).eq("user_id", user_id).execute()
+
+        if existing.data:
+            raise HTTPException(status_code=400, detail="Already enrolled in contest")
+
+        # Calculate trial end (90 days)
+        from datetime import timedelta
+        trial_start = datetime.utcnow()
+        trial_end = trial_start + timedelta(days=contest.get("trial_days", 90))
+
+        # Create entry
+        entry_result = db.client.table("va_contest_entries").insert({
+            "contest_id": contest["id"],
+            "user_id": user_id,
+            "points_balance": 0,
+            "trial_start": trial_start.isoformat(),
+            "trial_end": trial_end.isoformat(),
+            "lds_entity_id": f"entry:{user_id}:{contest['contest_id']}"
+        }).execute()
+
+        entry = entry_result.data[0] if entry_result.data else None
+
+        # Update subscription to premium trial
+        db.client.table("va_user_subscriptions").upsert({
+            "user_id": user_id,
+            "plan_id": "queen_bee",  # Premium tier
+            "status": "trialing",
+            "is_trial": True,
+            "trial_end": trial_end.isoformat(),
+            "current_period_start": trial_start.isoformat(),
+            "current_period_end": trial_end.isoformat()
+        }).execute()
+
+        return {
+            "success": True,
+            "message": f"Welcome to EARLY RISERS! You have {contest.get('trial_days', 90)} days of premium access.",
+            "entry": entry,
+            "trial_end": trial_end.isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error joining contest: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/contest/points")
+async def add_contest_points(
+    request: ContestPointsRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Add points for an action."""
+    try:
+        points = CONTEST_POINTS.get(request.action, 0)
+        if points == 0:
+            raise HTTPException(status_code=400, detail=f"Unknown action: {request.action}")
+
+        result = db.client.rpc("va_add_contest_points", {
+            "p_user_id": user_id,
+            "p_action": request.action,
+            "p_points": points,
+            "p_metadata": json.dumps(request.metadata or {})
+        }).execute()
+
+        new_balance = result.data if result.data else -1
+
+        if new_balance == -1:
+            raise HTTPException(status_code=400, detail="Not enrolled in active contest")
+
+        return {
+            "success": True,
+            "action": request.action,
+            "points_earned": points,
+            "new_balance": new_balance
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding points: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/contest/redeem")
+async def redeem_contest_reward(
+    request: ContestRedeemRequest,
+    user_id: str = Header(..., alias="X-User-ID"),
+    db: SupabaseManager = Depends(get_db),
+):
+    """Redeem points for rewards."""
+    try:
+        reward = CONTEST_REWARDS.get(request.reward_type)
+        if not reward:
+            raise HTTPException(status_code=400, detail=f"Unknown reward: {request.reward_type}")
+
+        if request.points_cost != reward["points"]:
+            raise HTTPException(status_code=400, detail=f"Invalid points cost. Required: {reward['points']}")
+
+        result = db.client.rpc("va_redeem_contest_points", {
+            "p_user_id": user_id,
+            "p_reward_type": request.reward_type,
+            "p_points_cost": request.points_cost,
+            "p_reward_value": json.dumps(reward)
+        }).execute()
+
+        response = result.data if result.data else {"success": False, "error": "unknown"}
+
+        if not response.get("success"):
+            raise HTTPException(status_code=400, detail=response.get("error", "Redemption failed"))
+
+        # Apply reward
+        if "days" in reward:
+            # Extend trial
+            entry_result = db.client.table("va_contest_entries").select("trial_end").eq(
+                "user_id", user_id
+            ).execute()
+            if entry_result.data:
+                from datetime import timedelta
+                current_end = datetime.fromisoformat(entry_result.data[0]["trial_end"].replace("Z", ""))
+                new_end = current_end + timedelta(days=reward["days"])
+                db.client.table("va_contest_entries").update({
+                    "trial_end": new_end.isoformat()
+                }).eq("user_id", user_id).execute()
+                db.client.table("va_user_subscriptions").update({
+                    "trial_end": new_end.isoformat(),
+                    "current_period_end": new_end.isoformat()
+                }).eq("user_id", user_id).execute()
+
+        elif "minutes" in reward:
+            # Add bonus minutes
+            usage = db.client.table("va_usage_tracking").select("bonus_minutes").eq(
+                "user_id", user_id
+            ).execute()
+            current_bonus = usage.data[0].get("bonus_minutes", 0) if usage.data else 0
+            db.client.table("va_usage_tracking").update({
+                "bonus_minutes": current_bonus + reward["minutes"]
+            }).eq("user_id", user_id).execute()
+
+        elif "feature" in reward:
+            # Unlock feature
+            entry_result = db.client.table("va_contest_entries").select("features_unlocked").eq(
+                "user_id", user_id
+            ).execute()
+            if entry_result.data:
+                features = entry_result.data[0].get("features_unlocked", [])
+                if reward["feature"] not in features:
+                    features.append(reward["feature"])
+                    db.client.table("va_contest_entries").update({
+                        "features_unlocked": features
+                    }).eq("user_id", user_id).execute()
+
+        return {
+            "success": True,
+            "reward_type": request.reward_type,
+            "reward_applied": reward,
+            "new_balance": response.get("new_balance")
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error redeeming reward: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/contest/leaderboard")
+async def get_contest_leaderboard(
+    limit: int = 20,
+    db: SupabaseManager = Depends(get_db),
+):
+    """Get contest leaderboard."""
+    try:
+        # Get active contest
+        contest_result = db.client.table("va_contests").select("id").eq(
+            "status", "active"
+        ).execute()
+
+        if not contest_result.data:
+            return {"leaderboard": []}
+
+        contest_id = contest_result.data[0]["id"]
+
+        # Get top entries
+        result = db.client.table("va_contest_entries").select(
+            "user_id, points_balance, invites_converted, created_at"
+        ).eq("contest_id", contest_id).order(
+            "points_balance", desc=True
+        ).limit(limit).execute()
+
+        return {"leaderboard": result.data or []}
+    except Exception as e:
+        logger.error(f"Error getting leaderboard: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# END EARLY RISERS CONTEST ENDPOINTS
+# =============================================================================
+
+
 if __name__ == "__main__":
     import uvicorn
 
