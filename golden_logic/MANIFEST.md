@@ -1,0 +1,123 @@
+# Premier Voice Assistant - Golden Logic Package
+
+> **Extracted**: January 6, 2026
+> **Purpose**: Core logic files for architect review
+
+---
+
+## Package Contents
+
+### Backend Core Logic (`backend/`)
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `main.py` | 7000+ | FastAPI routes, all endpoints, REST API |
+| `livekit_agent.py` | 2070 | Voice agent, dual-brain routing, call handling |
+| `livekit_api.py` | ~750 | LiveKit room management, recording |
+| `twilio_integration.py` | - | SIP, phone number management |
+| `cartesia_client.py` | 908 | Cartesia Sonic-3 TTS streaming |
+| `deepgram_client.py` | 705 | Deepgram Nova-2/3 STT streaming |
+| `feature_gates.py` | - | Plan limits, permissions |
+| `stripe_payments.py` | - | Billing, subscriptions |
+
+### Worker/Voice Files (`worker/`)
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `voice_agent.py` | 328 | Main VoiceAgent class with latency masking |
+| `turn_taking.py` | 896 | TurnManager, Iron Ear V1/V2 (debounce + speaker lock) |
+| `identity_manager.py` | 520 | Iron Ear V3 (Resemblyzer ML embeddings) |
+| `latency_manager.py` | ~200 | LatencyMasker for filler phrase generation |
+
+### Frontend Core (`web/src/`)
+
+| File | Purpose |
+|------|---------|
+| `lib/api.ts` | API client, HTTP utilities |
+| `lib/auth-context.tsx` | Authentication context provider |
+| `app/page.tsx` | Landing page |
+| `app/dashboard/assistants/page.tsx` | Assistant management UI |
+| `app/dashboard/calls/page.tsx` | Call logs UI |
+| `app/dashboard/subscription/page.tsx` | Pricing/billing UI |
+
+### Database Schema (`migrations/`)
+
+| File | Lines | Content |
+|------|-------|---------|
+| `combined_schema.sql` | 4837 | All 18 migrations combined |
+
+### Config Files
+
+| File | Purpose |
+|------|---------|
+| `requirements.txt` | Python dependencies |
+| `web/package.json` | Frontend dependencies |
+
+### Documentation (`docs/`)
+
+| File | Purpose |
+|------|---------|
+| `CLAUDE.md` | AI agent instructions, architecture |
+| `README.md` | Project readme |
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    HIVE215 Voice AI                          │
+├─────────────────────────────────────────────────────────────┤
+│  Frontend (Next.js)                                          │
+│    └── auth-context.tsx → api.ts → FastAPI                  │
+├─────────────────────────────────────────────────────────────┤
+│  Backend (FastAPI)                                           │
+│    └── main.py (routes)                                      │
+│    └── livekit_api.py (rooms)                               │
+│    └── stripe_payments.py (billing)                         │
+│    └── feature_gates.py (permissions)                       │
+├─────────────────────────────────────────────────────────────┤
+│  Voice Pipeline (LiveKit)                                    │
+│    └── livekit_agent.py (orchestration)                     │
+│    └── voice_agent.py (brain)                               │
+│    └── turn_taking.py (Iron Ear V1/V2)                      │
+│    └── identity_manager.py (Iron Ear V3)                    │
+│    └── latency_manager.py (fillers)                         │
+├─────────────────────────────────────────────────────────────┤
+│  External Services                                           │
+│    └── deepgram_client.py (STT)                             │
+│    └── cartesia_client.py (TTS)                             │
+│    └── twilio_integration.py (SIP)                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Key Patterns
+
+### Iron Ear Stack (Noise Filtering)
+- **V1 Debounce**: 300ms continuous speech required (filters door slams)
+- **V2 Speaker Lock**: Volume fingerprinting (60% threshold)
+- **V3 Identity Lock**: 256-dim Resemblyzer embeddings
+
+### Fast Brain (Dual-System LLM)
+- **System 1 (Fast)**: Groq + Llama 3.3 70B (~80ms)
+- **System 2 (Deep)**: Claude Sonnet (~2000ms) with filler phrases
+
+### Multi-Tenancy (V2 Target)
+- Config injection via `OrgBrandingConfig`
+- Database: `organizations` table
+- Wrapper: `MultiTenantVoiceAgent`
+
+---
+
+## Missing Files (Not in Repository)
+
+These files were requested but do not exist:
+- `backend/stream_smoother.py`
+- `backend/fish_speech_client.py`
+- `backend/supabase_manager.py`
+
+---
+
+*Generated by Claude Code*

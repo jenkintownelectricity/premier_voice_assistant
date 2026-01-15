@@ -1,0 +1,72 @@
+# Python Version: 3.11 recommended (3.9-3.11 supported)
+# TTS and faster-whisper require Python <3.12
+
+# Core Framework
+modal>=0.64.0
+pipecat-ai>=0.0.41
+
+# Voice Processing (requires Python 3.9-3.11)
+faster-whisper>=1.0.0; python_version < '3.12'
+TTS>=0.21.0; python_version < '3.12'  # Coqui TTS with XTTS-v2
+
+# LLM Integration
+anthropic>=0.39.0
+groq>=0.11.0  # Groq LPU inference - 10-20x faster than GPU
+
+# Database & Storage
+supabase>=2.12.0
+postgrest>=0.18.0
+
+# Payments
+stripe>=8.0.0
+
+# Telephony - Twilio
+twilio>=9.0.0
+
+# Telephony - WebRTC
+aiortc>=1.9.0  # WebRTC support
+aiohttp>=3.10.0  # Required by pipecat-ai
+
+# LiveKit - Voice AI Platform (WebRTC-based) - v1.x API
+# Pin to exact versions to avoid pip backtracking
+livekit>=1.0.0
+livekit-agents==1.3.8
+livekit-plugins-deepgram==1.3.8
+livekit-plugins-cartesia==1.3.8
+livekit-plugins-openai==1.3.8
+livekit-plugins-anthropic==1.3.8
+livekit-plugins-elevenlabs==1.3.8  # ElevenLabs TTS
+livekit-plugins-silero==1.3.8
+livekit-plugins-turn-detector==1.3.8  # Turn detector for smarter turn-taking
+livekit-plugins-noise-cancellation  # BVC noise cancellation for telephony (clean audio = better STT)
+
+# OpenTelemetry - Let livekit-agents manage these versions
+opentelemetry-api>=1.39.0
+opentelemetry-sdk>=1.39.0
+
+# Web Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+python-multipart>=0.0.12  # For file uploads
+
+# Audio Processing
+numpy>=1.24.0,<2.0.0; python_version < '3.12'
+numpy>=1.26.0; python_version >= '3.12'
+soundfile>=0.12.0
+pydub>=0.25.0
+librosa>=0.10.0; python_version < '3.12'
+
+# Speaker Verification - Iron Ear 3.0
+resemblyzer>=0.1.3  # Zero-shot speaker embeddings (256-dim vectors)
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.32.0
+redis>=5.0.0  # For caching layer
+websockets>=12.0  # For Brain client WebSocket streaming
+
+# Development
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+black>=24.0.0
+httpx>=0.28.0
