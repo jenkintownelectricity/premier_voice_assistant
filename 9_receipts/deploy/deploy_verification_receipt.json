@@ -1,0 +1,33 @@
+{
+  "receipt_type": "deploy_verification_template",
+  "system": "HIVE215",
+  "timestamp": "2026-04-05T00:00:00Z",
+  "note": "This is a template. Actual verification receipts are written by scripts/deploy_verify.py",
+  "checks": [
+    {
+      "name": "Web Service Health",
+      "url": "<web-service-url>/health",
+      "healthy": null,
+      "status_code": null,
+      "latency_ms": null,
+      "error": null
+    },
+    {
+      "name": "Fast Brain Health",
+      "url": "<fast-brain-url>/health",
+      "healthy": null,
+      "status_code": null,
+      "latency_ms": null,
+      "error": null
+    },
+    {
+      "name": "Fast Brain Skills",
+      "url": "<fast-brain-url>/v1/skills",
+      "healthy": null,
+      "status_code": null,
+      "latency_ms": null,
+      "error": null
+    }
+  ],
+  "all_healthy": null
+}

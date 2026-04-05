@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hive215.premier-voice.dev/schemas/worker_action_request.schema.json",
+  "title": "WorkerActionRequest",
+  "description": "Typed action request for worker execution. Internal, TRUSTED.",
+  "type": "object",
+  "required": [
+    "request_id",
+    "action_type",
+    "session_id",
+    "source",
+    "payload",
+    "created_utc"
+  ],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "voice_response",
+        "skill_invocation",
+        "session_update",
+        "tts_synthesis",
+        "identity_check",
+        "health_check"
+      ]
+    },
+    "session_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["dialogue_kernel", "execution_spine", "skill_router"],
+      "description": "Only trusted sources may create worker action requests"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Action-specific typed payload"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10,
+      "default": 0
+    },
+    "idempotency_key": {
+      "type": ["string", "null"],
+      "description": "Optional key to prevent duplicate execution"
+    },
+    "created_utc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

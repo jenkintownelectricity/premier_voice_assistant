@@ -1,0 +1,143 @@
+{
+  "receipt_type": "baseline_inventory",
+  "system": "HIVE215",
+  "branch": "claude/deployment-hardening-audit-t4L2Q",
+  "timestamp": "2026-04-05T00:00:00Z",
+  "inventory": {
+    "backend": {
+      "path": "backend/",
+      "files": [
+        "__init__.py",
+        "brain_client.py",
+        "cartesia_client.py",
+        "coqui_streaming_tts.py",
+        "deepgram_client.py",
+        "feature_gates.py",
+        "groq_client.py",
+        "lightning_pipeline.py",
+        "livekit_agent.py",
+        "livekit_api.py",
+        "livekit_worker.py",
+        "main.py",
+        "model_manager.py",
+        "sentence_detector.py",
+        "streaming_manager.py",
+        "stripe_payments.py",
+        "supabase_client.py",
+        "telephony/",
+        "turn_taking_model.py",
+        "twilio_integration.py"
+      ],
+      "role": "FastAPI server, brain client, service clients, LiveKit worker"
+    },
+    "worker": {
+      "path": "worker/",
+      "files": [
+        "__init__.py",
+        "identity_manager.py",
+        "latency_manager.py",
+        "turn_taking.py",
+        "voice_agent.py"
+      ],
+      "role": "Voice agent, identity management, turn taking"
+    },
+    "web": {
+      "path": "web/",
+      "files": [
+        "next-env.d.ts",
+        "next.config.js",
+        "package-lock.json",
+        "package.json",
+        "postcss.config.js",
+        "public/",
+        "src/",
+        "tailwind.config.ts",
+        "tsconfig.json"
+      ],
+      "role": "Next.js browser frontend"
+    },
+    "mobile": {
+      "path": "mobile/",
+      "files": [
+        "App.tsx",
+        "README.md",
+        "app.json",
+        "assets/",
+        "babel.config.js",
+        "package.json",
+        "src/",
+        "tsconfig.json"
+      ],
+      "role": "React Native mobile application"
+    },
+    "skills": {
+      "path": "skills/",
+      "files": [
+        "__init__.py",
+        "base.py",
+        "construction_trio.py",
+        "electrician.py",
+        "lawyer.py",
+        "livekit_integration.py",
+        "multi_skill_agent.py",
+        "plumber.py",
+        "receptionist.py",
+        "registry.py",
+        "router.py",
+        "solar.py",
+        "tara_sales.py"
+      ],
+      "role": "Multi-skill system"
+    },
+    "modal_deployment": {
+      "path": "modal_deployment/",
+      "files": [
+        "__init__.py",
+        "coqui_tts.py",
+        "kokoro_tts.py",
+        "voice_cloner.py",
+        "whisper_stt.py"
+      ],
+      "role": "Modal-deployed STT/TTS services"
+    },
+    "packages": {
+      "path": "packages/",
+      "files": [
+        "__init__.py",
+        "iron_ear/"
+      ],
+      "role": "Iron Ear voice constraint module"
+    },
+    "supabase": {
+      "path": "supabase/",
+      "files": [
+        "README.md",
+        "migrations/",
+        "schema.sql"
+      ],
+      "role": "Database migrations and schema"
+    },
+    "tests": {
+      "path": "tests/",
+      "files": [
+        "__init__.py",
+        "test_modal_stt.py",
+        "test_modal_tts.py"
+      ],
+      "role": "Existing test suite"
+    },
+    "scripts": {
+      "path": "scripts/",
+      "files": [
+        "cleanup_old_branches.sh",
+        "cleanup_unmerged_branches.sh",
+        "deploy_modal.sh",
+        "seed_plan_features.py",
+        "sync_skills.py",
+        "test_feature_gates.py",
+        "test_integration.py"
+      ],
+      "role": "Deployment and utility scripts"
+    }
+  }
+}

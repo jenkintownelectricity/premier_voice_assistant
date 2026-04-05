@@ -1,0 +1,42 @@
+{
+  "receipt_type": "rollback_plan",
+  "system": "HIVE215",
+  "branch": "claude/deployment-hardening-audit-t4L2Q",
+  "timestamp": "2026-04-05T00:00:00Z",
+  "strategy": "clean_overlay_removal",
+  "description": "The governed overlay is entirely additive. No existing files are modified. Rollback consists of removing the overlay directories and new doc files.",
+  "rollback_steps": [
+    {
+      "step": 1,
+      "action": "Verify no existing files were modified",
+      "command": "git diff --name-only HEAD~1 | grep -v '^0_\\|^1_\\|^2_\\|^3_\\|^4_\\|^5_\\|^6_\\|^7_\\|^8_\\|^9_\\|^docs/architecture/HIVE\\|^docs/architecture/RECONSTRUCTION\\|^docs/architecture/TRUST_MODEL\\|^docs/architecture/SYSTEM_BOUNDARY\\|^docs/architecture/SURFACE\\|^docs/contracts/\\|^docs/deploy/\\|^receipts/\\|^scripts/preflight\\|^scripts/runtime_health\\|^scripts/deploy_verify'"
+    },
+    {
+      "step": 2,
+      "action": "Remove overlay directories",
+      "command": "rm -rf 0_frozen_doctrine/ 1_governance/ 2_domain_kernels/ 3_constraint_ports/ 4_execution_spine/ 5_service_adapters/ 6_state/ 7_surfaces/ 8_tests/ 9_receipts/"
+    },
+    {
+      "step": 3,
+      "action": "Remove overlay documentation",
+      "command": "rm -f docs/architecture/RECONSTRUCTION_INTENT_FREEZE.md docs/architecture/TRUST_MODEL_FREEZE.md docs/architecture/SYSTEM_BOUNDARY_FREEZE.md docs/architecture/HIVE215_*.md docs/architecture/SURFACE_MAPPING.md docs/contracts/FASTBRAIN_TO_HIVE215.md docs/contracts/HIVE215_TO_FASTBRAIN.md docs/deploy/DEPLOYMENT_CANONICAL_PATH.md docs/deploy/ENV_CONTRACT.md docs/deploy/HEALTHCHECKS.md"
+    },
+    {
+      "step": 4,
+      "action": "Remove overlay scripts",
+      "command": "rm -f scripts/preflight_env_check.py scripts/runtime_healthcheck.py scripts/deploy_verify.py"
+    },
+    {
+      "step": 5,
+      "action": "Remove overlay receipts",
+      "command": "rm -rf receipts/"
+    },
+    {
+      "step": 6,
+      "action": "Verify original codebase intact",
+      "command": "python -m py_compile backend/main.py && python -m py_compile backend/livekit_worker.py"
+    }
+  ],
+  "risk_assessment": "LOW -- Overlay is purely additive. No existing file modifications. All overlay files are in new directories or new files within existing directories.",
+  "recovery_time_estimate": "Under 5 minutes for full rollback"
+}

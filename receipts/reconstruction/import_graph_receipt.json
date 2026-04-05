@@ -1,0 +1,97 @@
+{
+  "receipt_type": "import_graph",
+  "system": "HIVE215",
+  "branch": "claude/deployment-hardening-audit-t4L2Q",
+  "timestamp": "2026-04-05T00:00:00Z",
+  "key_relationships": [
+    {
+      "source": "backend/main.py",
+      "imports": [
+        "backend.supabase_client.get_supabase",
+        "backend.supabase_client.SupabaseManager",
+        "backend.feature_gates.get_feature_gate",
+        "backend.stripe_payments.get_stripe_payments",
+        "backend.stripe_payments.handle_webhook_event",
+        "backend.twilio_integration.get_twilio_service",
+        "backend.model_manager.get_model_manager",
+        "backend.model_manager.ResilientAnthropicClient",
+        "backend.streaming_manager.StreamingPipeline",
+        "backend.lightning_pipeline.LightningPipeline",
+        "backend.groq_client.HybridLLMClient",
+        "backend.cartesia_client.CartesiaSonic3",
+        "backend.deepgram_client.DeepgramNova3",
+        "backend.livekit_api.router (conditional)"
+      ],
+      "role": "Central FastAPI application. Imports all service clients."
+    },
+    {
+      "source": "backend/livekit_worker.py",
+      "imports": [
+        "backend.livekit_agent (inferred)",
+        "livekit.agents (framework)"
+      ],
+      "role": "Voice worker process. Bridges LiveKit SDK to application logic."
+    },
+    {
+      "source": "backend/brain_client.py",
+      "imports": [
+        "httpx or aiohttp (HTTP client)",
+        "backend.groq_client (fallback)"
+      ],
+      "role": "Fast Brain API client. Hybrid routing between System 1 (Groq) and System 2 (Claude)."
+    },
+    {
+      "source": "worker/voice_agent.py",
+      "imports": [
+        "worker.identity_manager.IdentityManager",
+        "worker.turn_taking.TurnManager",
+        "worker.latency_manager"
+      ],
+      "role": "Voice agent orchestration. Identity lock, turn taking, latency management."
+    },
+    {
+      "source": "skills/router.py",
+      "imports": [
+        "skills.base",
+        "skills.registry",
+        "skills.receptionist",
+        "skills.electrician",
+        "skills.plumber",
+        "skills.lawyer",
+        "skills.solar",
+        "skills.construction_trio",
+        "skills.tara_sales"
+      ],
+      "role": "Skill routing. Selects appropriate skill based on context."
+    },
+    {
+      "source": "backend/groq_client.py",
+      "imports": [
+        "groq (SDK)"
+      ],
+      "role": "Groq LPU client for System 1 Fast Brain responses."
+    },
+    {
+      "source": "backend/cartesia_client.py",
+      "imports": [
+        "cartesia (SDK)"
+      ],
+      "role": "Cartesia Sonic 3 TTS client."
+    },
+    {
+      "source": "backend/deepgram_client.py",
+      "imports": [
+        "deepgram (SDK)"
+      ],
+      "role": "Deepgram Nova 3 STT client."
+    }
+  ],
+  "dependency_layers": {
+    "entrypoints": ["backend/main.py", "backend/livekit_worker.py", "start.sh"],
+    "orchestration": ["backend/brain_client.py", "worker/voice_agent.py", "skills/router.py"],
+    "service_clients": ["backend/groq_client.py", "backend/cartesia_client.py", "backend/deepgram_client.py", "backend/supabase_client.py"],
+    "infrastructure": ["backend/model_manager.py", "backend/streaming_manager.py", "backend/lightning_pipeline.py"],
+    "voice_processing": ["worker/identity_manager.py", "worker/turn_taking.py", "worker/latency_manager.py"],
+    "deployment": ["modal_deployment/whisper_stt.py", "modal_deployment/coqui_tts.py", "modal_deployment/kokoro_tts.py"]
+  }
+}

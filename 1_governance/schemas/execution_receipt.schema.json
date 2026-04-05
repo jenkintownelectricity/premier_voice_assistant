@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hive215.premier-voice.dev/schemas/execution_receipt.schema.json",
+  "title": "ExecutionReceipt",
+  "description": "Immutable receipt for execution approval decisions.",
+  "type": "object",
+  "required": [
+    "receipt_id",
+    "envelope_id",
+    "session_id",
+    "action_type",
+    "source",
+    "source_trust_level",
+    "verdict",
+    "timestamp_utc"
+  ],
+  "properties": {
+    "receipt_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "envelope_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "session_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "action_type": {
+      "type": "string",
+      "enum": [
+        "voice_response",
+        "skill_invocation",
+        "session_update",
+        "user_state_write",
+        "supabase_query",
+        "supabase_mutation",
+        "external_api_call",
+        "tts_synthesis",
+        "notification"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "dialogue_kernel",
+        "execution_spine",
+        "skill_router",
+        "browser_ui",
+        "mobile_ui",
+        "external_webhook"
+      ]
+    },
+    "source_trust_level": {
+      "type": "string",
+      "enum": ["TRUSTED", "UNTRUSTED"]
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "approved",
+        "rejected_untyped",
+        "rejected_missing_fields",
+        "rejected_invalid_action_type",
+        "rejected_untrusted_source",
+        "rejected_constraint_violation",
+        "rejected_session_invalid"
+      ]
+    },
+    "execution_duration_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "rejection_reason": {
+      "type": ["string", "null"]
+    },
+    "result_summary": {
+      "type": ["string", "null"]
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

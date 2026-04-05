@@ -1,0 +1,36 @@
+{
+  "receipt_type": "runtime_entrypoints",
+  "system": "HIVE215",
+  "branch": "claude/deployment-hardening-audit-t4L2Q",
+  "timestamp": "2026-04-05T00:00:00Z",
+  "entrypoints": [
+    {
+      "name": "web_api",
+      "file": "backend/main.py",
+      "command": "uvicorn backend.main:app --host 0.0.0.0 --port $PORT",
+      "trigger": "SERVICE_TYPE != 'worker' (default)",
+      "description": "FastAPI server serving REST API, WebSocket, token generation, health checks"
+    },
+    {
+      "name": "voice_worker",
+      "file": "backend/livekit_worker.py",
+      "command": "python backend/livekit_worker.py start",
+      "trigger": "SERVICE_TYPE == 'worker'",
+      "description": "LiveKit agent worker handling voice sessions, STT/TTS/LLM pipeline"
+    },
+    {
+      "name": "service_router",
+      "file": "start.sh",
+      "command": "bash start.sh",
+      "trigger": "Dockerfile CMD (default entrypoint)",
+      "description": "Routes to web_api or voice_worker based on SERVICE_TYPE environment variable"
+    }
+  ],
+  "routing_logic": {
+    "file": "start.sh",
+    "mechanism": "SERVICE_TYPE environment variable checked at startup",
+    "default_port": 8000,
+    "worker_condition": "SERVICE_TYPE == 'worker'",
+    "web_condition": "SERVICE_TYPE != 'worker' (anything else, including unset)"
+  }
+}
