@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hive215.premier-voice.dev/schemas/session_state.schema.json",
+  "title": "SessionState",
+  "description": "Typed session state with validated transitions. Trust level: TRUSTED after validation.",
+  "type": "object",
+  "required": [
+    "session_id",
+    "phase",
+    "identity_locked",
+    "turn_count",
+    "created_utc",
+    "last_transition_utc"
+  ],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique session identifier"
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "initializing",
+        "greeting",
+        "identity_challenge",
+        "identity_locked",
+        "active_dialogue",
+        "skill_routing",
+        "execution_pending",
+        "wrap_up",
+        "terminated",
+        "error"
+      ],
+      "description": "Current session phase"
+    },
+    "skill_id": {
+      "type": ["string", "null"],
+      "description": "Active skill identifier"
+    },
+    "speaker_id": {
+      "type": ["string", "null"],
+      "description": "Verified speaker identifier"
+    },
+    "identity_locked": {
+      "type": "boolean",
+      "description": "Whether speaker identity has been locked via Iron Ear V3"
+    },
+    "turn_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of dialogue turns in this session"
+    },
+    "created_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp of session creation"
+    },
+    "last_transition_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp of last state transition"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Additional typed metadata"
+    }
+  },
+  "additionalProperties": false
+}

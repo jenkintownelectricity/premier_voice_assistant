@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hive215.premier-voice.dev/schemas/ui_command.schema.json",
+  "title": "UICommand",
+  "description": "Browser UI command. Trust level: UNTRUSTED. Must be fully validated before any processing.",
+  "type": "object",
+  "required": ["command_type", "session_id", "timestamp", "client_version"],
+  "properties": {
+    "command_type": {
+      "type": "string",
+      "enum": [
+        "start_session",
+        "end_session",
+        "mute_toggle",
+        "select_skill",
+        "send_text",
+        "request_transcript",
+        "update_settings"
+      ],
+      "description": "Type of UI command"
+    },
+    "session_id": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Session identifier claimed by the browser"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Client-side timestamp (UNTRUSTED, used for ordering only)"
+    },
+    "client_version": {
+      "type": "string",
+      "maxLength": 32,
+      "description": "Client application version"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Command-specific payload (schema varies by command_type)",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hive215.premier-voice.dev/schemas/supabase_payload_normalized.schema.json",
+  "title": "SupabasePayloadNormalized",
+  "description": "Normalized Supabase query payload. Trust level: PARTIALLY TRUSTED.",
+  "type": "object",
+  "required": [
+    "payload_id",
+    "table_name",
+    "operation",
+    "normalization_verdict",
+    "timestamp_utc"
+  ],
+  "properties": {
+    "payload_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "table_name": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Supabase table name"
+    },
+    "operation": {
+      "type": "string",
+      "enum": ["select", "insert", "update", "delete", "rpc"],
+      "description": "Database operation type"
+    },
+    "row_count": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Number of rows in the result"
+    },
+    "normalization_verdict": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "rejected_empty",
+        "rejected_malformed",
+        "rejected_schema_mismatch",
+        "rejected_stale"
+      ]
+    },
+    "normalized_rows": {
+      "type": ["array", "null"],
+      "items": { "type": "object" },
+      "description": "Normalized row data if accepted"
+    },
+    "schema_version": {
+      "type": ["string", "null"],
+      "description": "Expected schema version for validation"
+    },
+    "error_message": {
+      "type": ["string", "null"]
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

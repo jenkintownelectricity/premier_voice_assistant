@@ -1,0 +1,74 @@
+{
+  "receipt_type": "deploy_surfaces",
+  "system": "HIVE215",
+  "branch": "claude/deployment-hardening-audit-t4L2Q",
+  "timestamp": "2026-04-05T00:00:00Z",
+  "deploy_paths": [
+    {
+      "name": "dockerfile_railway",
+      "files": ["Dockerfile", "start.sh"],
+      "platform": "Railway",
+      "role": "primary",
+      "status": "active",
+      "description": "Python 3.11-slim container with SERVICE_TYPE routing. Primary production path."
+    },
+    {
+      "name": "procfile_railway",
+      "files": ["Procfile"],
+      "platform": "Railway",
+      "role": "alternative",
+      "status": "available",
+      "description": "Railway alternative process definition. Overridden by Dockerfile when present."
+    },
+    {
+      "name": "railway_toml",
+      "files": ["railway.toml"],
+      "platform": "Railway",
+      "role": "config",
+      "status": "active",
+      "description": "Railway deployment configuration. Restart policy on failure with 3 retries."
+    },
+    {
+      "name": "nixpacks_toml",
+      "files": ["nixpacks.toml"],
+      "platform": "Railway (Nixpacks)",
+      "role": "legacy",
+      "status": "available",
+      "description": "Nixpacks build configuration. Superseded by Dockerfile."
+    },
+    {
+      "name": "modal_quick_deploy",
+      "files": ["QUICK_DEPLOY.sh"],
+      "platform": "Modal",
+      "role": "auxiliary",
+      "status": "active",
+      "description": "Quick deployment script for Modal STT/TTS services."
+    },
+    {
+      "name": "modal_deploy_scripts",
+      "files": ["deploy_modal.sh", "deploy_modal_endpoints.sh"],
+      "platform": "Modal",
+      "role": "auxiliary",
+      "status": "active",
+      "description": "Modal deployment scripts for Whisper STT, Coqui TTS, Kokoro TTS, voice cloner."
+    },
+    {
+      "name": "modal_deployment_modules",
+      "files": [
+        "modal_deployment/__init__.py",
+        "modal_deployment/whisper_stt.py",
+        "modal_deployment/coqui_tts.py",
+        "modal_deployment/kokoro_tts.py",
+        "modal_deployment/voice_cloner.py"
+      ],
+      "platform": "Modal",
+      "role": "auxiliary",
+      "status": "active",
+      "description": "Python modules for Modal-deployed STT/TTS services."
+    }
+  ],
+  "canonical_path": {
+    "primary": "Dockerfile + start.sh -> Railway (SERVICE_TYPE routing)",
+    "auxiliary": "Modal deployment for STT/TTS services"
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hive215.premier-voice.dev/schemas/upload_evidence.schema.json",
+  "title": "UploadEvidence",
+  "description": "Upload evidence after quarantine processing. Trust level: UNTRUSTED until validated.",
+  "type": "object",
+  "required": [
+    "upload_id",
+    "original_filename",
+    "declared_mime_type",
+    "detected_mime_type",
+    "size_bytes",
+    "quarantine_status",
+    "timestamp_utc"
+  ],
+  "properties": {
+    "upload_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for the upload"
+    },
+    "original_filename": {
+      "type": "string",
+      "maxLength": 255,
+      "description": "Original filename as declared by client (UNTRUSTED)"
+    },
+    "declared_mime_type": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "MIME type declared by client (UNTRUSTED)"
+    },
+    "detected_mime_type": {
+      "type": ["string", "null"],
+      "maxLength": 128,
+      "description": "MIME type detected by server-side inspection"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 52428800,
+      "description": "File size in bytes (max 50MB)"
+    },
+    "sha256_hash": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 hash of file content"
+    },
+    "quarantine_status": {
+      "type": "string",
+      "enum": ["pending", "validated", "rejected_type", "rejected_size", "rejected_content", "rejected_malware"],
+      "description": "Current quarantine processing status"
+    },
+    "validation_errors": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "List of validation errors found during quarantine"
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp of quarantine processing"
+    }
+  },
+  "additionalProperties": false
+}

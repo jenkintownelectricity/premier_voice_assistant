@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hive215.premier-voice.dev/schemas/adapter_receipt.schema.json",
+  "title": "AdapterReceipt",
+  "description": "Receipt emitted by service adapters at trust boundary crossings.",
+  "type": "object",
+  "required": [
+    "receipt_id",
+    "adapter_name",
+    "operation",
+    "source_trust_level",
+    "output_trust_level",
+    "success",
+    "timestamp_utc"
+  ],
+  "properties": {
+    "receipt_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "adapter_name": {
+      "type": "string",
+      "description": "Name of the service adapter (e.g., 'deepgram_stt', 'supabase_query')"
+    },
+    "operation": {
+      "type": "string",
+      "description": "Operation performed (e.g., 'transcribe', 'query', 'synthesize')"
+    },
+    "source_trust_level": {
+      "type": "string",
+      "enum": ["TRUSTED", "PARTIALLY_TRUSTED", "UNTRUSTED"]
+    },
+    "output_trust_level": {
+      "type": "string",
+      "enum": ["TRUSTED", "PARTIALLY_TRUSTED", "UNTRUSTED", "REJECTED"]
+    },
+    "success": {
+      "type": "boolean"
+    },
+    "latency_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "error_message": {
+      "type": ["string", "null"]
+    },
+    "input_schema_valid": {
+      "type": ["boolean", "null"],
+      "description": "Whether the input passed schema validation"
+    },
+    "output_schema_valid": {
+      "type": ["boolean", "null"],
+      "description": "Whether the output passed schema validation"
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

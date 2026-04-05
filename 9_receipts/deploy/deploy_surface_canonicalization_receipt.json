@@ -1,0 +1,49 @@
+{
+  "receipt_type": "deploy_surface_canonicalization",
+  "system": "HIVE215",
+  "timestamp": "2026-04-05T00:00:00Z",
+  "canonical_path": {
+    "platform": "Railway",
+    "build": "Dockerfile (python:3.11-slim)",
+    "routing": "start.sh (SERVICE_TYPE env var)",
+    "web_command": "uvicorn backend.main:app --host 0.0.0.0 --port $PORT",
+    "worker_command": "python backend/livekit_worker.py start",
+    "config": "railway.toml (restart on failure, max 3 retries)",
+    "status": "active"
+  },
+  "auxiliary_paths": [
+    {
+      "platform": "Modal",
+      "role": "STT/TTS services",
+      "modules": [
+        "modal_deployment/whisper_stt.py",
+        "modal_deployment/coqui_tts.py",
+        "modal_deployment/kokoro_tts.py",
+        "modal_deployment/voice_cloner.py"
+      ],
+      "deploy_scripts": [
+        "QUICK_DEPLOY.sh",
+        "deploy_modal.sh",
+        "deploy_modal_endpoints.sh"
+      ],
+      "status": "active"
+    }
+  ],
+  "legacy_paths": [
+    {
+      "file": "Procfile",
+      "status": "available_but_overridden",
+      "note": "Overridden by Dockerfile CMD when Dockerfile is present"
+    },
+    {
+      "file": "nixpacks.toml",
+      "status": "legacy",
+      "note": "Superseded by Dockerfile"
+    },
+    {
+      "file": "runtime.txt",
+      "status": "legacy",
+      "note": "Python version specification for Nixpacks"
+    }
+  ]
+}
