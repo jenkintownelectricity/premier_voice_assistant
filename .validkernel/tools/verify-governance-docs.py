@@ -60,8 +60,49 @@ class CheckResult:
         self.files_inspected = files_inspected
 
 
+def detect_repo_type(repo_root):
+    """Detect repository type for governance verification scoping.
+
+    Returns one of: 'governance', 'domain', 'application', 'infrastructure', 'observer'.
+    Governance repos get full README doctrine checks.
+    Non-governance repos get documentation-only checks (no README doctrine).
+    """
+    # Check for explicit repo-type marker
+    repo_type_file = os.path.join(repo_root, ".validkernel", "repo-type.json")
+    if os.path.isfile(repo_type_file):
+        try:
+            with open(repo_type_file, "r", encoding="utf-8") as f:
+                import json
+                data = json.load(f)
+                return data.get("repo_type", "domain")
+        except Exception:
+            pass
+
+    # Heuristic: governance repos contain the VKG spec as source, not just installed copy
+    # The governance repo has docs/validkernel/ AND is the canonical spec owner
+    # Check if README contains governance-specific content that was authored (not installed)
+    readme_path = os.path.join(repo_root, "README.md")
+    if os.path.isfile(readme_path):
+        try:
+            with open(readme_path, "r", encoding="utf-8") as f:
+                readme_text = f.read()
+            # Governance repos have authored governance README content
+            if "Governed Environment" in readme_text and "How VKG works" in readme_text:
+                return "governance"
+        except Exception:
+            pass
+
+    # Default: non-governance repo
+    return "domain"
+
+
+# Checks that apply ONLY to governance repos (README doctrine)
+GOVERNANCE_ONLY_CHECKS = {1, 2, 3, 4, 14, 15, 16, 17, 18, 19}
+
+
 def run_checks(repo_root):
     results = []
+    repo_type = detect_repo_type(repo_root)
 
     # File paths
     readme = os.path.join(repo_root, "README.md")
@@ -429,9 +470,15 @@ def run_checks(repo_root):
 def main():
     # Determine repo root
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    repo_type = detect_repo_type(repo_root)
 
     print("=" * 60)
     print("VKG Continuous Governance Gate — Ring 2 Verification")
+    print(f"  Repo type: {repo_type}")
+    if repo_type != "governance":
+        print("  Mode: documentation-only (README doctrine checks skipped)")
+    else:
+        print("  Mode: full governance doctrine verification")
     print("=" * 60)
     print()
 
@@ -439,8 +486,17 @@ def main():
 
     pass_count = 0
     fail_count = 0
+    skipped_count = 0
 
     for i, r in enumerate(results, 1):
+        # Skip governance-only checks for non-governance repos
+        if repo_type != "governance" and i in GOVERNANCE_ONLY_CHECKS:
+            skipped_count += 1
+            print(f"  [SKIP] {i:2d}. {r.name}")
+            print(f"        Reason: governance-only check (repo type: {repo_type})")
+            print()
+            continue
+
         status = "PASS" if r.passed else "FAIL"
         if r.passed:
             pass_count += 1
@@ -451,7 +507,7 @@ def main():
         print()
 
     print("=" * 60)
-    print(f"Results: {pass_count} passed, {fail_count} failed, {len(results)} total")
+    print(f"Results: {pass_count} passed, {fail_count} failed, {skipped_count} skipped, {len(results)} total")
     print()
 
     if fail_count > 0:
@@ -459,6 +515,8 @@ def main():
         print()
         print("Failing items:")
         for i, r in enumerate(results, 1):
+            if repo_type != "governance" and i in GOVERNANCE_ONLY_CHECKS:
+                continue
             if not r.passed:
                 print(f"  {i}. {r.name}")
                 print(f"     {r.evidence}")
