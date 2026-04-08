@@ -1,0 +1,10 @@
+{
+  "state_version": "0.1",
+  "repository": "ValidKernel-Governance",
+  "governance_installed": true,
+  "authority_present": true,
+  "registry_present": true,
+  "receipts_present": true,
+  "ci_enforced": true,
+  "last_checked": "2026-03-06T00:00:00Z"
+}

@@ -1,0 +1,22 @@
+{
+  "receipt_version": "0.1",
+  "command_id": "L0-CMD-YYYY-MMDD-NNN",
+  "authority": "AUTHORITY_NAME",
+  "organization": "ORGANIZATION_NAME",
+  "issued_at": "YYYY-MM-DD",
+  "executed_at": "YYYY-MM-DDTHH:MM:SSZ",
+  "repository": "REPOSITORY_NAME",
+  "branch": "BRANCH_NAME",
+  "commit_hash": "COMMIT_HASH",
+  "status": "EXECUTED | BLOCKED | PARTIAL | SUPERSEDED",
+  "gate_result": "PASS | FAIL | NOT_EVALUATED",
+  "files_changed": [
+    "path/to/file1",
+    "path/to/file2"
+  ],
+  "summary": "One-paragraph summary of what was executed.",
+  "blocked_reason": "",
+  "next_action": "Recommended next step after this command.",
+  "signer": "repository | L0 | CI | manual | agent",
+  "signature_status": "UNSIGNED | REPO_VERIFIED | FUTURE_CRYPTO_REQUIRED"
+}

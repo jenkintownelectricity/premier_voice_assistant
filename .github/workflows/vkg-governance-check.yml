@@ -1,0 +1,87 @@
+name: VKG Governance Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  vkg-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate registry JSON
+        run: python -c "import json; json.load(open('.validkernel/registry/command-registry.json'))"
+
+      - name: Validate all VKG receipts
+        run: python .validkernel/tools/validate-all-receipts.py
+
+  governance-docs-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Detect governance-critical changes
+        id: detect
+        run: |
+          GOVERNANCE_PATHS=(
+            "README.md"
+            "docs/validkernel/vkg-spec.md"
+            "docs/validkernel/command-protocol.md"
+            "docs/validkernel/command-execution-flow.md"
+            "docs/validkernel/command-receipts.md"
+            "docs/validkernel/command-registry.md"
+            "docs/validkernel/governance-tools.md"
+            "docs/validkernel/glossary.md"
+            "docs/validkernel/risk-classes.md"
+            "docs/validkernel/examples/"
+            "docs/validkernel/templates/"
+          )
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            CHANGED_FILES=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          else
+            BEFORE_SHA="${{ github.event.before }}"
+            # Guard against all-zero SHA (new branch push or unavailable before ref)
+            if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+              echo "Push before SHA is invalid ($BEFORE_SHA). Using HEAD~1 fallback."
+              CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only --diff-filter=ACMRT HEAD)
+            else
+              CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "${{ github.sha }}")
+            fi
+          fi
+
+          GOVERNANCE_CHANGED="false"
+          for path in "${GOVERNANCE_PATHS[@]}"; do
+            if echo "$CHANGED_FILES" | grep -q "^${path}"; then
+              GOVERNANCE_CHANGED="true"
+              break
+            fi
+          done
+
+          echo "governance_changed=$GOVERNANCE_CHANGED" >> "$GITHUB_OUTPUT"
+
+          if [ "$GOVERNANCE_CHANGED" = "true" ]; then
+            echo "Governance-critical paths changed. Ring 2 verification required."
+          else
+            echo "No governance-critical paths changed. Gate not required."
+          fi
+
+      - name: Run Ring 2 governance documentation verification
+        if: steps.detect.outputs.governance_changed == 'true'
+        run: python .validkernel/tools/verify-governance-docs.py
+
+      - name: Gate not required
+        if: steps.detect.outputs.governance_changed != 'true'
+        run: echo "No governance-critical files changed. Governance documentation gate not required."

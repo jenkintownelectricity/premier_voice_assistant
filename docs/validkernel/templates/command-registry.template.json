@@ -1,0 +1,25 @@
+{
+  "registry_version": "0.1",
+  "repository": "REPOSITORY_NAME",
+  "last_updated": "YYYY-MM-DDTHH:MM:SSZ",
+  "commands": [
+    {
+      "command_id": "L0-CMD-YYYY-MMDD-NNN",
+      "title": "SHORT_DESCRIPTION",
+      "authority": "AUTHORITY_NAME",
+      "organization": "ORGANIZATION_NAME",
+      "date_issued": "YYYY-MM-DD",
+      "repository": "REPOSITORY_NAME",
+      "branch": "BRANCH_NAME",
+      "commit_hash": "COMMIT_HASH",
+      "status": "ISSUED | IN_PROGRESS | EXECUTED | BLOCKED | PARTIAL | SUPERSEDED | ARCHIVED",
+      "gate_result": "PASS | FAIL | NOT_EVALUATED",
+      "receipt_path": "",
+      "receipt_status": "NONE | CREATED | VERIFIED",
+      "supersedes": "",
+      "superseded_by": "",
+      "next_action": "RECOMMENDED_NEXT_STEP",
+      "last_updated": "YYYY-MM-DDTHH:MM:SSZ"
+    }
+  ]
+}
